@@ -135,14 +135,12 @@ export default function App() {
         const devList: AndroidDevice[] = await api.getDevices();
         setDevices(devList);
         
-        // Auto-select first device or maintain valid selection
-        if (devList.length > 0) {
-          if (!selectedSerial || !devList.some(d => d.serial === selectedSerial)) {
-            setSelectedSerial(devList[0].serial);
-          }
-        } else {
-          setSelectedSerial('');
-        }
+        // Auto-select first device or maintain valid user selection using functional updater
+        setSelectedSerial(current => {
+          if (devList.length === 0) return '';
+          if (current && devList.some(d => d.serial === current)) return current;
+          return devList[0].serial;
+        });
       }
 
       // Sync mirroring status
@@ -411,9 +409,9 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans select-none overflow-hidden">
       {/* Top Application Header */}
-      <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md px-5 flex items-center justify-between shrink-0">
+      <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md px-5 flex items-center justify-between shrink-0" role="banner">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20" aria-hidden="true">
             <Smartphone className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -425,7 +423,7 @@ export default function App() {
                 v1.0.0 Alpha
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Windows-First Android Control & Automation Platform</p>
+            <p className="text-[11px] text-slate-300">Windows-First Android Control & Automation Platform</p>
           </div>
         </div>
 
@@ -433,11 +431,14 @@ export default function App() {
         <div className="flex items-center gap-3">
           {devices.length > 0 ? (
             <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
-              <span className={`status-pulse ${activeDevice?.state === 'device' ? 'active' : 'inactive'}`}></span>
+              <span className={`status-pulse ${activeDevice?.state === 'device' ? 'active' : 'inactive'}`} aria-hidden="true"></span>
+              <label htmlFor="global-device-select" className="sr-only">Select Android Device</label>
               <select
+                id="global-device-select"
                 value={selectedSerial}
                 onChange={e => setSelectedSerial(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer pr-2 max-w-[260px] truncate"
+                className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer pr-2 max-w-[260px] truncate focus-visible:ring-2 focus-visible:ring-indigo-400 rounded"
+                aria-label="Select connected Android device"
               >
                 {devices.map(d => (
                   <option key={d.serial} value={d.serial} className="bg-slate-900 text-slate-200">
@@ -448,36 +449,36 @@ export default function App() {
 
               {/* Device State Badge */}
               {activeDevice?.state === 'unauthorized' && (
-                <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">
+                <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30" role="status" aria-label="Device status: Unauthorized">
                   Unauthorized
                 </span>
               )}
               {activeDevice?.state === 'offline' && (
-                <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30" role="status" aria-label="Device status: Offline">
                   Offline
                 </span>
               )}
               {activeDevice?.state === 'device' && (
-                <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30" role="status" aria-label="Device status: Ready">
                   Ready
                 </span>
               )}
 
               {activeDevice?.transportType === 'wifi' ? (
-                <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" />
+                <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
               ) : (
-                <Usb className="w-3.5 h-3.5 text-indigo-400 ml-1" title="Connected via USB" />
+                <Usb className="w-3.5 h-3.5 text-indigo-400 ml-1" title="Connected via USB" aria-label="Connected via USB" />
               )}
 
               {activeDevice?.batteryLevel !== undefined && (
-                <span className="text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                <span className="text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20" aria-label={`Battery level: ${activeDevice.batteryLevel}%`}>
                   {activeDevice.batteryLevel}%
                 </span>
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl">
-              <span className="status-pulse inactive"></span>
+            <div className="flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl" role="status">
+              <span className="status-pulse inactive" aria-hidden="true"></span>
               <span>No devices detected</span>
             </div>
           )}
@@ -485,39 +486,41 @@ export default function App() {
           <button
             onClick={refreshDevices}
             disabled={isScanning}
-            className="glass-button p-2 text-slate-300 hover:text-white"
+            className="glass-button p-2 text-slate-200 hover:text-white min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
             title="Scan for Devices (ADB)"
+            aria-label="Scan for connected Android devices via ADB"
           >
-            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-indigo-400' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-indigo-400' : ''}`} aria-hidden="true" />
           </button>
         </div>
       </header>
 
       {/* Alert Guidance Banner */}
       {alertBanner && (
-        <div className="mx-4 mt-3">
+        <div className="mx-4 mt-3" role="status" aria-live="polite">
           <div
             className={`px-4 py-2.5 rounded-xl text-xs flex items-center justify-between border backdrop-blur-md transition-all ${
               alertBanner.type === 'error'
-                ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
                 : alertBanner.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-200'
             }`}
           >
             <div className="flex items-center gap-2.5">
               {alertBanner.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" aria-hidden="true" />
               ) : alertBanner.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" aria-hidden="true" />
               ) : (
-                <HelpCircle className="w-4 h-4 shrink-0" />
+                <HelpCircle className="w-4 h-4 shrink-0 text-indigo-400" aria-hidden="true" />
               )}
-              <span>{alertBanner.message}</span>
+              <span className="font-medium">{alertBanner.message}</span>
             </div>
             <button
               onClick={() => setAlertBanner(null)}
-              className="text-slate-400 hover:text-slate-200 text-base font-bold px-1"
+              className="text-slate-300 hover:text-white text-base font-bold px-1.5 py-0.5 rounded focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+              aria-label="Dismiss notification"
             >
               ×
             </button>
@@ -528,57 +531,73 @@ export default function App() {
       {/* Main Layout Container */}
       <div className="flex-1 flex gap-4 p-4 overflow-hidden">
         {/* Sidebar Nav */}
-        <nav className="w-60 glass-panel p-3 flex flex-col justify-between shrink-0">
+        <nav className="w-60 glass-panel p-3 flex flex-col justify-between shrink-0" aria-label="Workbench navigation" role="tablist">
           <div className="space-y-1">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2" id="nav-workbench-heading">
               Workbench
             </div>
 
             <button
               onClick={() => setActiveTab('mirror')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'mirror'}
+              aria-controls="main-tab-panel"
+              id="tab-mirror"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'mirror'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Smartphone className="w-4 h-4" />
+              <Smartphone className="w-4 h-4 text-indigo-400" aria-hidden="true" />
               <span>Screen Mirroring</span>
             </button>
 
             <button
               onClick={() => setActiveTab('wireless')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'wireless'}
+              aria-controls="main-tab-panel"
+              id="tab-wireless"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'wireless'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Wifi className="w-4 h-4" />
+              <Wifi className="w-4 h-4 text-cyan-400" aria-hidden="true" />
               <span>Wireless & Hotspot</span>
             </button>
 
             <button
               onClick={() => setActiveTab('media')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'media'}
+              aria-controls="main-tab-panel"
+              id="tab-media"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'media'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Camera className="w-4 h-4" />
+              <Camera className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               <span>Media & Captures</span>
             </button>
 
             <button
               onClick={() => setActiveTab('diagnostics')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'diagnostics'}
+              aria-controls="main-tab-panel"
+              id="tab-diagnostics"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'diagnostics'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Activity className="w-4 h-4" />
+              <Activity className="w-4 h-4 text-amber-400" aria-hidden="true" />
               <span>Diagnostics & Logs</span>
             </button>
 
@@ -588,25 +607,33 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('workflow')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'workflow'}
+              aria-controls="main-tab-panel"
+              id="tab-workflow"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'workflow'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Layers className="w-4 h-4" />
+              <Layers className="w-4 h-4 text-purple-400" aria-hidden="true" />
               <span>Workflow Runner</span>
             </button>
 
             <button
               onClick={() => setActiveTab('ai')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'ai'}
+              aria-controls="main-tab-panel"
+              id="tab-ai"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'ai'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
               }`}
             >
-              <Bot className="w-4 h-4" />
+              <Bot className="w-4 h-4 text-pink-400" aria-hidden="true" />
               <span>Local AI Assistant</span>
             </button>
           </div>
@@ -614,20 +641,24 @@ export default function App() {
           <div className="pt-2 border-t border-slate-800/80">
             <button
               onClick={() => setActiveTab('about')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              role="tab"
+              aria-selected={activeTab === 'about'}
+              aria-controls="main-tab-panel"
+              id="tab-about"
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                 activeTab === 'about'
-                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
+                  : 'text-slate-300 hover:text-white'
               }`}
             >
-              <Shield className="w-4 h-4" />
+              <Shield className="w-4 h-4 text-slate-400" aria-hidden="true" />
               <span>About & Licenses</span>
             </button>
           </div>
         </nav>
 
         {/* Content View Area */}
-        <main className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1">
+        <main id="main-content" className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
           {/* TAB 1: SCREEN MIRRORING */}
           {activeTab === 'mirror' && (
             <div className="space-y-4">
@@ -658,20 +689,23 @@ export default function App() {
                     {isMirroring ? (
                       <button
                         onClick={handleStopMirror}
-                        className="glass-button glass-button-danger px-6 py-2.5 text-sm"
+                        className="glass-button glass-button-danger px-6 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer"
+                        aria-label="Stop screen mirroring session"
                       >
-                        <Square className="w-4 h-4 fill-white" />
+                        <Square className="w-4 h-4 fill-white" aria-hidden="true" />
                         <span>Stop Mirroring</span>
                       </button>
                     ) : (
                       <button
                         onClick={handleStartMirror}
                         disabled={!isDeviceReady}
-                        className={`glass-button glass-button-primary px-8 py-2.5 text-sm ${
+                        className={`glass-button glass-button-primary px-8 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                           !isDeviceReady ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
                         }`}
+                        aria-label="Start screen mirroring session"
+                        aria-disabled={!isDeviceReady}
                       >
-                        <Play className="w-4 h-4 fill-white" />
+                        <Play className="w-4 h-4 fill-white" aria-hidden="true" />
                         <span>Start Mirroring</span>
                       </button>
                     )}
@@ -680,13 +714,13 @@ export default function App() {
 
                 {/* Device Status Guidance Bar if not ready */}
                 {!isDeviceReady && (
-                  <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2.5">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 flex items-start gap-2.5" role="alert">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" aria-hidden="true" />
                     <div>
-                      <div className="font-semibold">
+                      <div className="font-semibold text-amber-300">
                         {devices.length === 0 ? 'No Android Device Connected' : `Device Status: ${activeDevice?.state.toUpperCase()}`}
                       </div>
-                      <div className="text-[11px] text-amber-400/90 mt-0.5">
+                      <div className="text-[11px] text-amber-200 mt-0.5">
                         {activeDevice?.guidance || 'Connect an Android device via USB. Enable Developer Options & USB Debugging on your phone.'}
                       </div>
                     </div>
@@ -695,10 +729,10 @@ export default function App() {
 
                 {/* Quality Presets */}
                 <div className="mt-6 pt-5 border-t border-slate-800/80">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                  <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3" id="quality-preset-label">
                     Quality Presets
                   </div>
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-4 gap-3" role="radiogroup" aria-labelledby="quality-preset-label">
                     {[
                       { key: 'ultra', title: 'Ultra Quality', desc: 'Native res · 16 Mbps · 60 FPS' },
                       { key: 'high_performance', title: 'High Performance', desc: '1080p · 12 Mbps · 60 FPS' },
@@ -707,15 +741,24 @@ export default function App() {
                     ].map(p => (
                       <div
                         key={p.key}
+                        role="radio"
+                        aria-checked={qualityPreset === p.key}
+                        tabIndex={0}
                         onClick={() => setQualityPreset(p.key as any)}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                        onKeyDown={e => {
+                          if (e.key === ' ' || e.key === 'Enter') {
+                            e.preventDefault();
+                            setQualityPreset(p.key as any);
+                          }
+                        }}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition-all outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                           qualityPreset === p.key
                             ? 'bg-indigo-600/20 border-indigo-500/50 shadow-md shadow-indigo-500/10'
                             : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <div className="font-semibold text-sm text-slate-200">{p.title}</div>
-                        <div className="text-[11px] text-slate-400 mt-1">{p.desc}</div>
+                        <div className="font-semibold text-sm text-slate-100">{p.title}</div>
+                        <div className="text-[11px] text-slate-300 mt-1">{p.desc}</div>
                       </div>
                     ))}
                   </div>
@@ -723,12 +766,13 @@ export default function App() {
 
                 {/* Feature Toggles */}
                 <div className="mt-5 grid grid-cols-3 gap-3">
-                  <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all">
+                  <label htmlFor="toggle-turn-screen-off" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
                     <input
+                      id="toggle-turn-screen-off"
                       type="checkbox"
                       checked={turnScreenOff}
                       onChange={e => setTurnScreenOff(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded"
+                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-slate-200">Turn Phone Screen Off</div>
@@ -736,12 +780,13 @@ export default function App() {
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all">
+                  <label htmlFor="toggle-stay-awake" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
                     <input
+                      id="toggle-stay-awake"
                       type="checkbox"
                       checked={stayAwake}
                       onChange={e => setStayAwake(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded"
+                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-slate-200">Stay Awake While Plugged</div>
@@ -749,12 +794,13 @@ export default function App() {
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all">
+                  <label htmlFor="toggle-record-session" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
                     <input
+                      id="toggle-record-session"
                       type="checkbox"
                       checked={recordMirrorSession}
                       onChange={e => setRecordMirrorSession(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded"
+                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-slate-200">Record Video Stream (MP4)</div>
@@ -766,48 +812,57 @@ export default function App() {
 
               {/* Hardware Remote Control Bar */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
                   Quick Navigation & Device Controls ({activeDevice ? activeDevice.model : 'No Target'})
                 </div>
-                <div className="flex flex-wrap gap-2.5">
+                <div className="flex flex-wrap gap-2.5" role="toolbar" aria-label="Device quick navigation controls">
                   <button
                     onClick={() => handleSendKeyevent('3', 'Home')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Send Home keyevent to Android device"
                   >
-                    <span>🏠 Home</span>
+                    <span aria-hidden="true">🏠</span>
+                    <span>Home</span>
                   </button>
 
                   <button
                     onClick={() => handleSendKeyevent('4', 'Back')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Send Back keyevent to Android device"
                   >
-                    <span>⬅ Back</span>
+                    <span aria-hidden="true">⬅</span>
+                    <span>Back</span>
                   </button>
 
                   <button
                     onClick={() => handleSendKeyevent('187', 'App Switch')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Send App Switcher keyevent to Android device"
                   >
-                    <span>🗂 App Switcher</span>
+                    <span aria-hidden="true">🗂</span>
+                    <span>App Switcher</span>
                   </button>
 
                   <button
                     onClick={() => handleSendKeyevent('26', 'Power')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 text-amber-300 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] text-amber-300 focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Send Power toggle keyevent to Android device"
                   >
-                    <span>⚡ Power</span>
+                    <span aria-hidden="true">⚡</span>
+                    <span>Power</span>
                   </button>
 
                   <button
                     onClick={handleTakeScreenshot}
                     disabled={!isDeviceReady || isCapturing}
-                    className={`glass-button text-xs py-2 px-3.5 ml-auto text-cyan-300 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] ml-auto text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer flex items-center gap-1.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    aria-label="Take high-resolution screen capture"
                   >
-                    <Camera className="w-3.5 h-3.5" />
+                    <Camera className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{isCapturing ? 'Capturing...' : 'Quick Screenshot'}</span>
                   </button>
                 </div>
@@ -851,24 +906,27 @@ export default function App() {
               {/* Hotspot Auto-Connect Card */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Smartphone className="w-5 h-5 text-cyan-400" />
+                  <Smartphone className="w-5 h-5 text-cyan-400" aria-hidden="true" />
                   <h3 className="text-base font-bold text-white">Phone Hotspot Gateway Connect</h3>
                 </div>
-                <p className="text-xs text-slate-400 mb-4">
+                <p className="text-xs text-slate-300 mb-4">
                   When your laptop joins your phone's Wi-Fi hotspot, your phone acts as the default gateway (typically 192.168.43.1).
                 </p>
 
                 <div className="flex items-center gap-3">
+                  <label htmlFor="hotspot-gateway-input" className="sr-only">Hotspot Gateway IP</label>
                   <input
+                    id="hotspot-gateway-input"
                     type="text"
                     value={hotspotGateway || '192.168.43.1'}
                     onChange={e => setHotspotGateway(e.target.value)}
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 w-48 outline-none"
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-100 w-48 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                     placeholder="Gateway IP (192.168.43.1)"
                   />
                   <button
                     onClick={handleHotspotConnect}
-                    className="glass-button text-xs py-2 px-4"
+                    className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    aria-label="Connect to hotspot gateway IP"
                   >
                     <span>Connect to Hotspot Gateway</span>
                   </button>
@@ -878,39 +936,52 @@ export default function App() {
               {/* Android 11+ PIN Pairing Wizard */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Shield className="w-5 h-5 text-indigo-400" />
+                  <Shield className="w-5 h-5 text-indigo-400" aria-hidden="true" />
                   <h3 className="text-base font-bold text-white">Android 11+ Wireless Pairing (PIN)</h3>
                 </div>
-                <p className="text-xs text-slate-400 mb-4">
+                <p className="text-xs text-slate-300 mb-4">
                   Under Developer Options &gt; Wireless Debugging &gt; "Pair device with pairing code", enter the 6-digit PIN and pairing port.
                 </p>
 
                 <div className="grid grid-cols-4 gap-3">
-                  <input
-                    type="text"
-                    value={pairIp}
-                    onChange={e => setPairIp(e.target.value)}
-                    placeholder="Device IP (e.g. 192.168.1.50)"
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={pairPort}
-                    onChange={e => setPairPort(e.target.value)}
-                    placeholder="Pairing Port (e.g. 37000)"
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={pairPin}
-                    onChange={e => setPairPin(e.target.value)}
-                    placeholder="6-Digit PIN (e.g. 123456)"
-                    maxLength={6}
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono tracking-widest outline-none"
-                  />
+                  <div>
+                    <label htmlFor="pair-ip-input" className="sr-only">Device IP Address</label>
+                    <input
+                      id="pair-ip-input"
+                      type="text"
+                      value={pairIp}
+                      onChange={e => setPairIp(e.target.value)}
+                      placeholder="Device IP (e.g. 192.168.1.50)"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pair-port-input" className="sr-only">Pairing Port</label>
+                    <input
+                      id="pair-port-input"
+                      type="text"
+                      value={pairPort}
+                      onChange={e => setPairPort(e.target.value)}
+                      placeholder="Pairing Port (e.g. 37000)"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pair-pin-input" className="sr-only">6-Digit PIN</label>
+                    <input
+                      id="pair-pin-input"
+                      type="text"
+                      value={pairPin}
+                      onChange={e => setPairPin(e.target.value)}
+                      placeholder="6-Digit PIN (e.g. 123456)"
+                      maxLength={6}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 font-mono tracking-widest outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    />
+                  </div>
                   <button
                     onClick={handlePairWireless}
-                    className="glass-button glass-button-primary text-xs py-2 px-4"
+                    className="glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    aria-label="Pair device via wireless debugging PIN"
                   >
                     <span>Pair Device</span>
                   </button>
@@ -925,7 +996,7 @@ export default function App() {
               <div className="glass-panel p-5 flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white">Session Captures & Recordings</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-300 mt-0.5">
                     Real PNG frame captures and MP4 video recordings saved to the portable Captures/ directory.
                   </p>
                 </div>
@@ -934,11 +1005,12 @@ export default function App() {
                   <button
                     onClick={handleTakeScreenshot}
                     disabled={!isDeviceReady || isCapturing}
-                    className={`glass-button glass-button-primary text-xs py-2 px-4 ${
+                    className={`glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
                       !isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
+                    aria-label="Take high-resolution screen capture"
                   >
-                    <Camera className="w-3.5 h-3.5" />
+                    <Camera className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{isCapturing ? 'Saving...' : 'Take High-Res Screenshot'}</span>
                   </button>
 
@@ -949,16 +1021,18 @@ export default function App() {
                         setAlertBanner({ type: 'info', message: 'Captures list refreshed.' });
                       }
                     }}
-                    className="glass-button text-xs py-2 px-3"
+                    className="glass-button text-xs py-2 px-3 min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    aria-label="Refresh captures list"
+                    title="Refresh captures list"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
+                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </div>
 
               {/* Captures List */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
                   Recorded Media Files ({captures.length})
                 </div>
 
@@ -970,7 +1044,7 @@ export default function App() {
                         className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-all text-xs"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-300" aria-hidden="true">
                             {c.type === 'screenshot' ? <Camera className="w-4 h-4" /> : <Video className="w-4 h-4" />}
                           </div>
                           <div>
@@ -988,9 +1062,10 @@ export default function App() {
                                 api.openPath(c.path);
                               }
                             }}
-                            className="glass-button py-1 px-3 text-[11px]"
+                            className="glass-button py-1.5 px-3 text-[11px] min-h-[32px] flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                            aria-label={`Open ${c.name} in system viewer`}
                           >
-                            <Folder className="w-3 h-3 text-slate-400" />
+                            <Folder className="w-3 h-3 text-slate-400" aria-hidden="true" />
                             <span>Open</span>
                           </button>
                         </div>
@@ -998,7 +1073,7 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-10 text-slate-500 text-xs">
+                  <div className="text-center py-10 text-slate-400 text-xs">
                     No screenshots or recordings captured yet. Use "Take High-Res Screenshot" above or enable "Record Video Stream" in the Mirror tab.
                   </div>
                 )}
@@ -1020,17 +1095,19 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCopyDiagnosticReport}
-                      className="glass-button text-xs py-1.5 px-3 text-indigo-300"
+                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] text-indigo-300 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                      aria-label="Copy sanitized system diagnostic report to clipboard"
                     >
-                      <Copy className="w-3.5 h-3.5" />
+                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>{copyReportSuccess ? 'Copied to Clipboard!' : 'Copy Diagnostic Report'}</span>
                     </button>
 
                     <button
                       onClick={handleExportDiagnosticReport}
-                      className="glass-button text-xs py-1.5 px-3"
+                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                      aria-label="Export diagnostic report to text file"
                     >
-                      <FileText className="w-3.5 h-3.5" />
+                      <FileText className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Export .txt File</span>
                     </button>
                   </div>
@@ -1039,30 +1116,30 @@ export default function App() {
                 <div className="grid grid-cols-4 gap-3 text-xs">
                   <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                     <div className="text-[10px] uppercase font-bold text-slate-400">ADB Engine</div>
-                    <div className="font-semibold text-slate-200 mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
-                    <div className="font-mono text-[9px] text-slate-500 truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
+                    <div className="font-semibold text-slate-100 mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
+                    <div className="font-mono text-[9px] text-slate-400 truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                     <div className="text-[10px] uppercase font-bold text-slate-400">scrcpy Engine</div>
-                    <div className="font-semibold text-slate-200 mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
-                    <div className="font-mono text-[9px] text-slate-500 truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
+                    <div className="font-semibold text-slate-100 mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
+                    <div className="font-mono text-[9px] text-slate-400 truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                     <div className="text-[10px] uppercase font-bold text-slate-400">Connected Devices</div>
-                    <div className="font-semibold text-slate-200 mt-1">{devices.length} Detected</div>
-                    <div className="text-[10px] text-slate-400 mt-1">
+                    <div className="font-semibold text-slate-100 mt-1">{devices.length} Detected</div>
+                    <div className="text-[10px] text-slate-300 mt-1">
                       {devices.filter(d => d.state === 'device').length} authorized / ready
                     </div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
                     <div className="text-[10px] uppercase font-bold text-slate-400">Mirroring Session</div>
-                    <div className="font-semibold text-slate-200 mt-1">
+                    <div className="font-semibold text-slate-100 mt-1">
                       {isMirroring ? 'ACTIVE' : 'IDLE'}
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1">
+                    <div className="text-[10px] text-slate-300 mt-1">
                       PID: {systemInfo?.mirrorStatus?.pid || 'None'}
                     </div>
                   </div>
@@ -1073,33 +1150,41 @@ export default function App() {
               <div className="glass-panel p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs font-semibold">
+                    <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs font-semibold" role="tablist" aria-label="Log source selector">
                       <button
                         onClick={() => setLogSource('device')}
-                        className={`px-3 py-1 rounded-md transition-all ${
-                          logSource === 'device' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        role="tab"
+                        aria-selected={logSource === 'device'}
+                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+                          logSource === 'device' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
                         }`}
+                        aria-label="View device logcat output"
                       >
                         Device Logcat ({selectedSerial || 'No Target'})
                       </button>
                       <button
                         onClick={() => setLogSource('app')}
-                        className={`px-3 py-1 rounded-md transition-all ${
-                          logSource === 'app' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        role="tab"
+                        aria-selected={logSource === 'app'}
+                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+                          logSource === 'app' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
                         }`}
+                        aria-label="View application runtime log output"
                       >
                         Application Log (androscrn.log)
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs">
-                      <Search className="w-3.5 h-3.5 text-slate-400" />
+                    <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs focus-within:ring-2 focus-within:ring-indigo-400">
+                      <Search className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                      <label htmlFor="log-filter-input" className="sr-only">Filter logs</label>
                       <input
+                        id="log-filter-input"
                         type="text"
                         value={logFilter}
                         onChange={e => setLogFilter(e.target.value)}
                         placeholder="Filter logs..."
-                        className="bg-transparent text-xs text-slate-200 outline-none w-48"
+                        className="bg-transparent text-xs text-slate-100 outline-none w-48"
                       />
                     </div>
                   </div>
@@ -1109,9 +1194,10 @@ export default function App() {
                       if (logSource === 'device') refreshLogcat();
                       else refreshSystemInfo();
                     }}
-                    className="glass-button text-xs py-1 px-3"
+                    className="glass-button text-xs py-1.5 px-3 min-h-[32px] flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    aria-label="Refresh logs"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
+                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Refresh</span>
                   </button>
                 </div>

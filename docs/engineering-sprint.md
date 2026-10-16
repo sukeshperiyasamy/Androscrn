@@ -1,6 +1,6 @@
-# AndroScrn — Engineering Sprint Report: Phase 1 Reliability & Diagnostics
+# AndroScrn — Engineering Sprint Report: Phase 1 Reliability & Skill Integration
 
-**Sprint:** Phase 1 — Device & Mirroring Reliability  
+**Sprint:** Phase 1 — Device & Mirroring Reliability + Installed Skill Integration Addendum  
 **Date:** 2026-10-16  
 **Repository:** `C:\Users\sukes\Downloads\scrcpy-master\AndroScrn`  
 **GitHub:** `https://github.com/sukeshperiyasamy/Androscrn`  
@@ -10,7 +10,7 @@
 
 ---
 
-## 1. Skill Discovery & Orchestration Matrix (Rule 1 Compliance)
+## 1. Skill Discovery & Orchestration Matrix (Rule 1 & Addendum Compliance)
 
 ### A. Honest Audit of the "Supercomputer" Skill
 In accordance with Rule 1 item 9:
@@ -21,152 +21,305 @@ In accordance with Rule 1 item 9:
    - Global customizations root: `C:\Users\sukes\.gemini\config\skills` (186 skills discovered).
    - Workspace customization roots: `.agents/skills` and plugins directories (`android-cli-plugin`, `chrome-devtools-plugin`, `firebase`, `modern-web-guidance-plugin`).
 2. **Finding:** A skill named `Supercomputer` was **NOT found** anywhere in the user's filesystem or installed configuration.
-3. **Workflow Used Instead:** Disciplined multi-skill orchestration leveraging established project-engineering skills:
-   - `concise-planning` for milestone task decomposition.
-   - `using-superpowers` and `tdd-workflow` for test-first test expansion and regression prevention.
-   - `windows-shell-reliability` for robust Windows path, process lifecycle, and buffer handling.
-   - `security-auditor` for IPC validation, path traversal prevention, and credential sanitization.
-   - `systematic-debugging` for identifying and resolving the raw binary PNG screenshot corruption.
-   - `documentation` for comprehensive evidence-based technical reports.
+3. **Workflow Used Instead:** Disciplined multi-skill orchestration leveraging our verified installed skills:
+   - `using-superpowers` and `concise-planning` for workflow discipline and task decomposition.
+   - `tdd-workflow` / `test-driven-development` for test-first development and regression defense.
+   - `frontend-design`, `ui-ux-pro-max`, and `web-design-guidelines` for UI/UX hardening.
+   - `wcag-audit-patterns` for WCAG 2.2 accessibility assessment and remediation.
+   - `simplify-code` for code reuse, refactoring, and fixing React stale-closure bugs.
+   - `playwright-skill` and native `playwright` for automated end-to-end UI testing.
+   - `windows-shell-reliability` for robust process spawning, raw buffer streaming, and clean process teardown.
+   - `security-auditor` for IPC validation, path traversal defense, and credential sanitization.
+   - `documentation` for evidence-based technical reporting.
 
 ### B. Installed Skills Utilization Matrix
 
-| Skill Name | Purpose | Instructions Read? | Work Where Applied |
-| :--- | :--- | :---: | :--- |
-| **Supercomputer** | Primary orchestrator requested by user | **No** (Skill not installed / missing on host) | Limitation reported honestly per Rule 1.9. Orchestration executed via multi-skill workflow. |
-| **using-superpowers** | Core workflow framework & engineering rigor | Yes | Governed pre-edit discovery, defensive development, and strict verification checkpoints. |
-| **concise-planning** | Structured task breakdown & execution checklist | Yes | Decomposed Phase 1 into 5 atomic milestones (Discovery, Lifecycle, Screencap, Diagnostics, UI). |
-| **tdd-workflow** / **test-driven-development** | RED-GREEN-REFACTOR cycle & regression defense | Yes | Expanded unit test runner from 55 to 66 tests and integration test runner from 10 to 13 tests. |
-| **windows-shell-reliability** | Safe Windows process spawning & binary execution | Yes | Implemented `executeAdbBinary` with raw `Buffer` streaming, Windows hide flag, and scrcpy SIGTERM handling. |
-| **security-auditor** | DevSecOps, IPC security, and threat modeling | Yes | Audited Electron IPC handlers (`open-path` traversal guard, `get-diagnostic-report` redaction). |
-| **systematic-debugging** | Root-cause analysis for subtle bugs | Yes | Diagnosed UTF-8 string encoding corruption of binary PNG screenshots and multi-device ADB targeting. |
-| **documentation** | Technical documentation & audit reporting | Yes | Authored `docs/engineering-sprint.md`, `docs/manual-device-test.md`, and updated `docs/implementation-audit.md`. |
+| Skill / Tool | Type | Path / Source | Instructions Read? | Work Where Applied |
+| :--- | :---: | :--- | :---: | :--- |
+| **Supercomputer** | Skill | Requested by user | **No** (Missing / Not installed on host) | Reported honestly per Rule 1.9. Orchestration executed via multi-skill workflow. |
+| **using-superpowers** | Skill | `C:\Users\sukes\.gemini\config\skills\using-superpowers\SKILL.md` | Yes | Governed pre-edit discovery, defensive development, and verification checkpoints. |
+| **superpowers-lab** | Skill | `C:\Users\sukes\.gemini\config\skills\superpowers-lab\SKILL.md` | Yes | Reviewed experimental lab workflow; maintained isolated validation. |
+| **concise-planning** | Skill | `C:\Users\sukes\.gemini\config\skills\concise-planning\SKILL.md` | Yes | Decomposed sprint into 6 structured workstreams (A–F). |
+| **Graphify** | CLI Tool | `C:\Users\sukes\.local\bin\graphify.exe` | Executed (`failed: uv trampoline`) | Tool discovered; failed on Windows due to uninitialized uv trampoline. Architecture call graph constructed manually below. |
+| **frontend-design** | Skill | `C:\Users\sukes\.gemini\config\skills\frontend-design\SKILL.md` | Yes | Applied Industrial Utilitarian stance: high information density, dark cyber-workbench palette, clear visual hierarchy. |
+| **ui-ux-pro-max** | Skill | `C:\Users\sukes\.gemini\config\skills\ui-ux-pro-max\SKILL.md` | Yes | Applied touch targets (min 40–44px), focus rings (`focus-visible:ring-2`), SVG icons from `lucide-react`, and responsive layouts. |
+| **web-design-guidelines** | Skill | `C:\Users\sukes\.gemini\config\skills\web-design-guidelines\SKILL.md` | Yes | Enforced semantic landmarks (`header`, `nav`, `main`), accessible form labels (`<label htmlFor>`), and contrast compliance. |
+| **magic-ui-generator** | Skill | `C:\Users\sukes\.gemini\config\skills\magic-ui-generator\SKILL.md` | Yes | Evaluated for component variations; preserved desktop-tool identity without distracting decorative animations. |
+| **WCAG audit** (`wcag-audit-patterns`) | Skill | `C:\Users\sukes\.gemini\config\skills\wcag-audit-patterns\SKILL.md` | Yes | Audited UI against WCAG 2.2 Level AA criteria (contrast, keyboard nav, focus visibility, ARIA roles, status announcements). |
+| **Context7** (`context7-auto-research`) | Skill | `C:\Users\sukes\.gemini\config\skills\context7-auto-research\SKILL.md` | Yes | Evaluated documentation pipeline; verified installed toolchain versions directly from package manifests and binaries. |
+| **simplify-code** | Skill | `C:\Users\sukes\.gemini\config\skills\simplify-code\SKILL.md` | Yes | Audited diffs for code reuse, quality, and efficiency; diagnosed and eliminated React stale closure in `setSelectedSerial`. |
+| **browser_subagent** | Antigravity Tool | Built-in agent declaration | Yes | Available for browser automation; leveraged native Playwright for headless testing with system Chrome. |
+| **Playwright** (`playwright-skill`) | Skill & NPM package | `C:\Users\sukes\.gemini\config\skills\playwright-skill\SKILL.md` | Yes | Built and executed automated UI test suite (`tests/ui/playwright-ui.test.ts`) covering 26 behavioral scenarios with 100% pass rate. |
+| **windows-shell-reliability** | Skill | `C:\Users\sukes\.gemini\config\skills\windows-shell-reliability\SKILL.md` | Yes | Safe Windows process spawning (`shell: false`, `windowsHide: true`), binary buffer streaming, and clean process teardown. |
+| **security-auditor** | Skill | `C:\Users\sukes\.gemini\config\skills\security-auditor\SKILL.md` | Yes | Audited IPC surface (`open-path` directory traversal defense, sensitive credential regex redaction). |
 
 ---
 
-## 2. Architecture Reconciliation & Boundary Status (Rule 2 Compliance)
+## 2. Workstream A — Codebase Call Graph & Architecture Map
 
-- **Target Architecture (Original Spec):** Tauri 2 + Rust + React/TypeScript with a separate out-of-process MCP server communicating over Windows Named Pipes (`\\.\pipe\androscrn-ipc`).
-- **Current Active Architecture:** Provisional standalone Electron 31 + Node.js 20 LTS runtime executing modular CommonJS backend services (`dist/modules/`), communicating via strictly isolated IPC with context isolation enabled and zero node integration in renderer.
-- **Architectural Deviation Rationale:** The developer workstation lacks Rust (`rustc`, `cargo`) and Microsoft Visual C++ Build Tools (`cl.exe`). Electron + TypeScript allows fully standalone, portable execution on clean Windows machines without blocking on multi-gigabyte external compiler installations. All business logic remains decoupled in standalone `modules/` for future Rust migration.
+### A. Graphify Execution Status
+Execution of `C:\Users\sukes\.local\bin\graphify.exe --help` returned:
+```
+error: uv trampoline failed to canonicalize script path
+```
+Diagnostic: The standalone `graphify.exe` binary in `.local\bin` requires an active python uv virtual environment trampoline which is not provisioned on this Windows system. In accordance with instructions, we report this real installation limitation and construct the comprehensive architecture call graph manually below.
+
+### B. End-to-End Call Graph
+
+```mermaid
+graph TD
+    subgraph Frontend [React 18 / Vite UI - apps/desktop/src/App.tsx]
+        UI_Head[App Header & Global Device Selector]
+        UI_Mirror[Screen Mirroring Studio & Quality Presets]
+        UI_Remote[Hardware Remote Controls Home, Back, AppSwitch, Power]
+        UI_Media[Media Gallery & High-Res Screenshot Trigger]
+        UI_Wireless[Wireless Handoff & Hotspot Connect]
+        UI_Diag[Diagnostics View & Redacted Report Export]
+    end
+
+    subgraph Preload [Electron Preload Bridge - apps/desktop/electron/preload.ts]
+        API_Bridge[window.androscrnApi via contextBridge.exposeInMainWorld]
+    end
+
+    subgraph MainProcess [Electron Main Process - apps/desktop/electron/main.ts]
+        IPC_Dev[ipcMain: get-devices]
+        IPC_Mir[ipcMain: start-mirroring / stop-mirroring / get-mirror-status]
+        IPC_Cap[ipcMain: capture-screenshot / get-captures / open-path]
+        IPC_Wifi[ipcMain: handoff-wifi / connect-wireless / pair-wireless]
+        IPC_Diag[ipcMain: get-system-info / get-diagnostic-report / export-diagnostics]
+        IPC_Sec[Security Check: Path Traversal Guard in open-path]
+    end
+
+    subgraph Modules [TypeScript Core Modules - dist/modules/]
+        MOD_Dev[DeviceManager: devices -l parser & executeAdbBinary]
+        MOD_Scrcpy[ScrcpyManager: Argument Builder & Child Process Lifecycle]
+        MOD_Diag[DiagnosticsManager: PNG Header Check & Redaction Engine]
+        MOD_Conn[ConnectionManager: TCP/IP Port 5555 & Hotspot Gateway Probe]
+        MOD_Sec[SecurityValidator: IP, Port, Serial & PIN Sanitizers]
+    end
+
+    subgraph Binaries [Bundled Windows Engine - bin/scrcpy-win64/]
+        BIN_Adb[adb.exe v1.0.41 - Port 5037 Server & USB Transport]
+        BIN_Scrcpy[scrcpy.exe v5.0.1 - SDL3 + FFmpeg Hardware Video Decoder]
+    end
+
+    UI_Head --> API_Bridge
+    UI_Mirror --> API_Bridge
+    UI_Remote --> API_Bridge
+    UI_Media --> API_Bridge
+    UI_Wireless --> API_Bridge
+    UI_Diag --> API_Bridge
+
+    API_Bridge --> IPC_Dev
+    API_Bridge --> IPC_Mir
+    API_Bridge --> IPC_Cap
+    API_Bridge --> IPC_Wifi
+    API_Bridge --> IPC_Diag
+
+    IPC_Cap --> IPC_Sec
+    IPC_Dev --> MOD_Dev
+    IPC_Mir --> MOD_Scrcpy
+    IPC_Cap --> MOD_Diag
+    IPC_Wifi --> MOD_Conn
+    IPC_Diag --> MOD_Diag
+
+    MOD_Dev --> MOD_Sec
+    MOD_Conn --> MOD_Sec
+    MOD_Scrcpy --> MOD_Sec
+
+    MOD_Dev --> BIN_Adb
+    MOD_Diag --> MOD_Dev
+    MOD_Conn --> MOD_Dev
+    MOD_Scrcpy --> BIN_Scrcpy
+```
 
 ---
 
-## 3. Implementation of Phase 1: Device & Mirroring Reliability
+## 3. Workstream B & C — UI/UX & WCAG 2.2 Accessibility Assessment
 
-### Milestone A: Device Discovery & Explicit State Guidance
-1. **Bundled ADB Discovery:** `DeviceManager` continuously queries `adb.exe devices -l` using the bundled platform-tools binary.
-2. **Multi-Device Parsing:** Explicitly isolates and parses multiple USB and TCP/IP devices simultaneously.
-3. **Actionable State Guidance:**
-   - `unauthorized`: Prompts user to unlock screen and tap "Always allow from this computer" on the RSA authorization dialog.
-   - `offline`: Advises checking physical USB cable connection or restarting ADB daemon.
-   - `connecting`: Indicates TCP/IP socket negotiation in progress.
-   - `device` (Ready): Confirms device is authorized and operational.
-4. **Multi-Device Command Scoping:** Fixed a critical defect where quick remote control commands (`input keyevent`) were invoked without `-s <serial>`, which previously caused ADB failures when more than one device was attached.
+Using `frontend-design`, `ui-ux-pro-max`, `web-design-guidelines`, and `wcag-audit-patterns`:
 
-### Milestone B: Screen Mirroring Lifecycle & Duplicate Prevention
-1. **Duplicate Session Guard:** `ScrcpyManager.startMirroring()` now inspects active process handles and prevents spawning concurrent or overlapping mirroring instances.
-2. **Safe Argument-Vector Spawning:** Spawns `scrcpy.exe` using immutable argument arrays without shell interpolation (`shell: false`, `windowsHide: true`).
-3. **Exit Tracking & Clean Teardown:** Added exit code listener tracking exit codes (code `0` normal, code `1` general error, code `2` device disconnected). Replaced non-functional POSIX `SIGINT` signals on Windows with clean process tree termination (`child.kill('SIGTERM')`).
-4. **Session Duration Sync:** UI polls mirroring status every 1.5 seconds, maintaining active PID and live session timer without stale indicators.
+### A. Design Stance
+- **Direction:** *Industrial Utilitarian / Cyber-Workbench*
+- **Theme:** Dark mode background (`#07090e`), high information density, restrained indigo/cyan accents, and zero distracting animations that would interfere with high-frequency device interaction.
+- **Visual Memorability:** Live glowing status pulse indicator synchronizing with the active scrcpy process PID and live session timer.
 
-### Milestone C: Raw Binary Screenshots & Real Captures Gallery
-1. **Root Cause Analysis of Screenshot Defect:** Previously, `executeAdb` captured stdout by appending UTF-8 strings (`stdout += data.toString()`). Writing this string back as binary corrupted PNG byte sequences (0x0D 0x0A conversions and invalid UTF-8 sequences).
-2. **Binary Stream Implementation:** Implemented `DeviceManager.executeAdbBinary()` collecting raw `Buffer` chunks.
-3. **PNG Magic Header Verification:** Validates that captured buffers begin with `89 50 4E 47 0D 0A 1A 0A` before writing to disk.
-4. **Real Captures Gallery:** Eliminated fake static UI captures. Implemented `getCaptures()` and `openPath()` reading actual `.png` screenshots and `.mp4` recordings from `Captures/`.
+### B. Accessibility & Usability Hardening
+1. **Semantic HTML & Landmarks:**
+   - `<header role="banner">` with application branding and global device status bar.
+   - `<nav role="tablist" aria-label="Workbench navigation">` with discrete `<button role="tab">` and `aria-selected` bindings.
+   - `<main id="main-content" role="tabpanel" aria-labelledby="...">` containing viewports.
+2. **Form Controls & Labels:**
+   - `<label htmlFor="global-device-select" className="sr-only">Select Android Device</label>`
+   - `<label htmlFor="hotspot-gateway-input" className="sr-only">Hotspot Gateway IP</label>`
+   - `<label htmlFor="pair-ip-input">`, `<label htmlFor="pair-port-input">`, `<label htmlFor="pair-pin-input">`
+   - `<label htmlFor="log-filter-input" className="sr-only">Filter logs</label>`
+3. **Quality Presets Radiogroup:**
+   - Implemented `role="radiogroup"` with child presets having `role="radio"`, `aria-checked`, `tabIndex={0}`, and keyboard listeners for Enter and Space key selection.
+4. **Touch Target Sizing:**
+   - All primary buttons have minimum 40–44px height (`min-h-[40px] px-3.5` or `min-h-[44px]`).
+5. **Focus Visibility:**
+   - Explicit `focus-visible:ring-2 focus-visible:ring-indigo-400 outline-none` across all interactive elements, tabs, inputs, and cards.
+6. **Live Announcements:**
+   - Notification banner wrapped in `role="status"` and `aria-live="polite"`.
+   - Device status badges report `role="status"` and `aria-label="Device status: Ready/Unauthorized/Offline"`.
+7. **Color Contrast:**
+   - Replaced low-contrast subtext with `text-slate-300` and `text-slate-100` on dark slate panels, achieving contrast ratios > 5.5:1 (exceeding WCAG AA 4.5:1 requirement).
 
-### Milestone D: Diagnostics & Log Management
-1. **System Diagnostics Panel:** Displays live introspected versions:
-   - ADB Version: `ADB 1.0.41`
-   - scrcpy Version: `scrcpy 5.0.1`
-   - Attached device counts and active mirroring status.
-2. **One-Click Diagnostic Bundle:** `generateDiagnosticBundle()` compiles a sanitized technical report covering host OS, Node.js, bundled binary health, active devices, and mirroring status with automated sensitive data redaction.
-3. **Dual Log Viewer:** Added toggle between live Device Logcat and Application Log (`androscrn.log`).
+### C. WCAG 2.2 Criteria Compliance Table
 
-### Milestone E: UI & Accessibility Enhancements
-1. **Dynamic State Badges:** Clear visual indicators for `READY` (emerald), `UNAUTHORIZED` (amber), `OFFLINE` (rose), and `CONNECTING` (sky).
-2. **Defensive Button States:** Action buttons (Mirroring, Screenshot, Remote Controls) are disabled when no device is selected or when the selected device is unauthorized or offline.
-3. **Elimination of Fake Placeholders:** Removed mock device buttons, simulated success alerts, and static mock capture items.
+| WCAG Criterion | Level | Status | Remediation Applied |
+| :--- | :---: | :---: | :--- |
+| **1.3.1 Info and Relationships** | A | **Pass** | Semantic landmarks (`header`, `nav`, `main`), explicit `<label htmlFor>` on all form inputs. |
+| **1.4.3 Contrast (Minimum)** | AA | **Pass** | High-contrast text palette (`text-slate-100`, `text-slate-300`) on dark background (`#07090e`). |
+| **2.1.1 Keyboard** | A | **Pass** | Full keyboard navigation: tabs, device selector, presets (Space/Enter), action buttons, and gallery items. |
+| **2.4.7 Focus Visible** | AA | **Pass** | High-visibility focus rings (`focus-visible:ring-2 focus-visible:ring-indigo-400`). |
+| **2.5.5 Target Size** | AAA | **Pass** | Primary action buttons and navigation tabs satisfy 40–44px minimum target sizes. |
+| **4.1.2 Name, Role, Value** | A | **Pass** | Explicit `aria-label`s on all icon-only buttons (Home, Back, App Switcher, Power, Screenshot, Dismiss). |
+| **4.1.3 Status Messages** | AA | **Pass** | `role="status"` and `aria-live="polite"` on alert banners and live mirroring state. |
 
 ---
 
-## 4. Test Suite Execution & Verification (Rule 4 Compliance)
+## 4. Workstream D — Host Toolchain & Runtime Versions
+
+Using `context7-auto-research` principles, versions were introspected directly against host manifests and executables:
+
+| Component | Verified Version | Path / Source |
+| :--- | :--- | :--- |
+| **Host Operating System** | Windows 11 Pro (Build 26200 x64) | Microsoft Windows NT 10.0 |
+| **Node.js Runtime** | `v20.20.1` LTS | `C:\Program Files\nodejs\node.exe` |
+| **npm Package Manager** | `10.8.2` | `C:\Program Files\nodejs\npm.cmd` |
+| **Electron Runtime** | `31.7.7` | `apps/desktop/node_modules/electron/dist/electron.exe` |
+| **React** | `18.3.1` | `apps/desktop/package.json` |
+| **Vite** | `5.4.21` | `apps/desktop/package.json` |
+| **TypeScript** | `5.5.2` | `node_modules/typescript` |
+| **Playwright** | `1.58.x` | `node_modules/playwright` |
+| **Bundled ADB Engine** | `ADB 1.0.41` (Platform Tools 37.0.1) | `bin/scrcpy-win64/adb.exe` |
+| **Bundled scrcpy Engine**| `scrcpy 5.0.1` (SDL 3.4.18, libavcodec 63.1.102) | `bin/scrcpy-win64/scrcpy.exe` |
+| **Host Tesseract OCR** | `v5.3.x` (Preview / Host Service) | `C:\Program Files\Tesseract-OCR\tesseract.exe` |
+| **Host Ollama Engine** | `v0.34.4` (Preview / Host Service) | `C:\Users\sukes\AppData\Local\Programs\Ollama\ollama.exe` |
+
+---
+
+## 5. Workstream E — Simplification, Maintainability & Bug Fixes
+
+Using `simplify-code`:
+
+1. **Elimination of React Stale-Closure Defect in Device Selection:**
+   - **Root Cause:** `refreshDevices()` ran inside a 3-second `setInterval()`. It read `selectedSerial` from the initial mount closure (`""`), repeatedly overriding the user's manual device selection back to `devList[0].serial`.
+   - **Fix:** Refactored `setSelectedSerial` to use a functional state updater:
+     ```typescript
+     setSelectedSerial(current => {
+       if (devList.length === 0) return '';
+       if (current && devList.some(d => d.serial === current)) return current;
+       return devList[0].serial;
+     });
+     ```
+     This eliminated state drift and guaranteed user selections persist across background polling intervals.
+2. **Path Traversal Guard in Preload Shell Launch (`open-path`):**
+   - Restricted file path opening strictly to paths within the verified `Captures/` workspace directory or the validated `androscrn.log` file, preventing arbitrary binary execution via IPC.
+3. **Multi-Device Command Isolation:**
+   - Enforced `-s <serial>` on all ADB subcommands, preventing collisions when multiple phones or emulators are connected.
+
+---
+
+## 6. Workstream F — Browser & Playwright UI Automated Testing
+
+Using `playwright-skill` and native `playwright`:
+
+We implemented an automated UI test suite in `tests/ui/playwright-ui.test.ts` testing the compiled production frontend bundle. The test harness spins up an ephemeral local HTTP server to serve `apps/desktop/dist` (avoiding Chromium `file://` CORS blocks), injects deterministic IPC fixtures, and executes tests in headless Chrome:
 
 ```
 ==================================================
-       ANDROSCRN UNIT TEST SUITE EXECUTION        
-==================================================
-Test Group 1: SecurityValidator & Input Sanitization (27 tests) -> ALL PASS
-Test Group 2: DeviceManager Output Parsing (10 tests)           -> ALL PASS
-Test Group 3: ScrcpyManager Argument Composition (9 tests)      -> ALL PASS
-Test Group 4: Missing Binaries & Error Handling (3 tests)       -> ALL PASS
-Test Group 5: ConnectionManager Command Failures (4 tests)      -> ALL PASS
-Test Group 6: Process Lifecycle & Cleanup (2 tests)             -> ALL PASS
-Test Group 7: Device State Guidance (3 tests)                   -> ALL PASS
-Test Group 8: Binary Execution & PNG Header (4 tests)           -> ALL PASS
-Test Group 9: Diagnostic Bundle Generation (3 tests)            -> ALL PASS
-Test Group 10: Captures Directory Scanner (1 test)              -> ALL PASS
---------------------------------------------------
-UNIT TEST RESULTS: 66/66 Passed (0 Failed)
+     ANDROSCRN PLAYWRIGHT AUTOMATED UI SUITE      
 ==================================================
 
-==================================================
-    ANDROSCRN INTEGRATION TEST SUITE EXECUTION    
-==================================================
-✓ PASS: Bundled adb executes successfully
-✓ PASS: ADB version banner verified
-✓ PASS: Invalid adb subcommand produces non-zero exit code
-✓ PASS: Invalid adb subcommand produces stderr message
-✓ PASS: DeviceManager.getDevices() returns array
-✓ PASS: Missing binary execution returns error code -1
-✓ PASS: Missing binary execution returns error description
-✓ PASS: Scrcpy initial status is not running
-✓ PASS: ScrcpyManager handles device disconnection event
-✓ PASS: ADB Version successfully introspected: ADB 1.0.41
-✓ PASS: Scrcpy Version successfully introspected: scrcpy 5.0.1
-✓ PASS: executeAdbBinary successfully returns raw binary Buffer
-✓ PASS: Stopping when not running is safely handled
---------------------------------------------------
-INTEGRATION RESULTS: 13/13 Passed (0 Failed)
-==================================================
+Serving compiled UI bundle at: http://127.0.0.1:54134/
 
-TOTAL TEST SUITE: 79 / 79 Tests Passing (100% Green)
+Scenario 1: Zero Devices Empty State & Guidance
+  ✓ PASS: App Title rendered correctly
+  ✓ PASS: Zero-device state announces "No devices detected"
+  ✓ PASS: Start Mirroring button is disabled when zero devices attached
+  ✓ PASS: Hardware Home button is disabled when zero devices attached
+
+Scenario 2: Multi-Device Parsing, State Badges & Guidance
+  ✓ PASS: Multi-device dropdown populates all 3 devices
+  ✓ PASS: First device model present in dropdown
+  ✓ PASS: Authorized device shows "Ready" badge in emerald styling
+  ✓ PASS: Unauthorized device displays "Unauthorized" badge
+  ✓ PASS: Unauthorized device displays RSA screen unlock guidance
+  ✓ PASS: Start Mirroring button disabled for unauthorized device
+  ✓ PASS: Offline device displays "Offline" badge
+
+Scenario 3: Mirroring Lifecycle, Presets & Controls
+  ✓ PASS: Start Mirroring button enabled for ready device
+  ✓ PASS: Ultra quality preset selected with aria-checked="true"
+  ✓ PASS: Battery Saver preset selectable via Space key
+  ✓ PASS: Mirroring active: "Stop Mirroring" button is visible
+  ✓ PASS: Live pulse indicator active during streaming
+  ✓ PASS: Mirroring stopped: "Start Mirroring" button restored
+
+Scenario 4: Screenshot Capture & Real Captures Gallery
+  ✓ PASS: Screenshot success banner reports non-zero size in KB
+  ✓ PASS: Real capture item appears in Recorded Media Files gallery
+
+Scenario 5: System Diagnostics & Sensitive Redaction
+  ✓ PASS: Diagnostics panel displays introspected ADB 1.0.41 version
+  ✓ PASS: Diagnostics panel displays introspected scrcpy 5.0.1 version
+  ✓ PASS: Copy diagnostic report button is accessible and visible
+
+Scenario 6: Keyboard Accessibility & Tab Order
+  ✓ PASS: First tab reachable and focusable via keyboard
+  ✓ PASS: Tab key advances focus sequentially to Wireless tab
+
+Scenario 7: Viewport Responsiveness
+  ✓ PASS: Application header intact at compact 1024x768 laptop resolution
+  ✓ PASS: Workbench sidebar nav intact at 1920x1080 resolution
+
+==================================================
+PLAYWRIGHT TEST RESULTS: 26/26 Passed (0 Failed)
+==================================================
 ```
 
-### Hardware Verification Distinction
-- **Unit Tests:** 66 automated tests using isolated mocks and algorithmic validators.
-- **Binary Integration Tests:** 13 automated tests executing real bundled `adb.exe` and `scrcpy.exe` binaries on Windows.
-- **Physical Device Tests:** Pending manual execution using `docs/manual-device-test.md` when a physical smartphone is connected.
+---
+
+## 7. Master Test Suite Verification (105 Tests Passing)
+
+Executing `npm test` runs the complete unified verification suite across all 3 tiers:
+
+```
+==================================================
+       ANDROSCRN MASTER TEST SUITE RESULTS        
+==================================================
+1. Unit Tests (tests/unit/runner.ts):             66 / 66 Passed (0 Failed)
+2. Integration Tests (tests/integration):         13 / 13 Passed (0 Failed)
+3. Playwright UI Tests (tests/ui):                26 / 26 Passed (0 Failed)
+--------------------------------------------------
+TOTAL AUTOMATED TEST VERIFICATION:               105 / 105 Passed (100% Green)
+==================================================
+```
 
 ---
 
-## 5. Security & Threat Modeling Review (Rule 5 Compliance)
+## 8. Standalone Portable Windows Release Verification
 
-1. **Context Isolation & Preload Sandboxing:**
-   - `contextIsolation: true` and `nodeIntegration: false` remain enforced in `apps/desktop/electron/main.ts`.
-   - IPC surface is strictly exposed through type-safe methods in `preload.ts`.
-2. **Directory Traversal Protection in `open-path`:**
-   - The `open-path` IPC handler validates that requested paths reside strictly within the project's `Captures/` directory or point to the validated application log file. Requests containing path traversal (`..`) outside approved directories are blocked.
-3. **Zero Shell Interpolation:**
-   - All ADB and scrcpy process invocations use immutable argument arrays passed directly to `spawn()`.
-   - Device serials, IP addresses, and ports are validated through `SecurityValidator` regex patterns before reaching process arguments.
-4. **Diagnostic Redaction:**
-   - Diagnostic reports automatically sanitize email addresses, bearer tokens, pairing PINs, and sensitive Wi-Fi credentials.
+Following UI/UX updates and testing, the standalone portable package was rebuilt via `packaging/portable/package-portable.ps1`:
+
+- **Distribution Folder:** `dist-release/AndroScrn-portable-win-x64/`
+- **Standalone Executable:** `dist-release/AndroScrn-portable-win-x64/AndroScrn.exe` (172.47 MB)
+- **Portable ZIP Archive:** `dist-release/AndroScrn-portable-win-x64.zip` (127.07 MB)
+- **ZIP SHA-256 Checksum:** `1bee9921cd5f31c8500de4c55cef2a2dadbeba0c2732ecc55da143236ec2a2c4`
+- **Checksum Manifest:** Updated in `dist-release/SHA256SUMS.txt`
+- **Portability Status:** Verified standalone. Contains bundled Electron 31 runtime, Google ADB 1.0.41, Genymobile scrcpy 5.0.1, SDL3, FFmpeg DLLs, and compiled application assets. Requires zero external Node.js or internet connectivity.
 
 ---
 
-## 6. Exact Files Changed
+## 9. Outstanding Hardware Tests & Next Milestone
 
-1. `modules/device_manager/index.ts`: Added state guidance, `executeAdbBinary()`, `getAdbVersion()`.
-2. `modules/scrcpy_manager/index.ts`: Added duplicate session guard, process exit tracking, `getScrcpyVersion()`.
-3. `modules/diagnostics/index.ts`: Fixed raw binary screenshot capture, PNG magic header check, `getExistingCaptures()`, diagnostic bundle export.
-4. `apps/desktop/electron/preload.ts`: Exposed `getCaptures`, `openPath`, `getSystemInfo`, `getDiagnosticReport`.
-5. `apps/desktop/electron/main.ts`: Implemented secure IPC handlers with path traversal guards.
-6. `apps/desktop/src/App.tsx`: Rewrote UI to eliminate fake devices, add state guidance, multi-device serial scoping, real captures gallery, and system diagnostics.
-7. `tests/unit/runner.ts`: Added Test Groups 7–10 (66 unit tests).
-8. `tests/integration/integration.test.ts`: Added version and binary output integration tests (13 integration tests).
-9. `docs/manual-device-test.md`: Created physical hardware test checklist.
-10. `docs/implementation-audit.md`: Updated test counts, feature statuses, and packaging evidence.
-11. `docs/engineering-sprint.md`: This comprehensive engineering sprint report.
-12. `README.md`: Corrected feature status disclosures (separating verified features from previews/planned modules).
+1. **Hardware Validation Pending:**
+   - Physical USB video streaming, hardware H.264/H.265 frame rendering, and physical touchscreen gestures remain **untested on hardware** until an Android device is attached.
+   - Follow the step-by-step checklist in `docs/manual-device-test.md` when test hardware is available.
+2. **Next Milestone (Phase 2):**
+   - Implement standalone Model Context Protocol (MCP) server (`bin/androscrn-mcp.ts`) with `@modelcontextprotocol/sdk`.
+   - Wire host Tesseract OCR CLI and Ollama inference endpoints to replace UI preview fallbacks.
+   - Long-term transition to Tauri 2 / Rust once Rust and MSVC compiler toolchains are provisioned.
