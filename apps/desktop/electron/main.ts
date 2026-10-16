@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { DeviceManager } from '../../../dist/modules/device_manager';
 import { ConnectionManager } from '../../../dist/modules/connection_manager';
 import { ScrcpyManager } from '../../../dist/modules/scrcpy_manager';
@@ -8,8 +9,78 @@ import { WorkflowEngine } from '../../../dist/modules/workflow_engine';
 
 let mainWindow: BrowserWindow | null = null;
 
-const adbPath = path.resolve(__dirname, '../../bin/scrcpy-win64/adb.exe');
-const scrcpyPath = path.resolve(__dirname, '../../bin/scrcpy-win64/scrcpy.exe');
+// Initialize file logger for portable runtime
+function getLogFilePath(): string {
+  try {
+    const portableLog = path.join(path.dirname(process.execPath), 'androscrn.log');
+    if (app.isPackaged) {
+      fs.appendFileSync(portableLog, '');
+      return portableLog;
+    }
+  } catch {
+    // Fall back to userData if exe directory is write-protected
+  }
+  const userLogDir = app.getPath('userData');
+  if (!fs.existsSync(userLogDir)) {
+    fs.mkdirSync(userLogDir, { recursive: true });
+  }
+  return path.join(userLogDir, 'androscrn.log');
+}
+
+const logFile = getLogFilePath();
+function appLog(level: 'INFO' | 'WARN' | 'ERROR', message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] [${level}] ${message} ${data ? JSON.stringify(data) : ''}\n`;
+  try {
+    fs.appendFileSync(logFile, line);
+  } catch {
+    // Ignore log write failures
+  }
+  if (level === 'ERROR') {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
+}
+
+appLog('INFO', 'AndroScrn starting up (Provisional Electron Distribution)', {
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath
+});
+
+// Binary Resolver: Locates ADB and scrcpy binaries relative to portable package or dev root
+function resolveBinary(binaryName: string): string {
+  const exeDir = path.dirname(process.execPath);
+  const candidates = [
+    // 1. Packaged next to AndroScrn.exe (standard portable layout)
+    path.join(exeDir, 'bin', 'scrcpy-win64', binaryName),
+    // 2. Packaged inside Electron resources folder
+    path.join(process.resourcesPath || '', 'bin', 'scrcpy-win64', binaryName),
+    // 3. Inside resources/app/bin/scrcpy-win64
+    path.join(app.getAppPath(), 'bin', 'scrcpy-win64', binaryName),
+    // 4. Development mode from dist-electron
+    path.resolve(__dirname, '../../bin/scrcpy-win64', binaryName),
+    // 5. Development mode from repo root
+    path.resolve(__dirname, '../../../bin/scrcpy-win64', binaryName),
+    // 6. Current working directory fallback
+    path.resolve(process.cwd(), 'bin', 'scrcpy-win64', binaryName)
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      appLog('INFO', `Resolved ${binaryName} at: ${candidate}`);
+      return candidate;
+    }
+  }
+
+  appLog('WARN', `Could not find bundled ${binaryName}. Falling back to default: ${candidates[0]}`);
+  return candidates[0];
+}
+
+const adbPath = resolveBinary('adb.exe');
+const scrcpyPath = resolveBinary('scrcpy.exe');
 
 const deviceManager = new DeviceManager(adbPath);
 const connectionManager = new ConnectionManager(deviceManager);
@@ -17,109 +88,236 @@ const scrcpyManager = new ScrcpyManager(scrcpyPath);
 const diagnosticsManager = new DiagnosticsManager(deviceManager);
 const workflowEngine = new WorkflowEngine(deviceManager, diagnosticsManager);
 
+function getCapturesFolder(): string {
+  const exeDir = path.dirname(process.execPath);
+  const portableCaptures = path.join(exeDir, 'Captures');
+  
+  if (!app.isPackaged && fs.existsSync(path.resolve(__dirname, '../../../package.json'))) {
+    const devCaptures = path.resolve(__dirname, '../../../Captures');
+    if (!fs.existsSync(devCaptures)) {
+      fs.mkdirSync(devCaptures, { recursive: true });
+    }
+    return devCaptures;
+  }
+
+  try {
+    if (!fs.existsSync(portableCaptures)) {
+      fs.mkdirSync(portableCaptures, { recursive: true });
+    }
+    return portableCaptures;
+  } catch {
+    const userDataCaptures = path.join(app.getPath('userData'), 'Captures');
+    if (!fs.existsSync(userDataCaptures)) {
+      fs.mkdirSync(userDataCaptures, { recursive: true });
+    }
+    return userDataCaptures;
+  }
+}
+
 function createWindow() {
+  const preloadCandidates = [
+    path.join(__dirname, 'preload.js'),
+    path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
+    path.join(app.getAppPath(), 'preload.js')
+  ];
+  const preloadPath = preloadCandidates.find(p => fs.existsSync(p)) || path.join(__dirname, 'preload.js');
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 960,
     minHeight: 680,
     backgroundColor: '#07090e',
-    title: 'AndroScrn',
+    title: 'AndroScrn (Provisional Electron Distribution)',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true
     }
   });
 
   const devUrl = 'http://localhost:5173';
-  const prodIndex = path.join(__dirname, '../dist/index.html');
+  const prodIndexCandidates = [
+    path.join(app.getAppPath(), 'dist', 'index.html'),
+    path.join(__dirname, '../dist/index.html'),
+    path.join(__dirname, 'dist', 'index.html')
+  ];
+  const prodIndex = prodIndexCandidates.find(p => fs.existsSync(p)) || path.join(app.getAppPath(), 'dist', 'index.html');
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    // If running in development with Vite port 5173
+  } else if (!app.isPackaged && process.env.NODE_ENV === 'development') {
     mainWindow.loadURL(devUrl).catch(() => {
       mainWindow?.loadFile(prodIndex);
+    });
+  } else {
+    mainWindow.loadFile(prodIndex).catch((err) => {
+      appLog('ERROR', 'Failed to load prodIndex: ' + prodIndex, err);
     });
   }
 
   mainWindow.on('closed', () => {
-    scrcpyManager.stopMirroring();
+    try {
+      scrcpyManager.stopMirroring();
+    } catch {
+      // ignore on close
+    }
     mainWindow = null;
   });
 }
 
-// IPC Handlers
+// IPC Handlers with defensive error handling and logging
 ipcMain.handle('get-devices', async () => {
-  return await deviceManager.getDevices();
+  try {
+    return await deviceManager.getDevices();
+  } catch (err: any) {
+    appLog('ERROR', 'Error fetching devices', err?.message || err);
+    return [];
+  }
 });
 
 ipcMain.handle('set-alias', (_, { serial, alias }) => {
-  deviceManager.setDeviceAlias(serial, alias);
-  return true;
+  try {
+    deviceManager.setDeviceAlias(serial, alias);
+    return true;
+  } catch (err: any) {
+    appLog('ERROR', 'Error setting alias', err?.message || err);
+    return false;
+  }
 });
 
 ipcMain.handle('start-mirroring', (_, options) => {
-  return scrcpyManager.startMirroring(options);
+  try {
+    if (!fs.existsSync(scrcpyPath)) {
+      return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
+    }
+    return scrcpyManager.startMirroring(options);
+  } catch (err: any) {
+    appLog('ERROR', 'Error starting mirroring', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to start mirroring process' };
+  }
 });
 
 ipcMain.handle('stop-mirroring', () => {
-  return scrcpyManager.stopMirroring();
+  try {
+    return scrcpyManager.stopMirroring();
+  } catch (err: any) {
+    appLog('ERROR', 'Error stopping mirroring', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to stop mirroring' };
+  }
 });
 
 ipcMain.handle('get-mirror-status', () => {
-  return scrcpyManager.getStatus();
+  try {
+    return scrcpyManager.getStatus();
+  } catch (err: any) {
+    return { running: false, error: err?.message || 'Unknown status' };
+  }
 });
 
 ipcMain.handle('handoff-wifi', async (_, { serial }) => {
-  return await connectionManager.handoffUsbToWifi(serial);
+  try {
+    return await connectionManager.handoffUsbToWifi(serial);
+  } catch (err: any) {
+    appLog('ERROR', 'Error in wifi handoff', err?.message || err);
+    return { success: false, error: err?.message || 'Wireless handoff failed' };
+  }
 });
 
 ipcMain.handle('connect-wireless', async (_, { ip, port }) => {
-  return await connectionManager.connectWireless(ip, port);
+  try {
+    return await connectionManager.connectWireless(ip, port);
+  } catch (err: any) {
+    appLog('ERROR', 'Error connecting wireless', err?.message || err);
+    return { success: false, error: err?.message || 'Wireless connection failed' };
+  }
 });
 
 ipcMain.handle('disconnect-device', async (_, { serial }) => {
-  return await connectionManager.disconnect(serial);
+  try {
+    return await connectionManager.disconnect(serial);
+  } catch (err: any) {
+    appLog('ERROR', 'Error disconnecting device', err?.message || err);
+    return { success: false, error: err?.message || 'Disconnect failed' };
+  }
 });
 
 ipcMain.handle('pair-wireless', async (_, { ip, pairPort, pin, connectPort }) => {
-  return await connectionManager.pairWireless(ip, pairPort, pin, connectPort);
+  try {
+    return await connectionManager.pairWireless(ip, pairPort, pin, connectPort);
+  } catch (err: any) {
+    appLog('ERROR', 'Error pairing wireless', err?.message || err);
+    return { success: false, error: err?.message || 'Pairing failed' };
+  }
 });
 
 ipcMain.handle('detect-hotspot', () => {
-  return connectionManager.detectHotspotGateway();
+  try {
+    return connectionManager.detectHotspotGateway();
+  } catch (err: any) {
+    appLog('ERROR', 'Error detecting hotspot', err?.message || err);
+    return null;
+  }
 });
 
 ipcMain.handle('capture-screenshot', async (_, { serial }) => {
-  const capturesFolder = path.resolve(__dirname, '../../Captures');
-  return await diagnosticsManager.captureDeviceScreenshot(serial, capturesFolder);
+  try {
+    const capturesFolder = getCapturesFolder();
+    return await diagnosticsManager.captureDeviceScreenshot(serial, capturesFolder);
+  } catch (err: any) {
+    appLog('ERROR', 'Error capturing screenshot', err?.message || err);
+    return { success: false, error: err?.message || 'Screenshot capture failed' };
+  }
 });
 
 ipcMain.handle('get-recent-logs', async (_, { serial }) => {
-  return await diagnosticsManager.getRecentLogs(serial, 250);
+  try {
+    return await diagnosticsManager.getRecentLogs(serial, 250);
+  } catch (err: any) {
+    appLog('ERROR', 'Error fetching recent logs', err?.message || err);
+    return [];
+  }
 });
 
 ipcMain.handle('export-diagnostics', async (_, { serial }) => {
-  const capturesFolder = path.resolve(__dirname, '../../Captures');
-  return await diagnosticsManager.exportDiagnosticReport(serial, capturesFolder);
+  try {
+    const capturesFolder = getCapturesFolder();
+    return await diagnosticsManager.exportDiagnosticReport(serial, capturesFolder);
+  } catch (err: any) {
+    appLog('ERROR', 'Error exporting diagnostics', err?.message || err);
+    return { success: false, error: err?.message || 'Diagnostics export failed' };
+  }
 });
 
 ipcMain.handle('execute-workflow', async (_, { serial, workflow }) => {
-  const capturesFolder = path.resolve(__dirname, '../../Captures');
-  return await workflowEngine.executeWorkflow(serial, workflow, capturesFolder);
+  try {
+    const capturesFolder = getCapturesFolder();
+    return await workflowEngine.executeWorkflow(serial, workflow, capturesFolder);
+  } catch (err: any) {
+    appLog('ERROR', 'Error executing workflow', err?.message || err);
+    return { success: false, error: err?.message || 'Workflow execution failed' };
+  }
 });
 
 ipcMain.handle('execute-adb', async (_, args) => {
-  return await deviceManager.executeAdb(args);
+  try {
+    return await deviceManager.executeAdb(args);
+  } catch (err: any) {
+    appLog('ERROR', 'Error executing ADB command', err?.message || err);
+    return { exitCode: -1, stdout: '', stderr: err?.message || 'ADB execution failed' };
+  }
 });
 
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  scrcpyManager.stopMirroring();
+  try {
+    scrcpyManager.stopMirroring();
+  } catch {
+    // ignore
+  }
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
+

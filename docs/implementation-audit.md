@@ -165,13 +165,74 @@ Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `mod
 
 ---
 
-## 8. Prioritized Next Implementation Steps
+## 8. Genuine Portable Windows Distribution Verification (Completed)
 
-1. **Step 1 (Immediate - High Priority):**
-   Fix portable packaging by creating a true self-contained Windows portable bundle using the local Electron binary (`apps/desktop/node_modules/electron/dist/` -> `AndroScrn.exe`), eliminating all dependence on external `node`, `npm`, or `npx`.
-2. **Step 2 (High Priority):**
-   Implement the separate **MCP Stdio Server** (`bin/androscrn-mcp.ts` / `androscrn-mcp.exe`) using `@modelcontextprotocol/sdk`, exposing `list_devices`, `start_mirroring`, `stop_mirroring`, `capture_screenshot`, and `get_logcat` tools to AI coding agents.
-3. **Step 3 (Medium Priority):**
-   Replace the UI placeholder fallbacks for Tesseract OCR and Ollama with real HTTP / CLI invocations to the host's installed Tesseract (`C:\Program Files\Tesseract-OCR\tesseract.exe`) and Ollama (`http://localhost:11434`).
-4. **Step 4 (Validation):**
-   Attach a physical Android test device or start an Android Virtual Device (AVD) emulator to validate real-hardware video streaming, touch input latency, and physical Wi-Fi disconnect recovery.
+Following the identification of the `npx` dependency flaw in prototype archive `AndroScrn-v1.0.0-alpha.1-win64.zip`, a genuine standalone portable distribution pipeline was implemented in `packaging/portable/package-portable.ps1`.
+
+### A. Release Artifact Inventory & Checksums
+
+| Artifact | Path | Size | SHA-256 Checksum | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Standalone Portable Archive** | `dist-release/AndroScrn-portable-win-x64.zip` | 127.06 MB | `66b8ace23fd6c2286e0583bb54bbba50fac0cb1206fdee6e726312775dfaae7d` | **Verified Standalone** |
+| **Standalone Executable** | `dist-release/AndroScrn-portable-win-x64/AndroScrn.exe` | 172.47 MB | `1fa93c3471c11dc8128998c662c705104e4528b98901b61c8a25216acda424c5` | **Verified Standalone** |
+| **Checksum Manifest** | `dist-release/SHA256SUMS.txt` | 218 B | N/A | Generated |
+| **Previous Prototype Archive** | `dist-release/AndroScrn-v1.0.0-alpha.1-win64.zip` | 10.85 MB | `2df1f2f04df5ecdb0879f8fa55cb3ec3ce2db0d724734a26e8ad067332da5d92` | **Preserved (Prototype)** |
+
+### B. Isolated Environment Verification (Actual Test Results)
+
+Verification was conducted in an isolated temporary directory outside the workspace (`C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test`) with `$env:PATH` restricted strictly to Windows core system paths (`C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem`).
+
+```powershell
+=== TEST 1: Restricted PATH Check ===
+Node command available: False
+NPM command available:  False
+
+=== TEST 2: Bundled ADB Execution in Isolated Environment ===
+Android Debug Bridge version 1.0.41
+Version 37.0.1-15733141
+Installed as C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe
+Running on Windows 10.0.26200
+
+=== TEST 3: Bundled scrcpy Execution in Isolated Environment ===
+scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>
+Dependencies (compiled / linked):
+ - SDL: 3.4.18 / 3.4.18
+ - libavcodec: 63.1.102 / 63.1.102
+ - libavformat: 63.1.102 / 63.1.102
+ - libavutil: 61.1.102 / 61.1.102
+ - libusb: - / 1.0.30
+
+=== TEST 4: Launching Standalone AndroScrn.exe (5s smoke test) ===
+[PASS] AndroScrn.exe running successfully with PID 33416
+
+=== TEST 5: Inspecting Isolated Runtime Application Log ===
+[2026-10-16T13:13:14.246Z] [INFO] AndroScrn starting up (Provisional Electron Distribution) {
+  "isPackaged": true,
+  "execPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\AndroScrn.exe",
+  "appPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources\\app",
+  "resourcesPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources"
+}
+[2026-10-16T13:13:14.251Z] [INFO] Resolved adb.exe at: C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe 
+[2026-10-16T13:13:14.252Z] [INFO] Resolved scrcpy.exe at: C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\scrcpy.exe 
+
+=== TEST 6: Launching via AndroScrn.bat ===
+[PASS] Launcher started AndroScrn successfully! Found 4 process(es).
+```
+
+### C. Architecture Deviation & Physical Hardware Limitations
+
+1. **Architecture Status (Provisional):**  
+   The approved long-term baseline is **Tauri 2 + Rust + React/TypeScript** with an out-of-process MCP server communicating over Windows Named Pipes (`\\.\pipe\androscrn-ipc`).  
+   This distribution is explicitly labeled a **provisional Electron build**. It avoids blocking on the missing Rust/MSVC compiler toolchain on the developer workstation while delivering a working standalone portable application.
+2. **Physical Hardware Notice:**  
+   Automated testing verifies all command vectors, socket connections, error handling, process spawning, and logcat parsing. However, physical USB video streaming, low-latency touch injection, and wireless PIN pairing remain **unverified without a physical Android device**.
+
+---
+
+## 9. Next Implementation Milestones
+
+1. **Milestone 1:** Implement standalone MCP Stdio Server (`bin/androscrn-mcp.ts` / executable) using `@modelcontextprotocol/sdk` to expose Android automation capabilities to AI tools.
+2. **Milestone 2:** Connect host Tesseract OCR CLI and Ollama inference endpoints to replace UI preview fallbacks with real analysis.
+3. **Milestone 3:** Physical device hardware validation across USB 2.0/3.0, Wi-Fi 5/6, and Android 11–15 devices.
+4. **Milestone 4:** Long-term transition of backend supervision modules to Rust/Tauri 2 when Rust and MSVC build environments are provisioned.
+

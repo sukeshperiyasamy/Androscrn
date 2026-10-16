@@ -1,0 +1,68 @@
+# AndroScrn — Third-Party Software Notices and Licenses
+
+This distribution of AndroScrn includes third-party software components licensed under open-source licenses.
+The corresponding licenses and copyright notices are reproduced below.
+
+================================================================================
+1. scrcpy & scrcpy-server
+   Copyright (C) 2018-2024 Genymobile, Romain Vimont
+   License: Apache License, Version 2.0
+   URL: https://github.com/Genymobile/scrcpy
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+================================================================================
+2. Android Debug Bridge (ADB)
+   Copyright (C) 2006-2024 The Android Open Source Project
+   License: Apache License, Version 2.0
+   URL: https://android.googlesource.com/platform/packages/modules/adb/
+
+   Licensed under the Apache License, Version 2.0.
+
+================================================================================
+3. Simple DirectMedia Layer (SDL3)
+   Copyright (C) 1997-2024 Sam Lantinga <slouken@libsdl.org>
+   License: zlib License
+   URL: https://libsdl.org/
+
+   This software is provided 'as-is', without any express or implied
+   warranty. In no event will the authors be held liable for any damages
+   arising from the use of this software.
+
+================================================================================
+4. FFmpeg Shared Libraries (avcodec, avformat, avutil, swresample)
+   Copyright (C) 2000-2024 The FFmpeg developers
+   License: GNU Lesser General Public License (LGPL), version 2.1 or later
+   URL: https://ffmpeg.org/
+
+   This software uses libraries from the FFmpeg project under the LGPLv2.1.
+   FFmpeg source code is available at https://ffmpeg.org/.
+
+================================================================================
+5. Electron & Chromium Embedded Framework
+   Copyright (c) Electron contributors
+   Copyright (c) 2013-2024 GitHub Inc.
+   License: MIT License
+   URL: https://www.electronjs.org/
+
+================================================================================
+6. React & React DOM
+   Copyright (c) Meta Platforms, Inc. and affiliates.
+   License: MIT License
+   URL: https://react.dev/
+
+================================================================================
+7. Lucide Icons
+   Copyright (c) Lucide Contributors
+   License: ISC License
+   URL: https://lucide.dev/

@@ -5,7 +5,8 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --target=node20 --external:electron --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --target=node20 --external:electron --outfile=dist-electron/preload.js",
+    "build": "tsc && vite build && npm run build:electron",
     "start": "electron ."
   },
   "dependencies": {

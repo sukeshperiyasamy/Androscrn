@@ -9,7 +9,7 @@
     "test": "tsc -p tsconfig.json && node dist/tests/unit/runner.js && node dist/tests/integration/integration.test.js",
     "build:modules": "tsc -p tsconfig.json",
     "dev:desktop": "cd apps/desktop && npm run dev",
-    "build": "npm run build:modules && cd apps/desktop && npm run build && tsc -p tsconfig.electron.json",
+    "build": "npm run build:modules && npm --prefix apps/desktop run build",
     "build:portable": "powershell -ExecutionPolicy Bypass -File packaging/portable/package-portable.ps1"
   },
   "keywords": [
