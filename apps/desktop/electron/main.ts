@@ -270,6 +270,31 @@ ipcMain.handle('capture-screenshot', async (_, { serial }) => {
   }
 });
 
+ipcMain.handle('get-captures', () => {
+  try {
+    const capturesFolder = getCapturesFolder();
+    return diagnosticsManager.getExistingCaptures(capturesFolder);
+  } catch (err: any) {
+    appLog('ERROR', 'Error retrieving captures list', err?.message || err);
+    return [];
+  }
+});
+
+ipcMain.handle('open-path', async (_, targetPath: string) => {
+  try {
+    const capturesFolder = getCapturesFolder();
+    if (typeof targetPath === 'string' && (targetPath.startsWith(capturesFolder) || targetPath === logFile)) {
+      const { shell } = require('electron');
+      await shell.openPath(targetPath);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    appLog('ERROR', 'Error opening path: ' + targetPath, err?.message || err);
+    return false;
+  }
+});
+
 ipcMain.handle('get-recent-logs', async (_, { serial }) => {
   try {
     return await diagnosticsManager.getRecentLogs(serial, 250);
@@ -279,10 +304,57 @@ ipcMain.handle('get-recent-logs', async (_, { serial }) => {
   }
 });
 
+ipcMain.handle('get-system-info', async () => {
+  try {
+    const adbVersion = await deviceManager.getAdbVersion();
+    const scrcpyVersion = await scrcpyManager.getScrcpyVersion();
+    const mirrorStatus = scrcpyManager.getStatus();
+    const devices = await deviceManager.getDevices();
+
+    let recentAppLogs: string[] = [];
+    try {
+      if (fs.existsSync(logFile)) {
+        const content = fs.readFileSync(logFile, 'utf8');
+        recentAppLogs = content.trim().split('\n').slice(-25);
+      }
+    } catch {
+      // ignore
+    }
+
+    return {
+      adbPath,
+      adbVersion,
+      scrcpyPath,
+      scrcpyVersion,
+      deviceCount: devices.length,
+      mirrorStatus,
+      platform: `${process.platform} (${process.arch})`,
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      logFile,
+      recentAppLogs
+    };
+  } catch (err: any) {
+    appLog('ERROR', 'Error retrieving system info', err?.message || err);
+    return { error: err?.message || 'Failed to retrieve system information' };
+  }
+});
+
+ipcMain.handle('get-diagnostic-report', async (_, { serial } = {}) => {
+  try {
+    const status = scrcpyManager.getStatus();
+    return await diagnosticsManager.generateDiagnosticBundle(serial, status);
+  } catch (err: any) {
+    appLog('ERROR', 'Error generating diagnostic report', err?.message || err);
+    return `Failed to generate diagnostic report: ${err?.message || err}`;
+  }
+});
+
 ipcMain.handle('export-diagnostics', async (_, { serial }) => {
   try {
     const capturesFolder = getCapturesFolder();
-    return await diagnosticsManager.exportDiagnosticReport(serial, capturesFolder);
+    const status = scrcpyManager.getStatus();
+    return await diagnosticsManager.exportDiagnosticReport(serial, capturesFolder, status);
   } catch (err: any) {
     appLog('ERROR', 'Error exporting diagnostics', err?.message || err);
     return { success: false, error: err?.message || 'Diagnostics export failed' };

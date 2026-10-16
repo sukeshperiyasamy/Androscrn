@@ -12,7 +12,11 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   pairWireless: (data: any) => ipcRenderer.invoke('pair-wireless', data),
   detectHotspot: () => ipcRenderer.invoke('detect-hotspot'),
   captureScreenshot: (serial: string) => ipcRenderer.invoke('capture-screenshot', { serial }),
+  getCaptures: () => ipcRenderer.invoke('get-captures'),
+  openPath: (targetPath: string) => ipcRenderer.invoke('open-path', targetPath),
   getRecentLogs: (serial: string) => ipcRenderer.invoke('get-recent-logs', { serial }),
+  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  getDiagnosticReport: (serial?: string) => ipcRenderer.invoke('get-diagnostic-report', { serial }),
   exportDiagnostics: (serial: string) => ipcRenderer.invoke('export-diagnostics', { serial }),
   executeWorkflow: (data: any) => ipcRenderer.invoke('execute-workflow', data),
   executeAdb: (args: string[]) => ipcRenderer.invoke('execute-adb', args)

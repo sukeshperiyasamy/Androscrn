@@ -50,36 +50,40 @@
 
 ---
 
-## 3. Implemented Features versus Placeholders
+## 3. Implemented Features versus Placeholders (Rule 6 Strict Classification)
 
-Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `modules/`, the true operational status of each feature is cataloged below:
+Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `modules/`, the true operational status of each feature is cataloged below according to required Rule 6 categories:
 
-| Feature | Backend Module Status | Frontend UI Status | Verified Operational Status |
+| Feature | Backend Module Status | Frontend UI Status | Rule 6 Verification Status |
 | :--- | :--- | :--- | :--- |
-| **USB Device Discovery** | Real (`adb devices -l` parser) | Real (Reactive polling dropdown) | **Verified Working** (Tested with live ADB daemon) |
-| **Battery Level Query** | Real (`dumpsys battery`) | Real (Parsed & displayed in badge) | **Verified Working** |
-| **Friendly Device Aliases** | Real (`Map<string, string>`) | Real (Persisted in state) | **Verified Working** |
-| **Screen Mirroring (scrcpy)** | Real (`child_process.spawn`) | Real (Wired to `androscrnApi.startMirroring`) | **Verified Working** (CLI args verified, scrcpy binary executes) |
-| **Quality Preset Switching** | Real (`ScrcpyManager.buildArguments`) | Real (Wired to options payload) | **Verified Working** (1080p, 720p, bitrate flags) |
-| **Quick Remote Controls** | Real (`input keyevent` via ADB) | Real (Wired to Home, Back, App Switch, Power) | **Verified Working** |
-| **1-Click Wireless Handoff** | Real (`handoffUsbToWifi`) | Wired to `androscrnApi.handoffWifi` | **Verified in Modules** (Requires physical USB device for live test) |
-| **Hotspot Gateway Connect** | Real (`connectWireless`) | Wired to `androscrnApi.connectWireless` | **Verified in Modules** (Gateway 192.168.43.1 probe) |
-| **Android 11+ PIN Pairing** | Real (`pairWireless`) | Wired to `androscrnApi.pairWireless` | **Verified in Modules** (`adb pair` syntax verified) |
-| **Screenshot Capture** | Real (`exec-out screencap -p`) | Wired to `androscrnApi.captureScreenshot` | **Verified in Modules** (Pipes PNG buffer to file) |
-| **Video Recording** | Real (`--record=file.mp4`) | Wired to scrcpy options | **Verified in Modules** (Pass-through muxing) |
-| **Filtered Logcat Studio** | Real (`DiagnosticsManager.getRecentLogs`) | UI filter implemented | **Partially Wired** (Displays recent mock stream if device empty) |
-| **Automation Workflow Runner**| Real (`WorkflowEngine.executeWorkflow`) | Wired to `androscrnApi.executeWorkflow` | **Verified in Modules** (Step sequencer with tap, swipe, wait) |
-| **Tesseract OCR Analysis** | External CLI available | Mock preview in UI | **Placeholder in UI** (Engine exists on host, UI currently returns mock) |
-| **Ollama Local AI Summary** | External API available | Mock preview in UI | **Placeholder in UI** (Ollama exists on host, UI currently returns mock) |
-| **MCP Stdio Server** | Not yet created | N/A | **Planned Module** (Identified in Task 2) |
+| **USB Device Discovery & State Guidance** | Real (`adb devices -l` parser with guidance generator) | Real (Reactive dropdown + state alert badge) | **Implemented and tested** |
+| **Multi-Device Scoping & Serial Isolation** | Real (`-s <serial>` argument enforcement) | Real (Scoped remote controls & queries) | **Implemented and tested** |
+| **Battery Level Query** | Real (`dumpsys battery` parser) | Real (Parsed & displayed in badge) | **Implemented but not tested on hardware** |
+| **Friendly Device Aliases** | Real (`Map<string, string>`) | Real (Persisted in state) | **Implemented and tested** |
+| **Screen Mirroring (scrcpy)** | Real (`child_process.spawn` + exit tracking + duplicate guard) | Real (Wired to `androscrnApi.startMirroring`) | **Implemented but not tested on hardware** (Scrcpy binary smoke tested) |
+| **Quality Preset Switching** | Real (`ScrcpyManager.buildArguments`) | Real (Wired to options payload) | **Implemented and tested** (1080p, 720p, bitrate flags) |
+| **Quick Remote Controls** | Real (`input keyevent` via ADB with `-s`) | Real (Home, Back, App Switch, Power) | **Implemented but not tested on hardware** |
+| **1-Click Wireless Handoff** | Real (`handoffUsbToWifi`) | Wired to `androscrnApi.handoffWifi` | **Implemented but not tested on hardware** |
+| **Hotspot Gateway Connect** | Real (`connectWireless`) | Wired to `androscrnApi.connectWireless` | **Implemented but not tested on hardware** |
+| **Android 11+ PIN Pairing** | Real (`pairWireless`) | Wired to `androscrnApi.pairWireless` | **Implemented but not tested on hardware** |
+| **Raw Binary Screenshot Capture** | Real (`executeAdbBinary` + PNG magic header verification) | Real (Wired with toast and size validation) | **Implemented and tested** |
+| **Video Recording via scrcpy** | Real (`--record=file.mp4` pass-through) | Real (Wired to scrcpy options) | **Implemented but not tested on hardware** |
+| **Real Captures Gallery** | Real (Filesystem scan of `Captures/` for `.png` & `.mp4`) | Real (Dynamic gallery with "Open" via shell) | **Implemented and tested** |
+| **Device Diagnostics & Bundle Export** | Real (`generateDiagnosticBundle` with redaction) | Real (System diagnostics card + Copy / Export) | **Implemented and tested** |
+| **Logcat & Application Log Viewer** | Real (`getRecentLogs` & log file read) | Real (Toggle between Logcat and app log) | **Implemented and tested** |
+| **Automation Workflow Runner**| Real (`WorkflowEngine.executeWorkflow`) | Real (Step sequencer with tap, swipe, wait) | **Implemented but not tested on hardware** |
+| **Tesseract OCR Analysis** | External CLI available on host | Mock preview in UI | **Mocked or simulated** (Host CLI not yet wired) |
+| **Ollama Local AI Summary** | External API available on host | Mock preview in UI | **Mocked or simulated** (Host API not yet wired) |
+| **MCP Stdio Server** | Not yet created | N/A | **Not implemented** (Targeted for Phase 2) |
+| **Named-Pipe AI Firewall** | Not yet created | N/A | **Not implemented** (Targeted for Phase 2) |
 
 ---
 
 ## 4. Test Results and Coverage Limitations
 
-### Actual Test Execution Output:
-* **Unit Tests (`tests/unit/runner.ts`):** **55 / 55 Passed (0 Failed)**
-  * *Test Type:* Pure unit tests and mocked ADB output tests.
+### Actual Test Execution Output (79 Tests Total):
+* **Unit Tests (`tests/unit/runner.ts`):** **66 / 66 Passed (0 Failed)**
+  * *Test Type:* Pure unit tests, protocol validators, and mocked ADB stream tests.
   * *Coverage:*
     - IPv4 validation, injection detection, boundary checks.
     - Port validation (1–65535, rejection of negative/string/overflow ports).
@@ -91,8 +95,12 @@ Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `mod
     - Missing ADB binary error code propagation.
     - ConnectionManager defensive input rejection.
     - Scrcpy process lifecycle and cleanup.
-* **Integration Tests (`tests/integration/integration.test.ts`):** **10 / 10 Passed (0 Failed)**
-  * *Test Type:* Binary smoke tests and live socket probe.
+    - Device state guidance strings for unauthorized, offline, and ready states.
+    - Raw binary stream collection and PNG magic header validation (`89 50 4E 47`).
+    - Diagnostic bundle generation, system specs, and redaction.
+    - Captures directory scanning and error safety.
+* **Integration Tests (`tests/integration/integration.test.ts`):** **13 / 13 Passed (0 Failed)**
+  * *Test Type:* Binary smoke tests, version introspection, and live socket probes.
   * *Coverage:*
     - Official bundled `adb.exe` execution (`adb version` banner verification).
     - Command failure handling (invalid adb subcommand returns non-zero code and stderr).
@@ -100,12 +108,13 @@ Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `mod
     - Missing binary graceful degradation (returns `-1` and error message without crashing).
     - Scrcpy initial status verification.
     - Device disconnection event handling (exit code `2`).
+    - Introspection of live ADB version (`ADB 1.0.41`).
+    - Introspection of live scrcpy version (`scrcpy 5.0.1`).
+    - Raw binary buffer execution (`executeAdbBinary`).
     - Process cleanup safety.
 
 ### Coverage Limitations (Honest Assessment):
-* **No Physical Android Device Connected:** During this test session, no physical Android device was connected to the host laptop. Therefore:
-  - Real-device screen streaming, wireless TCP/IP handoff across physical Wi-Fi, touch injection on a physical touchscreen, and physical camera mirroring were **not executed against physical hardware**.
-  - All device interactions were verified via protocol unit tests, binary execution smoke tests, and mocked descriptor tests.
+* **Physical Device Tests Pending:** Automated tests confirm binary execution, argument vectors, socket communication, and buffer integrity. However, physical USB video streaming, real touchscreen injection, wireless handoff across physical Wi-Fi, and physical camera mirroring remain **untested on hardware** until physical device verification is performed following `docs/manual-device-test.md`. All device interactions in this sprint were verified via unit tests, bundled binary smoke tests, and mocked descriptor tests.
 
 ---
 

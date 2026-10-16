@@ -64,7 +64,18 @@ async function runIntegrationTests() {
   sm.emit('disconnected', { serial: 'test-device-disconnect' });
   assert(disconnectedEventTriggered, 'ScrcpyManager handles device disconnection event');
 
-  // 7. Process Cleanup
+  // 7. ADB & Scrcpy Version Introspection Tests
+  const adbVer = await dm.getAdbVersion();
+  assert(adbVer.length > 0 && !adbVer.includes('Error'), `ADB Version successfully introspected: ${adbVer}`);
+
+  const scrcpyVer = await sm.getScrcpyVersion();
+  assert(scrcpyVer.length > 0 && !scrcpyVer.includes('Error'), `Scrcpy Version successfully introspected: ${scrcpyVer}`);
+
+  // 8. Raw Binary ADB Output Test
+  const rawBin = await dm.executeAdbBinary(['version']);
+  assert(rawBin.code === 0 && rawBin.buffer.length > 0, 'executeAdbBinary successfully returns raw binary Buffer');
+
+  // 9. Process Cleanup
   assert(sm.stopMirroring() === false, 'Stopping when not running is safely handled');
 
   console.log('\n==================================================');

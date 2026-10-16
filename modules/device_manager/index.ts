@@ -11,6 +11,22 @@ export interface AndroidDevice {
   alias?: string;
   batteryLevel?: number;
   ipAddress?: string;
+  guidance?: string;
+}
+
+export function getDeviceStateGuidance(state: AndroidDevice['state']): string {
+  switch (state) {
+    case 'unauthorized':
+      return 'Device unauthorized: Unlock your phone and tap "Allow USB debugging" (check "Always allow from this computer").';
+    case 'offline':
+      return 'Device offline: Reconnect the USB cable or toggle Developer Options -> USB debugging.';
+    case 'connecting':
+      return 'Establishing ADB connection: Please wait a moment...';
+    case 'device':
+      return 'Connected and authorized: Ready for screen mirroring and control.';
+    default:
+      return 'No device detected. Connect via USB with Developer Options & USB debugging enabled.';
+  }
 }
 
 export class DeviceManager {
@@ -19,6 +35,59 @@ export class DeviceManager {
 
   constructor(adbPath: string) {
     this.adbPath = adbPath;
+  }
+
+  /**
+   * Returns the ADB binary version string
+   */
+  public async getAdbVersion(): Promise<string> {
+    const res = await this.executeAdb(['version']);
+    const match = res.stdout.match(/Android Debug Bridge version ([\d.]+)/i);
+    return match ? `ADB ${match[1]}` : (res.stdout.split('\n')[0] || 'Unknown ADB Version');
+  }
+
+  /**
+   * Executes an ADB command with raw binary buffer output (prevents PNG/media corruption)
+   */
+  public executeAdbBinary(args: string[], timeoutMs = 10000): Promise<{ buffer: Buffer; code: number; error?: string }> {
+    return new Promise((resolve) => {
+      const child = spawn(this.adbPath, args, {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      const chunks: Buffer[] = [];
+      let stderr = '';
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, timeoutMs);
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const buffer = Buffer.concat(chunks);
+        if (timedOut) {
+          resolve({ buffer, code: -1, error: 'ADB command timed out.' });
+        } else {
+          resolve({ buffer, code: code ?? 0, error: stderr.trim() || undefined });
+        }
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({ buffer: Buffer.alloc(0), code: -1, error: err.message });
+      });
+    });
   }
 
   /**
@@ -124,7 +193,8 @@ export class DeviceManager {
         device,
         transportType,
         alias,
-        ipAddress: isWifi ? serial.split(':')[0] : undefined
+        ipAddress: isWifi ? serial.split(':')[0] : undefined,
+        guidance: getDeviceStateGuidance(state)
       });
     }
 

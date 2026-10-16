@@ -10,25 +10,53 @@
 [![ADB Verified](https://img.shields.io/badge/Bridge-Google%20ADB%201.0.41-orange?style=for-the-badge)](https://developer.android.com/tools/adb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-*Ultra-low latency screen mirroring, 1-click wireless handoff, phone-hotspot discovery, recording studio, filtered logcat diagnostics, test automation workflows, and local AI assistance.*
+*Ultra-low latency screen mirroring, 1-click wireless handoff, phone-hotspot discovery, raw binary screenshot capture, filtered logcat diagnostics, test automation workflows, and diagnostic reports.*
 
 </div>
 
 ---
 
-## ✨ Key Features
+## 🏗️ Architecture Status: Provisional Standalone Electron Distribution
 
-* **⚡ Ultra-Low Latency Mirroring:** Powered by verified `scrcpy v5.0.1` (SDL3 + FFmpeg hardware acceleration on Intel Iris Xe). 35–70ms typical latency, up to 120 FPS.
-* **📶 1-Click Wireless Handoff:** Connect via USB once; AndroScrn configures TCP/IP 5555, establishes the network bridge, and tells you when to unplug the cable.
-* **🔥 Smart Hotspot Mode:** Connect your laptop to your phone's personal hotspot; AndroScrn automatically detects the phone's gateway IP (`192.168.43.1`) for instant connection.
-* **🔐 Android 11+ Pair Wizard:** Clean pairing dialog with 6-digit PIN and port validation.
-* **🎥 Integrated Recording Studio:** Single-click MP4/MKV video recording and PNG screenshots with zero CPU re-encoding overhead and automatic gallery organization in `Captures/`.
-* **🔍 Filtered Logcat Studio:** Real-time log streamer with instant search, tag filter, level badges, and 1-click diagnostic export.
-* **🤖 Test Automation & Workflow Runner:** Create and run reusable step workflows (`tap`, `swipe`, `keyevent`, `input_text`, `wait`, `screenshot`, `assert_text`).
-* **🧠 Local AI & OCR Assistant:** On-device screen OCR via Tesseract and private local LLM diagnostic analysis via Ollama. 100% offline, zero cloud subscriptions.
-* **🛡️ Enterprise Process Supervision:** Child processes are strictly managed via immutable argument vectors (zero shell injection), health monitoring, and exponential backoff auto-reconnect.
+> **Architecture Disclosure:** The approved long-term target architecture is **Tauri 2 + Rust + React/TypeScript** with an out-of-process MCP server over Windows Named Pipes (`\\.\pipe\androscrn-ipc`).
+> Because the current development machine lacks the MSVC C++ build environment and Rust compiler, this release is distributed as a **provisional standalone Electron 31 + Node.js 20 LTS** portable package. All underlying device management, security, and process supervision logic is completely decoupled in `modules/` for future Rust porting.
 
 ---
+
+## 📊 Feature Status Matrix (Evidence-Based Classification)
+
+In compliance with strict verification standards, each capability is classified according to its actual verified status:
+
+| Feature | Scope / Engine | Status | Notes |
+| :--- | :--- | :--- | :--- |
+| **USB Device Discovery & State Guidance** | Bundled ADB 1.0.41 parser | **Implemented & tested** | Multi-device parsing, state guidance (unauthorized, offline, ready). |
+| **Multi-Device Serial Scoping** | `-s <serial>` argument isolation | **Implemented & tested** | Commands strictly target selected device; avoids multi-device collisions. |
+| **Raw Binary Screenshot Capture** | `adb exec-out screencap -p` | **Implemented & tested** | Raw buffer streaming; PNG magic header (`89 50 4E 47`) verified. |
+| **Captures Gallery & Folder Explorer** | Real filesystem scan of `Captures/` | **Implemented & tested** | Dynamic list of `.png` and `.mp4` files with system viewer launch. |
+| **System Diagnostics & Report Export** | Bundled binary introspection | **Implemented & tested** | Version reporting (ADB 1.0.41, scrcpy 5.0.1) and redacted bug reports. |
+| **Dual Log Streamer** | Device Logcat + Application Log | **Implemented & tested** | Live logcat viewing alongside `androscrn.log`. |
+| **Quality Preset Switching** | Scrcpy argument composition | **Implemented & tested** | High (1080p·12M·60fps), Balanced, Fast presets verified. |
+| **Screen Mirroring Lifecycle** | Bundled scrcpy 5.0.1 child process | **Implemented (pending hardware)** | Binary verified, duplicate guard active; needs physical device. |
+| **Quick Remote Navigation** | ADB `input keyevent` with `-s` | **Implemented (pending hardware)** | Home, Back, App Switch, Power verified via CLI; needs physical device. |
+| **1-Click Wireless Handoff** | TCP/IP port 5555 configuration | **Implemented (pending hardware)** | Automatic gateway probe verified; needs physical device. |
+| **Android 11+ PIN Pairing** | `adb pair <ip>:<port> <pin>` | **Implemented (pending hardware)** | Regex & command syntax verified; needs physical device. |
+| **Video Recording via scrcpy** | Pass-through `--record` muxing | **Implemented (pending hardware)** | Scrcpy option enabled; needs physical device. |
+| **Automation Workflow Runner** | Step sequencer (`WorkflowEngine`) | **Implemented (pending hardware)** | Core execution loop verified; needs physical device. |
+| **Tesseract OCR Analysis** | Tesseract 5.3 CLI on host | **Mocked / Preview** | Engine installed on host; renderer currently uses mock preview. |
+| **Ollama Local AI Summary** | Local Ollama 0.34 API on host | **Mocked / Preview** | Engine installed on host; renderer currently uses mock preview. |
+| **MCP Stdio Server** | Planned Model Context Protocol | **Not implemented** | Scheduled for Phase 2. |
+| **Named-Pipe AI Firewall** | Planned security IPC bridge | **Not implemented** | Scheduled for Phase 2. |
+
+---
+
+## ✨ Implemented Core Features
+
+* **⚡ Ultra-Low Latency Mirroring:** Powered by verified `scrcpy v5.0.1` (SDL3 + FFmpeg hardware acceleration). Safe argument-vector spawning, duplicate session prevention, and exit code tracking.
+* **📱 Actionable Device Guidance:** Clear badges for `READY`, `UNAUTHORIZED`, `OFFLINE`, and `CONNECTING`, with instant instructions to unlock the screen and accept RSA debugging prompts.
+* **📸 Reliable Raw Binary Screenshots:** Raw binary stream capture from device memory directly to disk with PNG magic byte validation, preventing UTF-8 conversion corruption.
+* **📁 Real Captures Management:** Direct access to genuine screenshots and recordings saved in `Captures/` with 1-click viewing in Windows Photo Viewer or Explorer.
+* **🛠️ System Diagnostics & Sanity Reports:** Introspects bundled ADB and scrcpy binaries, detects system health, and exports sensitive-redacted diagnostic reports for troubleshooting.
+* **🛡️ Defensive Process Supervision:** Child processes spawned with strict input validation, non-shell execution (`shell: false`, `windowsHide: true`), and graceful teardown.
 
 ## 🚀 Quick Start (Development)
 

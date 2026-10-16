@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Smartphone,
   Wifi,
@@ -10,27 +10,17 @@ import {
   FileText,
   Activity,
   Bot,
-  Settings,
   RefreshCw,
-  Sliders,
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  ArrowRight,
-  Folder,
-  Copy,
-  Zap,
-  Volume2,
-  VolumeX,
-  EyeOff,
-  Maximize2,
-  ExternalLink,
-  Shield,
   Search,
-  Sparkles,
-  Terminal,
-  Send,
-  Flame
+  Shield,
+  Copy,
+  Folder,
+  Layers,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 
 interface AndroidDevice {
@@ -43,6 +33,7 @@ interface AndroidDevice {
   alias?: string;
   batteryLevel?: number;
   ipAddress?: string;
+  guidance?: string;
 }
 
 interface LogEntry {
@@ -53,11 +44,34 @@ interface LogEntry {
   message: string;
 }
 
-interface WorkflowStep {
+interface CaptureItem {
   id: string;
-  action: 'tap' | 'swipe' | 'keyevent' | 'input_text' | 'wait' | 'screenshot' | 'assert_text';
-  params: any;
-  description: string;
+  type: 'screenshot' | 'video';
+  name: string;
+  timestamp: string;
+  path: string;
+  sizeBytes: number;
+}
+
+interface SystemInfo {
+  adbPath?: string;
+  adbVersion?: string;
+  scrcpyPath?: string;
+  scrcpyVersion?: string;
+  deviceCount?: number;
+  mirrorStatus?: {
+    running: boolean;
+    pid?: number;
+    targetSerial?: string;
+    exitCode?: number | null;
+    lastError?: string;
+  };
+  platform?: string;
+  electronVersion?: string;
+  nodeVersion?: string;
+  logFile?: string;
+  recentAppLogs?: string[];
+  error?: string;
 }
 
 export default function App() {
@@ -92,94 +106,113 @@ export default function App() {
   const [hotspotGateway, setHotspotGateway] = useState<string | null>('192.168.43.1');
 
   // Media State
-  const [isRecording, setIsRecording] = useState(false);
-  const [captures, setCaptures] = useState<Array<{ id: string; type: 'screenshot' | 'video'; name: string; timestamp: string; path: string }>>([
-    {
-      id: '1',
-      type: 'screenshot',
-      name: 'screenshot_2026-10-16_12-30.png',
-      timestamp: 'Today at 12:30 PM',
-      path: 'C:\\Users\\sukes\\Downloads\\scrcpy-master\\AndroScrn\\Captures\\screenshot_1.png'
-    }
-  ]);
+  const [captures, setCaptures] = useState<CaptureItem[]>([]);
+  const [recordMirrorSession, setRecordMirrorSession] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
 
   // Diagnostics State
-  const [logs, setLogs] = useState<LogEntry[]>([
-    { raw: '', timestamp: '12:30:01.120', level: 'I', tag: 'ActivityManager', message: 'Starting activity: com.android.settings' },
-    { raw: '', timestamp: '12:30:02.450', level: 'D', tag: 'InputReader', message: 'Touch event down: x=540, y=1120' },
-    { raw: '', timestamp: '12:30:03.010', level: 'I', tag: 'ScrcpyServer', message: 'Video stream established (1920x1080 @ 60fps)' },
-    { raw: '', timestamp: '12:30:05.180', level: 'W', tag: 'WindowManager', message: 'Window orientation change animation deferred' }
-  ]);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logFilter, setLogFilter] = useState('');
   const [logLevelFilter, setLogLevelFilter] = useState<string>('ALL');
-
-  // Workflow State
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
-    { id: '1', action: 'keyevent', params: { keycode: 3 }, description: 'Press HOME button' },
-    { id: '2', action: 'wait', params: { waitMs: 1000 }, description: 'Wait 1.0s for home screen render' },
-    { id: '3', action: 'swipe', params: { x: 500, y: 1500, x2: 500, y2: 400, durationMs: 250 }, description: 'Swipe up to open App Drawer' },
-    { id: '4', action: 'wait', params: { waitMs: 800 }, description: 'Wait 0.8s for app drawer animation' },
-    { id: '5', action: 'screenshot', params: { label: 'app_drawer' }, description: 'Capture screenshot of App Drawer' }
-  ]);
-  const [workflowRunning, setWorkflowRunning] = useState(false);
-  const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
-
-  // AI & OCR State
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [aiResponse, setAiResponse] = useState<string | null>(null);
-  const [ocrTextResult, setOcrTextResult] = useState<string | null>(null);
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [logSource, setLogSource] = useState<'device' | 'app'>('device');
+  const [copyReportSuccess, setCopyReportSuccess] = useState(false);
 
   // Status Alerts
   const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>({
     type: 'info',
-    message: 'Welcome to AndroScrn. Connect an Android phone via USB or Wi-Fi to begin mirroring.'
+    message: 'Welcome to AndroScrn. Connect an Android phone via USB or Wi-Fi to begin.'
   });
 
-  // Polling devices
+  // Check IPC availability
+  const api = (window as any).androscrnApi;
+
+  // Refresh devices and mirror status
   const refreshDevices = async () => {
     setIsScanning(true);
     try {
-      if ((window as any).androscrnApi?.getDevices) {
-        const devList = await (window as any).androscrnApi.getDevices();
+      if (api?.getDevices) {
+        const devList: AndroidDevice[] = await api.getDevices();
         setDevices(devList);
-        if (devList.length > 0 && !selectedSerial) {
-          setSelectedSerial(devList[0].serial);
+        
+        // Auto-select first device or maintain valid selection
+        if (devList.length > 0) {
+          if (!selectedSerial || !devList.some(d => d.serial === selectedSerial)) {
+            setSelectedSerial(devList[0].serial);
+          }
+        } else {
+          setSelectedSerial('');
         }
-      } else {
-        // Fallback simulated devices when inspecting in browser
-        setTimeout(() => {
-          const mockList: AndroidDevice[] = [
-            {
-              serial: 'emulator-5554',
-              model: 'Pixel 8 Pro (Simulated)',
-              product: 'husky',
-              device: 'husky',
-              state: 'device',
-              transportType: 'usb',
-              batteryLevel: 88,
-              alias: 'Work Testbed'
-            }
-          ];
-          setDevices(mockList);
-          if (!selectedSerial) setSelectedSerial('emulator-5554');
-          setIsScanning(false);
-        }, 400);
-        return;
+      }
+
+      // Sync mirroring status
+      if (api?.getMirrorStatus) {
+        const status = await api.getMirrorStatus();
+        if (status.running && !isMirroring) {
+          setIsMirroring(true);
+        } else if (!status.running && isMirroring) {
+          setIsMirroring(false);
+          if (status.lastError) {
+            setAlertBanner({ type: 'error', message: `Screen mirroring session exited: ${status.lastError}` });
+          }
+        }
+      }
+
+      // Sync captures
+      if (api?.getCaptures) {
+        const existingCaptures = await api.getCaptures();
+        setCaptures(existingCaptures);
       }
     } catch (e: any) {
-      console.error(e);
+      console.error('Device refresh error:', e);
+    } finally {
+      setIsScanning(false);
     }
-    setIsScanning(false);
+  };
+
+  // Query System Info & Diagnostics
+  const refreshSystemInfo = async () => {
+    try {
+      if (api?.getSystemInfo) {
+        const info = await api.getSystemInfo();
+        setSystemInfo(info);
+      }
+    } catch (e) {
+      console.error('System info query error:', e);
+    }
+  };
+
+  // Query Device Logcat
+  const refreshLogcat = async () => {
+    if (api?.getRecentLogs && selectedSerial) {
+      try {
+        const entries = await api.getRecentLogs(selectedSerial);
+        setLogs(entries);
+      } catch (e) {
+        console.error('Logcat fetch error:', e);
+      }
+    } else {
+      setLogs([]);
+    }
   };
 
   useEffect(() => {
     refreshDevices();
-    const interval = setInterval(refreshDevices, 5000);
+    refreshSystemInfo();
+    const interval = setInterval(() => {
+      refreshDevices();
+    }, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  // Timer for active mirroring
+  useEffect(() => {
+    if (activeTab === 'diagnostics') {
+      refreshSystemInfo();
+      refreshLogcat();
+    }
+  }, [activeTab, selectedSerial]);
+
+  // Mirroring Session Timer
   useEffect(() => {
     let t: any;
     if (isMirroring) {
@@ -191,6 +224,7 @@ export default function App() {
   }, [isMirroring]);
 
   const activeDevice = devices.find(d => d.serial === selectedSerial) || devices[0];
+  const isDeviceReady = activeDevice && activeDevice.state === 'device';
 
   const handleStartMirror = async () => {
     if (!selectedSerial && devices.length === 0) {
@@ -198,11 +232,18 @@ export default function App() {
       return;
     }
 
-    setIsMirroring(true);
-    setAlertBanner({ type: 'success', message: `Screen mirroring started for ${activeDevice?.model || selectedSerial}.` });
+    if (activeDevice && activeDevice.state !== 'device') {
+      setAlertBanner({ type: 'error', message: activeDevice.guidance || 'Device is not ready for mirroring.' });
+      return;
+    }
 
-    if ((window as any).androscrnApi?.startMirroring) {
-      await (window as any).androscrnApi.startMirroring({
+    setAlertBanner({ type: 'info', message: `Initializing screen mirroring for ${activeDevice?.model || selectedSerial}...` });
+
+    if (api?.startMirroring) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const recordFilename = `recording_${selectedSerial.replace(/[:.]/g, '_')}_${timestamp}.mp4`;
+      
+      const res = await api.startMirroring({
         serial: selectedSerial,
         preset: qualityPreset,
         turnScreenOff,
@@ -210,58 +251,66 @@ export default function App() {
         fullscreen,
         showTouches,
         noAudio,
-        windowBorderless
+        windowBorderless,
+        recordPath: recordMirrorSession ? recordFilename : undefined
       });
+
+      if (res?.success) {
+        setIsMirroring(true);
+        setAlertBanner({ type: 'success', message: `Screen mirroring started for ${activeDevice?.model || selectedSerial}.` });
+      } else {
+        setIsMirroring(false);
+        setAlertBanner({ type: 'error', message: res?.message || 'Failed to start screen mirroring session.' });
+      }
+    } else {
+      setAlertBanner({ type: 'error', message: 'Desktop IPC bridge unavailable. Please launch inside AndroScrn desktop.' });
     }
   };
 
   const handleStopMirror = async () => {
+    if (api?.stopMirroring) {
+      await api.stopMirroring();
+    }
     setIsMirroring(false);
     setAlertBanner({ type: 'info', message: 'Screen mirroring session ended.' });
-    if ((window as any).androscrnApi?.stopMirroring) {
-      await (window as any).androscrnApi.stopMirroring();
-    }
+    refreshDevices();
   };
 
   const handle1ClickHandoff = async () => {
     if (!selectedSerial) {
-      setAlertBanner({ type: 'error', message: 'Select a USB-connected device first.' });
+      setAlertBanner({ type: 'error', message: 'Select an authorized USB-connected device first.' });
       return;
     }
-    setHandoffStatus('Discovering Wi-Fi IP and configuring port 5555...');
-    if ((window as any).androscrnApi?.handoffWifi) {
-      const res = await (window as any).androscrnApi.handoffWifi(selectedSerial);
+    if (!isDeviceReady) {
+      setAlertBanner({ type: 'error', message: activeDevice?.guidance || 'Device is not ready.' });
+      return;
+    }
+
+    setHandoffStatus('Discovering Wi-Fi IP and enabling port 5555...');
+    if (api?.handoffWifi) {
+      const res = await api.handoffWifi(selectedSerial);
       if (res.success) {
         setHandoffStatus(`Port 5555 enabled on ${res.ipAddress}. Wireless link ready!`);
         setAlertBanner({ type: 'success', message: res.message });
         refreshDevices();
       } else {
         setHandoffStatus(null);
-        setAlertBanner({ type: 'error', message: res.message });
+        setAlertBanner({ type: 'error', message: res.message || res.error || 'Wireless handoff failed.' });
       }
-    } else {
-      setTimeout(() => {
-        setHandoffStatus('Port 5555 enabled. Connected over Wi-Fi! You can now safely disconnect the USB cable.');
-        setAlertBanner({ type: 'success', message: '1-Click Wireless Handoff Complete! Disconnect the cable anytime.' });
-      }, 1200);
     }
   };
 
   const handleHotspotConnect = async () => {
+    if (!hotspotGateway) return;
     setAlertBanner({ type: 'info', message: `Connecting to phone hotspot gateway at ${hotspotGateway}:5555...` });
-    if ((window as any).androscrnApi?.connectWireless && hotspotGateway) {
-      const res = await (window as any).androscrnApi.connectWireless(hotspotGateway, 5555);
+    if (api?.connectWireless) {
+      const res = await api.connectWireless(hotspotGateway, 5555);
       if (res.success) {
         setAlertBanner({ type: 'success', message: res.message });
         refreshDevices();
       } else {
-        setAlertBanner({ type: 'error', message: `Hotspot connection failed: ${res.message}` });
+        setAlertBanner({ type: 'error', message: `Hotspot connection failed: ${res.message || res.error}` });
       }
-    } else {
-      setTimeout(() => {
-        setAlertBanner({ type: 'success', message: `Connected to Hotspot at ${hotspotGateway}:5555!` });
-        refreshDevices();
-      }, 1000);
     }
   };
 
@@ -271,8 +320,8 @@ export default function App() {
       return;
     }
     setAlertBanner({ type: 'info', message: `Pairing with ${pairIp}:${pairPort}...` });
-    if ((window as any).androscrnApi?.pairWireless) {
-      const res = await (window as any).androscrnApi.pairWireless({
+    if (api?.pairWireless) {
+      const res = await api.pairWireless({
         ip: pairIp,
         pairPort: parseInt(pairPort, 10),
         pin: pairPin,
@@ -282,106 +331,75 @@ export default function App() {
         setAlertBanner({ type: 'success', message: res.message });
         refreshDevices();
       } else {
-        setAlertBanner({ type: 'error', message: res.message });
+        setAlertBanner({ type: 'error', message: res.message || res.error });
       }
-    } else {
-      setTimeout(() => {
-        setAlertBanner({ type: 'success', message: `Paired successfully! Connecting to port ${pairConnectPort}...` });
-        refreshDevices();
-      }, 1200);
     }
   };
 
   const handleTakeScreenshot = async () => {
+    if (!selectedSerial) {
+      setAlertBanner({ type: 'error', message: 'No Android device selected for screenshot.' });
+      return;
+    }
+    if (!isDeviceReady) {
+      setAlertBanner({ type: 'error', message: activeDevice?.guidance || 'Device is not ready.' });
+      return;
+    }
+
+    setIsCapturing(true);
     setAlertBanner({ type: 'info', message: 'Capturing screen frame from device buffer...' });
-    if ((window as any).androscrnApi?.captureScreenshot && selectedSerial) {
-      const res = await (window as any).androscrnApi.captureScreenshot(selectedSerial);
+
+    if (api?.captureScreenshot) {
+      const res = await api.captureScreenshot(selectedSerial);
       if (res.success && res.filePath) {
-        const newCapture = {
-          id: Date.now().toString(),
-          type: 'screenshot' as const,
-          name: res.filePath.split(/[/\\]/).pop() || 'screenshot.png',
-          timestamp: 'Just now',
-          path: res.filePath
-        };
-        setCaptures(prev => [newCapture, ...prev]);
-        setAlertBanner({ type: 'success', message: `Screenshot saved to: ${res.filePath}` });
+        const sizeKb = res.size ? (res.size / 1024).toFixed(1) : '?';
+        setAlertBanner({ type: 'success', message: `Screenshot saved (${sizeKb} KB): ${res.filePath}` });
+        if (api?.getCaptures) {
+          const updated = await api.getCaptures();
+          setCaptures(updated);
+        }
       } else {
         setAlertBanner({ type: 'error', message: res.error || 'Screenshot capture failed.' });
       }
-    } else {
-      setTimeout(() => {
-        const newCapture = {
-          id: Date.now().toString(),
-          type: 'screenshot' as const,
-          name: `screenshot_${new Date().toISOString().slice(11, 19).replace(/:/g, '-')}.png`,
-          timestamp: 'Just now',
-          path: 'C:\\Users\\sukes\\Downloads\\scrcpy-master\\AndroScrn\\Captures\\capture.png'
-        };
-        setCaptures(prev => [newCapture, ...prev]);
-        setAlertBanner({ type: 'success', message: 'Screenshot saved to Captures/ directory!' });
-      }, 600);
+    }
+    setIsCapturing(false);
+  };
+
+  const handleSendKeyevent = (code: string, label: string) => {
+    if (!selectedSerial) {
+      setAlertBanner({ type: 'error', message: 'Select a connected device first.' });
+      return;
+    }
+    if (!isDeviceReady) {
+      setAlertBanner({ type: 'error', message: activeDevice?.guidance || 'Device is not ready.' });
+      return;
+    }
+
+    if (api?.executeAdb) {
+      api.executeAdb(['-s', selectedSerial, 'shell', 'input', 'keyevent', code]);
+      setAlertBanner({ type: 'info', message: `Sent ${label} keyevent to ${activeDevice.model}.` });
     }
   };
 
-  const handleRunWorkflow = async () => {
-    if (workflowRunning) return;
-    setWorkflowRunning(true);
-    setAlertBanner({ type: 'info', message: 'Executing automation workflow...' });
-
-    if ((window as any).androscrnApi?.executeWorkflow && selectedSerial) {
-      try {
-        const report = await (window as any).androscrnApi.executeWorkflow({
-          serial: selectedSerial,
-          workflow: {
-            id: 'wf_' + Date.now(),
-            name: 'AndroScrn Automated Test Suite',
-            steps: workflowSteps
-          }
-        });
-        setWorkflowRunning(false);
-        setActiveStepIndex(null);
-        if (report.overallStatus === 'passed') {
-          setAlertBanner({ type: 'success', message: `Workflow passed! ${report.passedSteps}/${report.totalSteps} steps completed in ${report.totalDurationMs}ms.` });
-        } else {
-          setAlertBanner({ type: 'error', message: `Workflow failed: ${report.failedSteps} step(s) failed.` });
-        }
-      } catch (err: any) {
-        setWorkflowRunning(false);
-        setActiveStepIndex(null);
-        setAlertBanner({ type: 'error', message: `Workflow error: ${err.message}` });
-      }
-    } else {
-      for (let i = 0; i < workflowSteps.length; i++) {
-        setActiveStepIndex(i);
-        await new Promise(r => setTimeout(r, 900));
-      }
-      setActiveStepIndex(null);
-      setWorkflowRunning(false);
-      setAlertBanner({ type: 'success', message: 'All 5 automation workflow steps passed successfully!' });
+  const handleCopyDiagnosticReport = async () => {
+    if (api?.getDiagnosticReport) {
+      const report = await api.getDiagnosticReport(selectedSerial);
+      await navigator.clipboard.writeText(report);
+      setCopyReportSuccess(true);
+      setTimeout(() => setCopyReportSuccess(false), 2500);
+      setAlertBanner({ type: 'success', message: 'System diagnostic report copied to clipboard!' });
     }
   };
 
-  const handleRunAiAnalysis = () => {
-    setIsAiProcessing(true);
-    setAiResponse(null);
-    setTimeout(() => {
-      setIsAiProcessing(false);
-      setAiResponse(
-        `[Local Ollama / Qwen-2.5 Analysis]\n\nDiagnostic Summary:\n- Device '${activeDevice?.model || 'Android'}' is operating normally.\n- Screen stream is stabilized at 60 FPS (H.264 hardware decoder active on Intel Iris Xe).\n- No critical FATAL EXCEPTION or ANR traces detected in recent logcat buffer.\n- Recommendation: Enable 'Stay Awake' and 1-Click Wireless Handoff for optimal cable-free testing.`
-      );
-    }, 1400);
-  };
-
-  const handleRunOcr = () => {
-    setIsAiProcessing(true);
-    setOcrTextResult(null);
-    setTimeout(() => {
-      setIsAiProcessing(false);
-      setOcrTextResult(
-        `[Tesseract 5.3 OCR Extraction]\n\nDetected Screen Elements:\n1. "Settings" (Header, Top 5%)\n2. "Network & internet" (List Item, Y: 180)\n3. "Connected devices" (List Item, Y: 290)\n4. "Apps & notifications" (List Item, Y: 400)\n5. "Battery - 88%" (List Item, Y: 510)\n6. "Display" (List Item, Y: 620)\n\nCoordinates mapped for visual automation assertion.`
-      );
-    }, 1100);
+  const handleExportDiagnosticReport = async () => {
+    if (api?.exportDiagnostics) {
+      const res = await api.exportDiagnostics(selectedSerial);
+      if (res.success && res.reportPath) {
+        setAlertBanner({ type: 'success', message: `Sanitized diagnostic report exported to: ${res.reportPath}` });
+      } else {
+        setAlertBanner({ type: 'error', message: res.error || 'Report export failed.' });
+      }
+    }
   };
 
   const formatSeconds = (sec: number) => {
@@ -391,11 +409,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen text-slate-100 font-sans">
-      {/* Top Navbar */}
-      <header className="glass-panel mx-4 mt-3 px-6 py-3.5 flex items-center justify-between z-20">
+    <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans select-none overflow-hidden">
+      {/* Top Application Header */}
+      <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md px-5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <Smartphone className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -407,7 +425,7 @@ export default function App() {
                 v1.0.0 Alpha
               </span>
             </div>
-            <p className="text-xs text-slate-400">Windows Android Control & Automation Platform</p>
+            <p className="text-[11px] text-slate-400">Windows-First Android Control & Automation Platform</p>
           </div>
         </div>
 
@@ -415,11 +433,11 @@ export default function App() {
         <div className="flex items-center gap-3">
           {devices.length > 0 ? (
             <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
-              <span className="status-pulse active"></span>
+              <span className={`status-pulse ${activeDevice?.state === 'device' ? 'active' : 'inactive'}`}></span>
               <select
                 value={selectedSerial}
                 onChange={e => setSelectedSerial(e.target.value)}
-                className="bg-transparent text-sm font-semibold text-slate-200 outline-none cursor-pointer pr-2"
+                className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer pr-2 max-w-[260px] truncate"
               >
                 {devices.map(d => (
                   <option key={d.serial} value={d.serial} className="bg-slate-900 text-slate-200">
@@ -428,14 +446,31 @@ export default function App() {
                 ))}
               </select>
 
+              {/* Device State Badge */}
+              {activeDevice?.state === 'unauthorized' && (
+                <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">
+                  Unauthorized
+                </span>
+              )}
+              {activeDevice?.state === 'offline' && (
+                <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  Offline
+                </span>
+              )}
+              {activeDevice?.state === 'device' && (
+                <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                  Ready
+                </span>
+              )}
+
               {activeDevice?.transportType === 'wifi' ? (
-                <Wifi className="w-4 h-4 text-cyan-400 ml-1" title="Connected via Wi-Fi" />
+                <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" />
               ) : (
-                <Usb className="w-4 h-4 text-indigo-400 ml-1" title="Connected via USB" />
+                <Usb className="w-3.5 h-3.5 text-indigo-400 ml-1" title="Connected via USB" />
               )}
 
               {activeDevice?.batteryLevel !== undefined && (
-                <span className="text-xs font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                <span className="text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                   {activeDevice.batteryLevel}%
                 </span>
               )}
@@ -451,14 +486,14 @@ export default function App() {
             onClick={refreshDevices}
             disabled={isScanning}
             className="glass-button p-2 text-slate-300 hover:text-white"
-            title="Scan for Devices"
+            title="Scan for Devices (ADB)"
           >
             <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-indigo-400' : ''}`} />
           </button>
         </div>
       </header>
 
-      {/* Alert Banner */}
+      {/* Alert Guidance Banner */}
       {alertBanner && (
         <div className="mx-4 mt-3">
           <div
@@ -490,34 +525,33 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Layout */}
-      <div className="flex-1 flex gap-4 p-4">
+      {/* Main Layout Container */}
+      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
         {/* Sidebar Nav */}
-        <nav className="w-64 glass-panel p-3 flex flex-col justify-between shrink-0">
-          <div className="space-y-1.5">
+        <nav className="w-60 glass-panel p-3 flex flex-col justify-between shrink-0">
+          <div className="space-y-1">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
-              Navigation
+              Workbench
             </div>
 
             <button
               onClick={() => setActiveTab('mirror')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'mirror'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
               <Smartphone className="w-4 h-4" />
-              <span>Mirror & Control</span>
-              {isMirroring && <span className="status-pulse active ml-auto"></span>}
+              <span>Screen Mirroring</span>
             </button>
 
             <button
               onClick={() => setActiveTab('wireless')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'wireless'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
               <Wifi className="w-4 h-4" />
@@ -526,83 +560,78 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('media')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'media'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
               <Camera className="w-4 h-4" />
-              <span>Recording & Media</span>
-              {captures.length > 0 && (
-                <span className="ml-auto text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded-full text-slate-300">
-                  {captures.length}
-                </span>
-              )}
+              <span>Media & Captures</span>
             </button>
 
             <button
               onClick={() => setActiveTab('diagnostics')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'diagnostics'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
               <Activity className="w-4 h-4" />
               <span>Diagnostics & Logs</span>
             </button>
 
+            <div className="pt-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
+              Advanced (Preview)
+            </div>
+
             <button
               onClick={() => setActiveTab('workflow')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'workflow'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
-              <Terminal className="w-4 h-4" />
+              <Layers className="w-4 h-4" />
               <span>Workflow Runner</span>
             </button>
 
             <button
               onClick={() => setActiveTab('ai')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'ai'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
               }`}
             >
-              <Bot className="w-4 h-4 text-cyan-400" />
-              <span className="flex items-center gap-1.5">
-                AI & OCR Lab
-                <Sparkles className="w-3 h-3 text-cyan-400" />
-              </span>
+              <Bot className="w-4 h-4" />
+              <span>Local AI Assistant</span>
             </button>
           </div>
 
-          {/* Bottom Settings & About link */}
-          <div className="pt-4 border-t border-slate-800/80">
+          <div className="pt-2 border-t border-slate-800/80">
             <button
               onClick={() => setActiveTab('about')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'about'
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Shield className="w-4 h-4 text-indigo-400" />
-              <span>About & Licensing</span>
+              <Shield className="w-4 h-4" />
+              <span>About & Licenses</span>
             </button>
           </div>
         </nav>
 
         {/* Content View Area */}
-        <main className="flex-1 flex flex-col gap-4 overflow-y-auto">
-          {/* TAB 1: MIRROR & CONTROL */}
+        <main className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1">
+          {/* TAB 1: SCREEN MIRRORING */}
           {activeTab === 'mirror' && (
             <div className="space-y-4">
-              {/* Primary Action Card */}
+              {/* Primary Mirror Control Card */}
               <div className="glass-panel p-6 relative overflow-hidden">
                 <div className="absolute right-0 top-0 w-96 h-96 bg-gradient-to-bl from-indigo-500/10 via-cyan-500/5 to-transparent pointer-events-none rounded-full blur-3xl"></div>
 
@@ -616,12 +645,12 @@ export default function App() {
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400">
-                          Ready
+                          {isDeviceReady ? 'Ready' : 'Device Not Ready'}
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-slate-400 mt-1">
-                      Direct display streaming via official scrcpy 5.0.1 engine with hardware acceleration.
+                      Direct display streaming via official scrcpy 5.0.1 engine with hardware decoding and audio forwarding.
                     </p>
                   </div>
 
@@ -637,7 +666,10 @@ export default function App() {
                     ) : (
                       <button
                         onClick={handleStartMirror}
-                        className="glass-button glass-button-primary px-8 py-2.5 text-sm"
+                        disabled={!isDeviceReady}
+                        className={`glass-button glass-button-primary px-8 py-2.5 text-sm ${
+                          !isDeviceReady ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+                        }`}
                       >
                         <Play className="w-4 h-4 fill-white" />
                         <span>Start Mirroring</span>
@@ -646,10 +678,25 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Device Status Guidance Bar if not ready */}
+                {!isDeviceReady && (
+                  <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2.5">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold">
+                        {devices.length === 0 ? 'No Android Device Connected' : `Device Status: ${activeDevice?.state.toUpperCase()}`}
+                      </div>
+                      <div className="text-[11px] text-amber-400/90 mt-0.5">
+                        {activeDevice?.guidance || 'Connect an Android device via USB. Enable Developer Options & USB Debugging on your phone.'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Quality Presets */}
                 <div className="mt-6 pt-5 border-t border-slate-800/80">
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                    Streaming Presets
+                    Quality Presets
                   </div>
                   <div className="grid grid-cols-4 gap-3">
                     {[
@@ -685,7 +732,7 @@ export default function App() {
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-slate-200">Turn Phone Screen Off</div>
-                      <div className="text-slate-400 text-[10px]">Save phone battery while mirroring (-S)</div>
+                      <div className="text-slate-400 text-[10px]">Save battery while streaming (-S)</div>
                     </div>
                   </label>
 
@@ -705,13 +752,13 @@ export default function App() {
                   <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all">
                     <input
                       type="checkbox"
-                      checked={showTouches}
-                      onChange={e => setShowTouches(e.target.checked)}
+                      checked={recordMirrorSession}
+                      onChange={e => setRecordMirrorSession(e.target.checked)}
                       className="accent-indigo-500 w-4 h-4 rounded"
                     />
                     <div className="text-xs">
-                      <div className="font-semibold text-slate-200">Show Physical Touches</div>
-                      <div className="text-slate-400 text-[10px]">Visual touch points on screen (-t)</div>
+                      <div className="font-semibold text-slate-200">Record Video Stream (MP4)</div>
+                      <div className="text-slate-400 text-[10px]">Save directly to Captures/ via scrcpy</div>
                     </div>
                   </label>
                 </div>
@@ -720,495 +767,499 @@ export default function App() {
               {/* Hardware Remote Control Bar */}
               <div className="glass-panel p-5">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                  Quick Navigation & Device Controls
+                  Quick Navigation & Device Controls ({activeDevice ? activeDevice.model : 'No Target'})
                 </div>
                 <div className="flex flex-wrap gap-2.5">
                   <button
-                    onClick={() => {
-                      (window as any).androscrnApi?.executeAdb(['shell', 'input', 'keyevent', '3']);
-                      setAlertBanner({ type: 'info', message: 'Injected HOME keyevent (code 3).' });
-                    }}
-                    className="glass-button text-xs py-2 px-3.5"
+                    onClick={() => handleSendKeyevent('3', 'Home')}
+                    disabled={!isDeviceReady}
+                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span>🏠 Home</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      (window as any).androscrnApi?.executeAdb(['shell', 'input', 'keyevent', '4']);
-                      setAlertBanner({ type: 'info', message: 'Injected BACK keyevent (code 4).' });
-                    }}
-                    className="glass-button text-xs py-2 px-3.5"
+                    onClick={() => handleSendKeyevent('4', 'Back')}
+                    disabled={!isDeviceReady}
+                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span>⬅ Back</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      (window as any).androscrnApi?.executeAdb(['shell', 'input', 'keyevent', '187']);
-                      setAlertBanner({ type: 'info', message: 'Injected APP_SWITCH keyevent.' });
-                    }}
-                    className="glass-button text-xs py-2 px-3.5"
+                    onClick={() => handleSendKeyevent('187', 'App Switch')}
+                    disabled={!isDeviceReady}
+                    className={`glass-button text-xs py-2 px-3.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span>🗂 App Switcher</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      (window as any).androscrnApi?.executeAdb(['shell', 'input', 'keyevent', '26']);
-                      setAlertBanner({ type: 'info', message: 'Toggled POWER keyevent.' });
-                    }}
-                    className="glass-button text-xs py-2 px-3.5 text-amber-300"
+                    onClick={() => handleSendKeyevent('26', 'Power')}
+                    disabled={!isDeviceReady}
+                    className={`glass-button text-xs py-2 px-3.5 text-amber-300 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span>⚡ Power</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      (window as any).androscrnApi?.executeAdb(['shell', 'cmd', 'statusbar', 'expand-notifications']);
-                      setAlertBanner({ type: 'info', message: 'Expanded notification drawer.' });
-                    }}
-                    className="glass-button text-xs py-2 px-3.5"
+                    onClick={handleTakeScreenshot}
+                    disabled={!isDeviceReady || isCapturing}
+                    className={`glass-button text-xs py-2 px-3.5 ml-auto text-cyan-300 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    <span>🔔 Expand Notifications</span>
-                  </button>
-
-                  <button onClick={handleTakeScreenshot} className="glass-button text-xs py-2 px-3.5 ml-auto text-cyan-300">
                     <Camera className="w-3.5 h-3.5" />
-                    <span>Quick Screenshot</span>
+                    <span>{isCapturing ? 'Capturing...' : 'Quick Screenshot'}</span>
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 2: WIRELESS & HOTSPOT HUB */}
+          {/* TAB 2: WIRELESS & HOTSPOT */}
           {activeTab === 'wireless' && (
             <div className="space-y-4">
-              {/* 1-Click Handoff */}
-              <div className="glass-panel p-6 border-l-4 border-l-indigo-500">
-                <div className="flex items-start justify-between">
+              {/* 1-Click Wireless Handoff Card */}
+              <div className="glass-panel p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Wifi className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-bold text-white">1-Click Wireless Handoff</h3>
+                </div>
+                <p className="text-xs text-slate-400 mb-4">
+                  Connect your phone via USB cable once, enable TCP/IP port 5555 with one click, then unplug the cable and mirror over Wi-Fi.
+                </p>
+
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
                   <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-indigo-400" />
-                      1-Click USB-to-Wi-Fi Handoff
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                      Connect your Android phone via USB once. AndroScrn will query the phone's Wi-Fi IP address, enable port 5555, establish the wireless bridge, and signal when the cable can be unplugged.
-                    </p>
+                    <div className="text-xs font-semibold text-slate-200">
+                      Target USB Device: <span className="text-indigo-400">{activeDevice ? `${activeDevice.model} (${activeDevice.serial})` : 'None'}</span>
+                    </div>
+                    {handoffStatus && <div className="text-[11px] text-cyan-400 mt-1">{handoffStatus}</div>}
                   </div>
-                  <button onClick={handle1ClickHandoff} className="glass-button glass-button-primary text-xs py-2 px-4">
-                    <span>Activate Wi-Fi Bridge</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+
+                  <button
+                    onClick={handle1ClickHandoff}
+                    disabled={!isDeviceReady || activeDevice?.transportType === 'wifi'}
+                    className={`glass-button glass-button-primary text-xs py-2 px-4 ${
+                      !isDeviceReady || activeDevice?.transportType === 'wifi' ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <span>Enable Wireless Mode (Port 5555)</span>
                   </button>
                 </div>
+              </div>
 
-                {handoffStatus && (
-                  <div className="mt-4 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs text-indigo-200 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{handoffStatus}</span>
+              {/* Hotspot Auto-Connect Card */}
+              <div className="glass-panel p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Smartphone className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-base font-bold text-white">Phone Hotspot Gateway Connect</h3>
+                </div>
+                <p className="text-xs text-slate-400 mb-4">
+                  When your laptop joins your phone's Wi-Fi hotspot, your phone acts as the default gateway (typically 192.168.43.1).
+                </p>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={hotspotGateway || '192.168.43.1'}
+                    onChange={e => setHotspotGateway(e.target.value)}
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 w-48 outline-none"
+                    placeholder="Gateway IP (192.168.43.1)"
+                  />
+                  <button
+                    onClick={handleHotspotConnect}
+                    className="glass-button text-xs py-2 px-4"
+                  >
+                    <span>Connect to Hotspot Gateway</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Android 11+ PIN Pairing Wizard */}
+              <div className="glass-panel p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-bold text-white">Android 11+ Wireless Pairing (PIN)</h3>
+                </div>
+                <p className="text-xs text-slate-400 mb-4">
+                  Under Developer Options &gt; Wireless Debugging &gt; "Pair device with pairing code", enter the 6-digit PIN and pairing port.
+                </p>
+
+                <div className="grid grid-cols-4 gap-3">
+                  <input
+                    type="text"
+                    value={pairIp}
+                    onChange={e => setPairIp(e.target.value)}
+                    placeholder="Device IP (e.g. 192.168.1.50)"
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={pairPort}
+                    onChange={e => setPairPort(e.target.value)}
+                    placeholder="Pairing Port (e.g. 37000)"
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={pairPin}
+                    onChange={e => setPairPin(e.target.value)}
+                    placeholder="6-Digit PIN (e.g. 123456)"
+                    maxLength={6}
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono tracking-widest outline-none"
+                  />
+                  <button
+                    onClick={handlePairWireless}
+                    className="glass-button glass-button-primary text-xs py-2 px-4"
+                  >
+                    <span>Pair Device</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: MEDIA & CAPTURES */}
+          {activeTab === 'media' && (
+            <div className="space-y-4">
+              <div className="glass-panel p-5 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white">Session Captures & Recordings</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Real PNG frame captures and MP4 video recordings saved to the portable Captures/ directory.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleTakeScreenshot}
+                    disabled={!isDeviceReady || isCapturing}
+                    className={`glass-button glass-button-primary text-xs py-2 px-4 ${
+                      !isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{isCapturing ? 'Saving...' : 'Take High-Res Screenshot'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (api?.getCaptures) {
+                        api.getCaptures().then(setCaptures);
+                        setAlertBanner({ type: 'info', message: 'Captures list refreshed.' });
+                      }
+                    }}
+                    className="glass-button text-xs py-2 px-3"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Captures List */}
+              <div className="glass-panel p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                  Recorded Media Files ({captures.length})
+                </div>
+
+                {captures.length > 0 ? (
+                  <div className="space-y-2">
+                    {captures.map(c => (
+                      <div
+                        key={c.id}
+                        className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-all text-xs"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
+                            {c.type === 'screenshot' ? <Camera className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-200">{c.name}</div>
+                            <div className="text-[11px] text-slate-400">
+                              {c.timestamp} · {(c.sizeBytes / 1024).toFixed(1)} KB
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (api?.openPath) {
+                                api.openPath(c.path);
+                              }
+                            }}
+                            className="glass-button py-1 px-3 text-[11px]"
+                          >
+                            <Folder className="w-3 h-3 text-slate-400" />
+                            <span>Open</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-10 text-slate-500 text-xs">
+                    No screenshots or recordings captured yet. Use "Take High-Res Screenshot" above or enable "Record Video Stream" in the Mirror tab.
                   </div>
                 )}
               </div>
-
-              {/* Hotspot Gateway Mode */}
-              <div className="glass-panel p-6 border-l-4 border-l-amber-500">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      <Flame className="w-4 h-4 text-amber-400" />
-                      Smart Hotspot Gateway Mode
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                      When your PC connects to your phone's personal hotspot in field or mobile environments, the phone becomes your default gateway (typically 192.168.43.1). AndroScrn automatically detects this route.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-amber-300">
-                      {hotspotGateway}:5555
-                    </span>
-                    <button onClick={handleHotspotConnect} className="glass-button text-xs py-2 px-4 text-amber-300 hover:text-white">
-                      <span>Connect Hotspot</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Android 11+ Pairing Wizard */}
-              <div className="glass-panel p-6">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-cyan-400" />
-                  Android 11+ Wireless Debugging Pairing Wizard
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  On your phone, navigate to <i>Developer Options → Wireless Debugging → Pair device with pairing code</i>. Enter the details shown on your screen below:
-                </p>
-
-                <div className="mt-4 grid grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Device IP</label>
-                    <input
-                      type="text"
-                      value={pairIp}
-                      onChange={e => setPairIp(e.target.value)}
-                      placeholder="192.168.1.150"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Pairing Port</label>
-                    <input
-                      type="text"
-                      value={pairPort}
-                      onChange={e => setPairPort(e.target.value)}
-                      placeholder="37000"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-400 mb-1 block">6-Digit Pairing PIN</label>
-                    <input
-                      type="text"
-                      value={pairPin}
-                      onChange={e => setPairPin(e.target.value)}
-                      placeholder="123456"
-                      maxLength={6}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500 font-mono tracking-widest"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Connect Port</label>
-                    <input
-                      type="text"
-                      value={pairConnectPort}
-                      onChange={e => setPairConnectPort(e.target.value)}
-                      placeholder="37001"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <button onClick={handlePairWireless} className="glass-button glass-button-primary text-xs py-2 px-5">
-                    <span>Execute Pair & Connect</span>
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* TAB 3: RECORDING & MEDIA */}
-          {activeTab === 'media' && (
-            <div className="space-y-4">
-              <div className="glass-panel p-6 flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Camera className="w-4 h-4 text-indigo-400" />
-                    Recording & Snapshot Studio
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Direct stream pass-through recording in MP4 format without re-encoding CPU overhead.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button onClick={handleTakeScreenshot} className="glass-button text-xs py-2 px-4">
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>Capture PNG</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsRecording(!isRecording);
-                      setAlertBanner({
-                        type: !isRecording ? 'success' : 'info',
-                        message: !isRecording ? 'Recording session started.' : 'Recording saved.'
-                      });
-                    }}
-                    className={`glass-button text-xs py-2 px-4 ${
-                      isRecording ? 'glass-button-danger' : 'glass-button-primary'
-                    }`}
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>{isRecording ? 'Stop Recording' : 'Start Video Record'}</span>
-                  </button>
-
-                  <button
-                    onClick={() => setAlertBanner({ type: 'info', message: 'Opened Captures directory in Windows Explorer.' })}
-                    className="glass-button text-xs py-2 px-3 text-slate-400 hover:text-slate-200"
-                    title="Open Output Folder"
-                  >
-                    <Folder className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Gallery List */}
-              <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                  Recent Session Captures ({captures.length})
-                </div>
-
-                <div className="space-y-2">
-                  {captures.map(c => (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-all text-xs"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
-                          {c.type === 'screenshot' ? <Camera className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-slate-200">{c.name}</div>
-                          <div className="text-[11px] text-slate-400">{c.timestamp}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] text-slate-500 truncate max-w-xs">{c.path}</span>
-                        <button
-                          onClick={() => setAlertBanner({ type: 'info', message: `Opened ${c.name}` })}
-                          className="glass-button py-1 px-2.5 text-[11px]"
-                        >
-                          View
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: DIAGNOSTICS & LOGCAT */}
+          {/* TAB 4: DIAGNOSTICS & SYSTEM LOGS */}
           {activeTab === 'diagnostics' && (
             <div className="space-y-4">
-              <div className="glass-panel p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5">
-                    <Search className="w-3.5 h-3.5 text-slate-400" />
-                    <input
-                      type="text"
-                      value={logFilter}
-                      onChange={e => setLogFilter(e.target.value)}
-                      placeholder="Filter by keyword, package or tag..."
-                      className="bg-transparent text-xs text-slate-200 outline-none w-64"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
-                    {['ALL', 'I', 'W', 'E'].map(lvl => (
-                      <button
-                        key={lvl}
-                        onClick={() => setLogLevelFilter(lvl)}
-                        className={`px-2 py-0.5 rounded font-mono text-[11px] font-semibold transition-all ${
-                          logLevelFilter === lvl ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {lvl === 'ALL' ? 'ALL' : lvl === 'I' ? 'INFO' : lvl === 'W' ? 'WARN' : 'ERR'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setAlertBanner({ type: 'success', message: 'Sanitized diagnostic bundle exported to Captures/report.txt!' });
-                  }}
-                  className="glass-button text-xs py-1.5 px-3.5"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Export Sanitized Report</span>
-                </button>
-              </div>
-
-              {/* Logcat Terminal Output */}
-              <div className="glass-panel p-4 bg-slate-950 font-mono text-xs overflow-y-auto max-h-[480px] space-y-1">
-                {logs
-                  .filter(l => (logLevelFilter === 'ALL' ? true : l.level === logLevelFilter))
-                  .filter(l => (logFilter ? l.message.toLowerCase().includes(logFilter.toLowerCase()) || l.tag?.toLowerCase().includes(logFilter.toLowerCase()) : true))
-                  .map((l, i) => (
-                    <div key={i} className="flex items-start gap-2 hover:bg-slate-900/50 py-0.5 px-1 rounded">
-                      <span className="text-slate-500 text-[10px] select-none">{l.timestamp}</span>
-                      <span
-                        className={`px-1 rounded text-[9px] font-bold ${
-                          l.level === 'E'
-                            ? 'bg-rose-500/20 text-rose-400'
-                            : l.level === 'W'
-                            ? 'bg-amber-500/20 text-amber-400'
-                            : 'bg-indigo-500/20 text-indigo-300'
-                        }`}
-                      >
-                        {l.level}
-                      </span>
-                      <span className="text-slate-400 font-semibold text-[11px] select-none">[{l.tag}]</span>
-                      <span className="text-slate-200 break-all">{l.message}</span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: WORKFLOW RUNNER */}
-          {activeTab === 'workflow' && (
-            <div className="space-y-4">
-              <div className="glass-panel p-6 flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-cyan-400" />
-                    Mobile Test Automation Runner
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Execute programmatic gesture chains (tap, swipe, keyevent, wait, screenshot, text assertions).
-                  </p>
-                </div>
-
-                <button
-                  onClick={handleRunWorkflow}
-                  disabled={workflowRunning}
-                  className={`glass-button text-xs py-2 px-5 ${
-                    workflowRunning ? 'bg-slate-800 text-slate-400 cursor-not-allowed' : 'glass-button-primary'
-                  }`}
-                >
-                  <Play className="w-3.5 h-3.5 fill-white" />
-                  <span>{workflowRunning ? 'Running Steps...' : 'Execute Workflow'}</span>
-                </button>
-              </div>
-
-              {/* Step Sequence */}
-              <div className="glass-panel p-5 space-y-2.5">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                  Workflow Steps Sequence ({workflowSteps.length})
-                </div>
-
-                {workflowSteps.map((s, idx) => (
-                  <div
-                    key={s.id}
-                    className={`flex items-center justify-between p-3.5 rounded-xl border text-xs transition-all ${
-                      activeStepIndex === idx
-                        ? 'bg-indigo-950/40 border-indigo-500/70 shadow-lg shadow-indigo-500/20'
-                        : 'bg-slate-900/40 border-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-6 h-6 rounded-lg flex items-center justify-center font-mono font-bold text-[10px] ${
-                          activeStepIndex === idx
-                            ? 'bg-indigo-600 text-white animate-pulse'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-200 capitalize">{s.action}: </span>
-                        <span className="text-slate-400">{s.description}</span>
-                      </div>
-                    </div>
-
-                    <div className="font-mono text-[11px] text-slate-500">
-                      {JSON.stringify(s.params)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: AI & OCR LAB */}
-          {activeTab === 'ai' && (
-            <div className="space-y-4">
-              <div className="glass-panel p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      <Bot className="w-4 h-4 text-cyan-400" />
-                      Local AI & Tesseract OCR Lab
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      100% on-device intelligent assistance. No cloud APIs, zero subscription fees, complete privacy.
-                    </p>
+              {/* System Diagnostics Overview Card */}
+              <div className="glass-panel p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-indigo-400" />
+                    <h3 className="text-base font-bold text-white">System Diagnostics & Environment</h3>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button onClick={handleRunOcr} disabled={isAiProcessing} className="glass-button text-xs py-2 px-4">
-                      <Camera className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Run Tesseract OCR</span>
+                    <button
+                      onClick={handleCopyDiagnosticReport}
+                      className="glass-button text-xs py-1.5 px-3 text-indigo-300"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{copyReportSuccess ? 'Copied to Clipboard!' : 'Copy Diagnostic Report'}</span>
                     </button>
 
                     <button
-                      onClick={handleRunAiAnalysis}
-                      disabled={isAiProcessing}
-                      className="glass-button glass-button-primary text-xs py-2 px-4"
+                      onClick={handleExportDiagnosticReport}
+                      className="glass-button text-xs py-1.5 px-3"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-white" />
-                      <span>Ollama Diagnostic Summary</span>
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Export .txt File</span>
                     </button>
                   </div>
                 </div>
 
-                {/* AI / OCR Output Card */}
-                {(isAiProcessing || aiResponse || ocrTextResult) && (
-                  <div className="mt-5 p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 whitespace-pre-wrap">
-                    {isAiProcessing ? (
-                      <div className="flex items-center gap-2 text-indigo-400">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Performing on-device inference via local engine...</span>
-                      </div>
-                    ) : (
-                      aiResponse || ocrTextResult
-                    )}
+                <div className="grid grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">ADB Engine</div>
+                    <div className="font-semibold text-slate-200 mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
+                    <div className="font-mono text-[9px] text-slate-500 truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
                   </div>
-                )}
+
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">scrcpy Engine</div>
+                    <div className="font-semibold text-slate-200 mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
+                    <div className="font-mono text-[9px] text-slate-500 truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Connected Devices</div>
+                    <div className="font-semibold text-slate-200 mt-1">{devices.length} Detected</div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {devices.filter(d => d.state === 'device').length} authorized / ready
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Mirroring Session</div>
+                    <div className="font-semibold text-slate-200 mt-1">
+                      {isMirroring ? 'ACTIVE' : 'IDLE'}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      PID: {systemInfo?.mirrorStatus?.pid || 'None'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Log Stream Viewer */}
+              <div className="glass-panel p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs font-semibold">
+                      <button
+                        onClick={() => setLogSource('device')}
+                        className={`px-3 py-1 rounded-md transition-all ${
+                          logSource === 'device' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Device Logcat ({selectedSerial || 'No Target'})
+                      </button>
+                      <button
+                        onClick={() => setLogSource('app')}
+                        className={`px-3 py-1 rounded-md transition-all ${
+                          logSource === 'app' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Application Log (androscrn.log)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs">
+                      <Search className="w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={logFilter}
+                        onChange={e => setLogFilter(e.target.value)}
+                        placeholder="Filter logs..."
+                        className="bg-transparent text-xs text-slate-200 outline-none w-48"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (logSource === 'device') refreshLogcat();
+                      else refreshSystemInfo();
+                    }}
+                    className="glass-button text-xs py-1 px-3"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {/* Log Terminal Screen */}
+                <div className="glass-panel p-4 bg-slate-950 font-mono text-xs overflow-y-auto max-h-[420px] space-y-1">
+                  {logSource === 'device' ? (
+                    logs.length > 0 ? (
+                      logs
+                        .filter(l => (logFilter ? l.message.toLowerCase().includes(logFilter.toLowerCase()) || l.tag?.toLowerCase().includes(logFilter.toLowerCase()) : true))
+                        .map((l, i) => (
+                          <div key={i} className="flex items-start gap-2 hover:bg-slate-900/50 py-0.5 px-1 rounded text-[11px]">
+                            <span className="text-slate-500 text-[10px] select-none">{l.timestamp}</span>
+                            <span className={`px-1 rounded text-[9px] font-bold ${
+                              l.level === 'E' ? 'bg-rose-500/20 text-rose-400' : l.level === 'W' ? 'bg-amber-500/20 text-amber-400' : 'bg-indigo-500/20 text-indigo-300'
+                            }`}>
+                              {l.level}
+                            </span>
+                            <span className="text-slate-400 font-semibold text-[10px] select-none">[{l.tag}]</span>
+                            <span className="text-slate-200 break-all">{l.message}</span>
+                          </div>
+                        ))
+                    ) : (
+                      <div className="text-slate-500 text-center py-12">
+                        {selectedSerial ? 'No logcat lines received. Verify device is connected and authorized.' : 'Connect an Android device to inspect device logcat stream.'}
+                      </div>
+                    )
+                  ) : (
+                    systemInfo?.recentAppLogs && systemInfo.recentAppLogs.length > 0 ? (
+                      systemInfo.recentAppLogs
+                        .filter(l => (logFilter ? l.toLowerCase().includes(logFilter.toLowerCase()) : true))
+                        .map((line, i) => (
+                          <div key={i} className="text-slate-300 py-0.5 text-[11px] hover:bg-slate-900/50 rounded px-1">
+                            {line}
+                          </div>
+                        ))
+                    ) : (
+                      <div className="text-slate-500 text-center py-12">
+                        Application runtime logs empty.
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 7: ABOUT & LICENSING */}
+          {/* TAB 5: WORKFLOW RUNNER (PREVIEW) */}
+          {activeTab === 'workflow' && (
+            <div className="glass-panel p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-indigo-400" />
+                    Automated Test & Workflow Sequencer (Beta)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Execute structured touchscreen gestures, keyevents, text input, and visual assertion sequences on target device.
+                  </p>
+                </div>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  Preview Feature
+                </span>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                The Workflow Engine supports step sequencing through `WorkflowEngine` using discrete argument vectors.
+                Live physical touchscreen execution requires an authorized target device attached over USB.
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: LOCAL AI & OCR (EXPERIMENTAL) */}
+          {activeTab === 'ai' && (
+            <div className="glass-panel p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Bot className="w-5 h-5 text-indigo-400" />
+                    Local AI Assistant & OCR Studio (Experimental)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    On-device visual extraction and LLM diagnostic intelligence running 100% locally on your machine.
+                  </p>
+                </div>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  Host Service Integration
+                </span>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                Host environment verification:
+                <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
+                  <li>Tesseract OCR binary: <code className="text-indigo-300">C:\Program Files\Tesseract-OCR\tesseract.exe</code> (Version 5.3)</li>
+                  <li>Ollama local API: <code className="text-indigo-300">http://localhost:11434</code> (v0.34.4)</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: ABOUT & LICENSES */}
           {activeTab === 'about' && (
-            <div className="space-y-4">
-              <div className="glass-panel p-6 space-y-4">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-indigo-400" />
-                  About AndroScrn & Open Source Licensing
-                </h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  AndroScrn is an independent Windows desktop application for Android screen mirroring, wireless connectivity, and automation. It bundles and orchestrates battle-tested open source engines under their respective legal licenses:
-                </p>
+            <div className="glass-panel p-6 space-y-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Shield className="w-4 h-4 text-indigo-400" />
+                About AndroScrn & Open Source Licensing
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                AndroScrn is an independent Windows-first desktop application for Android screen mirroring, wireless connectivity, and automation.
+              </p>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="font-semibold text-slate-200">scrcpy (v5.0.1)</div>
-                    <div className="text-slate-400 text-[11px] mt-1">Copyright © Genymobile · Apache License 2.0</div>
-                    <div className="text-slate-500 text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
-                  </div>
+              {/* Architecture Notice */}
+              <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-slate-300 space-y-1.5">
+                <div className="font-semibold text-indigo-300">Architecture Designation: Provisional Electron Distribution</div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  The approved target product baseline is Tauri 2 + Rust + React/TypeScript with an MCP stdio server.
+                  This standalone build is packaged as an Electron 31 distribution due to host toolchain constraints (no local Rust compiler).
+                </div>
+              </div>
 
-                  <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="font-semibold text-slate-200">Android Debug Bridge (ADB v1.0.41)</div>
-                    <div className="text-slate-400 text-[11px] mt-1">Copyright © Google AOSP · Apache License 2.0</div>
-                    <div className="text-slate-500 text-[10px] mt-1">Platform Tools v37.0.0</div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="font-semibold text-slate-200">REA (Reverse Engineer Anything)</div>
-                    <div className="text-slate-400 text-[11px] mt-1">Copyright © morluto · MIT License</div>
-                    <div className="text-slate-500 text-[10px] mt-1">Research & Architecture Reference</div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="font-semibold text-slate-200">Tesseract OCR & Ollama</div>
-                    <div className="text-slate-400 text-[11px] mt-1">Apache License 2.0 / MIT License</div>
-                    <div className="text-slate-500 text-[10px] mt-1">Local on-device inference engines</div>
-                  </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="font-semibold text-slate-200">scrcpy (v5.0.1)</div>
+                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Genymobile · Apache License 2.0</div>
+                  <div className="text-slate-500 text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-slate-400">
-                  AndroScrn is released under the <strong className="text-indigo-300">MIT License</strong>. All device communication is local and private. No cloud telemetry is transmitted.
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="font-semibold text-slate-200">Android Debug Bridge (ADB v1.0.41)</div>
+                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Google AOSP · Apache License 2.0</div>
+                  <div className="text-slate-500 text-[10px] mt-1">Platform Tools v37.0.1</div>
                 </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="font-semibold text-slate-200">Electron & Chromium</div>
+                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Electron Contributors · MIT License</div>
+                  <div className="text-slate-500 text-[10px] mt-1">Runtime Version v31.7.7</div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="font-semibold text-slate-200">REA (Reverse Engineer Anything)</div>
+                  <div className="text-slate-400 text-[11px] mt-1">Copyright © morluto · MIT License</div>
+                  <div className="text-slate-500 text-[10px] mt-1">Research & Architecture Reference</div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-slate-400">
+                AndroScrn is released under the <strong className="text-indigo-300">MIT License</strong>. All device communication is local and private. No cloud telemetry is transmitted.
               </div>
             </div>
           )}

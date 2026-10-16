@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { EventEmitter } from 'events';
 import { DeviceManager } from '../device_manager';
 import { SecurityValidator } from '../security';
@@ -14,9 +15,17 @@ export interface LogEntry {
   message: string;
 }
 
+export interface CaptureItem {
+  id: string;
+  type: 'screenshot' | 'video';
+  name: string;
+  timestamp: string;
+  path: string;
+  sizeBytes: number;
+}
+
 export class DiagnosticsManager extends EventEmitter {
   private deviceManager: DeviceManager;
-  private logcatProcess: any = null;
 
   constructor(deviceManager: DeviceManager) {
     super();
@@ -60,75 +69,198 @@ export class DiagnosticsManager extends EventEmitter {
   }
 
   /**
-   * Captures high-res screenshot directly from device frame buffer via screencap
+   * Captures raw binary PNG screenshot directly from device frame buffer via screencap
    */
-  public async captureDeviceScreenshot(serial: string, destFolder: string): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  public async captureDeviceScreenshot(serial: string, destFolder: string): Promise<{ success: boolean; filePath?: string; size?: number; error?: string }> {
     if (!SecurityValidator.isValidSerial(serial)) {
-      return { success: false, error: 'Invalid device serial.' };
+      return { success: false, error: 'Invalid device serial identifier.' };
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `screenshot_${serial.replace(/[:.]/g, '_')}_${timestamp}.png`;
     const safePath = SecurityValidator.resolveSafePath(destFolder, filename);
 
-    if (!fs.existsSync(destFolder)) {
-      fs.mkdirSync(destFolder, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(destFolder)) {
+        fs.mkdirSync(destFolder, { recursive: true });
+      }
 
-    // ADB exec-out screencap -p pipes binary PNG directly without writing to Android sdcard
-    const res = await this.deviceManager.executeAdb(['-s', serial, 'exec-out', 'screencap', '-p'], 8000);
-    if (res.code === 0 && res.stdout.length > 0) {
-      // Write buffer
-      fs.writeFileSync(safePath, res.stdout, 'binary');
-      return { success: true, filePath: safePath };
-    }
+      // ADB exec-out screencap -p pipes raw binary PNG data
+      const res = await this.deviceManager.executeAdbBinary(['-s', serial, 'exec-out', 'screencap', '-p'], 10000);
+      
+      if (res.code !== 0 || res.buffer.length === 0) {
+        return { success: false, error: res.error || 'ADB screencap command returned no data.' };
+      }
 
-    return { success: false, error: res.stderr || 'Screenshot capture failed' };
+      // Verify PNG magic header: 89 50 4E 47 0D 0A 1A 0A
+      const isPng = res.buffer.length >= 8 &&
+        res.buffer[0] === 0x89 &&
+        res.buffer[1] === 0x50 &&
+        res.buffer[2] === 0x4e &&
+        res.buffer[3] === 0x47;
+
+      if (!isPng) {
+        return { success: false, error: `Invalid image stream returned by device (received ${res.buffer.length} bytes without PNG signature).` };
+      }
+
+      // Write raw binary buffer directly
+      fs.writeFileSync(safePath, res.buffer);
+
+      // Verify file presence and non-zero size
+      if (!fs.existsSync(safePath)) {
+        return { success: false, error: 'Failed to write screenshot file to destination.' };
+      }
+
+      const stats = fs.statSync(safePath);
+      if (stats.size === 0) {
+        return { success: false, error: 'Screenshot file was written with zero bytes.' };
+      }
+
+      return { success: true, filePath: safePath, size: stats.size };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Screenshot write failed.' };
+    }
   }
 
   /**
-   * Exports a sanitized diagnostic bundle containing device props, battery, and recent logcat
+   * Scans a captures folder and returns real existing files
    */
-  public async exportDiagnosticReport(serial: string, outputDir: string): Promise<{ success: boolean; reportPath?: string; error?: string }> {
-    if (!SecurityValidator.isValidSerial(serial)) {
-      return { success: false, error: 'Invalid device serial.' };
+  public getExistingCaptures(capturesFolder: string): CaptureItem[] {
+    if (!fs.existsSync(capturesFolder)) {
+      return [];
     }
 
+    try {
+      const files = fs.readdirSync(capturesFolder);
+      const results: CaptureItem[] = [];
+
+      for (const f of files) {
+        const fullPath = path.join(capturesFolder, f);
+        try {
+          const stats = fs.statSync(fullPath);
+          if (stats.isFile()) {
+            const ext = path.extname(f).toLowerCase();
+            if (ext === '.png' || ext === '.mp4' || ext === '.mkv') {
+              results.push({
+                id: f,
+                name: f,
+                type: ext === '.png' ? 'screenshot' : 'video',
+                timestamp: stats.mtime.toLocaleString(),
+                path: fullPath,
+                sizeBytes: stats.size
+              });
+            }
+          }
+        } catch {
+          // ignore stat errors
+        }
+      }
+
+      // Sort newest first
+      return results.reverse();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Generates a copyable, sanitized diagnostic report string
+   */
+  public async generateDiagnosticBundle(serial?: string, scrcpyStatus?: any): Promise<string> {
+    const adbVer = await this.deviceManager.getAdbVersion();
+    const devices = await this.deviceManager.getDevices();
+
+    let targetDeviceSection = 'No active device selected.';
+    let propsSection = 'N/A';
+    let batterySection = 'N/A';
+    let recentLogsText = 'No logs available.';
+
+    if (serial && SecurityValidator.isValidSerial(serial)) {
+      const d = devices.find(x => x.serial === serial);
+      if (d) {
+        targetDeviceSection = [
+          `Serial: ${SecurityValidator.redactSensitiveText(d.serial)}`,
+          `Model: ${d.model}`,
+          `Product: ${d.product}`,
+          `Device State: ${d.state}`,
+          `Transport: ${d.transportType.toUpperCase()}`,
+          `Battery: ${d.batteryLevel !== undefined ? `${d.batteryLevel}%` : 'Unknown'}`,
+          `Guidance: ${d.guidance || 'None'}`
+        ].join('\n');
+
+        if (d.state === 'device') {
+          const props = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'getprop']);
+          const battery = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'dumpsys', 'battery']);
+          const logs = await this.getRecentLogs(serial, 100);
+
+          propsSection = SecurityValidator.redactSensitiveText(props.stdout.slice(0, 1500));
+          batterySection = battery.stdout.trim() || 'N/A';
+          if (logs.length > 0) {
+            recentLogsText = logs.slice(0, 50).map(l => 
+              `[${l.timestamp || ''}] [${l.level}] ${l.tag ? l.tag + ': ' : ''}${SecurityValidator.redactSensitiveText(l.message)}`
+            ).join('\n');
+          }
+        }
+      }
+    }
+
+    const lines = [
+      '================================================================',
+      '               ANDROSCRN SYSTEM DIAGNOSTIC REPORT               ',
+      '================================================================',
+      `Generated: ${new Date().toISOString()}`,
+      `Host Platform: Windows ${os.release()} (${os.arch()})`,
+      `Node.js: ${process.version}`,
+      `ADB Version: ${adbVer}`,
+      '',
+      '--- SCREEN MIRRORING SESSION ---',
+      `Running: ${scrcpyStatus?.running ? 'YES' : 'NO'}`,
+      `Target Serial: ${scrcpyStatus?.targetSerial ? SecurityValidator.redactSensitiveText(scrcpyStatus.targetSerial) : 'None'}`,
+      `Process PID: ${scrcpyStatus?.pid || 'None'}`,
+      `Last Exit Code: ${scrcpyStatus?.exitCode ?? 'None'}`,
+      `Last Error: ${scrcpyStatus?.lastError || 'None'}`,
+      '',
+      `--- CONNECTED DEVICES (${devices.length}) ---`,
+      devices.length === 0
+        ? 'No Android devices detected via ADB.'
+        : devices.map(d => `• ${d.model} (${SecurityValidator.redactSensitiveText(d.serial)}) - State: ${d.state} [${d.transportType.toUpperCase()}]`).join('\n'),
+      '',
+      '--- TARGET DEVICE DETAILS ---',
+      targetDeviceSection,
+      '',
+      '--- BATTERY STATUS ---',
+      batterySection,
+      '',
+      '--- SYSTEM PROPERTIES (SAMPLE) ---',
+      propsSection,
+      '',
+      '--- RECENT DEVICE LOGCAT (50 LINES) ---',
+      recentLogsText,
+      '================================================================'
+    ];
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Exports a sanitized diagnostic bundle file to disk
+   */
+  public async exportDiagnosticReport(serial: string, outputDir: string, scrcpyStatus?: any): Promise<{ success: boolean; reportPath?: string; error?: string }> {
     try {
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `androscrn_report_${serial.replace(/[:.]/g, '_')}_${timestamp}.txt`;
+      const filename = `androscrn_report_${serial ? serial.replace(/[:.]/g, '_') : 'system'}_${timestamp}.txt`;
       const reportPath = path.join(outputDir, filename);
 
-      const props = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'getprop']);
-      const battery = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'dumpsys', 'battery']);
-      const recentLogs = await this.getRecentLogs(serial, 300);
-
-      const reportContent = [
-        '==================================================',
-        '              ANDROSCRN DIAGNOSTIC REPORT         ',
-        '==================================================',
-        `Generated: ${new Date().toISOString()}`,
-        `Device Target: ${serial}`,
-        '',
-        '--- BATTERY STATUS ---',
-        battery.stdout.trim(),
-        '',
-        '--- SYSTEM PROPERTIES ---',
-        SecurityValidator.redactSensitiveText(props.stdout.trim()),
-        '',
-        '--- RECENT LOGCAT ENTRIES ---',
-        ...recentLogs.map(l => `[${l.timestamp || ''}] [${l.level}] ${l.tag ? l.tag + ': ' : ''}${SecurityValidator.redactSensitiveText(l.message)}`),
-        '=================================================='
-      ].join('\n');
-
+      const reportContent = await this.generateDiagnosticBundle(serial, scrcpyStatus);
       fs.writeFileSync(reportPath, reportContent, 'utf8');
+
       return { success: true, reportPath };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err?.message || 'Report export failed.' };
     }
   }
 }

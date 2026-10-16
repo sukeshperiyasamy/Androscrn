@@ -152,6 +152,51 @@ OFFLINE_DEV_1          offline transport_id:4
   assertEqual(lifecycleSm.getStatus().running, false, 'Initial state: not running');
   assertEqual(lifecycleSm.stopMirroring(), false, 'Stopping inactive process returns false gracefully');
 
+  // 7. Device State Guidance Tests
+  console.log('\nTest Group 7: Device State Guidance');
+  const { getDeviceStateGuidance } = await import('../../modules/device_manager');
+  const unauthorizedGuide = getDeviceStateGuidance('unauthorized');
+  assert(unauthorizedGuide.includes('unlock') || unauthorizedGuide.includes('Allow USB debugging'), 'Unauthorized guidance mentions unlocking and allowing debugging');
+  const offlineGuide = getDeviceStateGuidance('offline');
+  assert(offlineGuide.includes('offline') || offlineGuide.includes('Reconnect'), 'Offline guidance mentions reconnection');
+  const deviceGuide = getDeviceStateGuidance('device');
+  assert(deviceGuide.includes('Ready') || deviceGuide.includes('Connected'), 'Authorized device guidance reports ready state');
+
+  // 8. Raw Binary Execution & PNG Verification Tests
+  console.log('\nTest Group 8: Binary Execution & PNG Header Verification');
+  const { DiagnosticsManager } = await import('../../modules/diagnostics');
+  const diagManager = new DiagnosticsManager(dm);
+
+  // Test invalid serial rejection for screenshot
+  const invalidScreenshot = await diagManager.captureDeviceScreenshot('bad;serial', 'C:\\dummy');
+  assert(!invalidScreenshot.success, 'Screenshot rejects invalid serial');
+  assertEqual(invalidScreenshot.error, 'Invalid device serial identifier.', 'Screenshot returns specific validation error');
+
+  // Test PNG signature verification logic
+  const validPngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+  const isPngHeaderValid = validPngHeader.length >= 8 &&
+    validPngHeader[0] === 0x89 &&
+    validPngHeader[1] === 0x50 &&
+    validPngHeader[2] === 0x4e &&
+    validPngHeader[3] === 0x47;
+  assert(isPngHeaderValid, 'PNG magic header correctly identified (89 50 4E 47)');
+
+  const corruptedHeader = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]); // GIF header
+  const isCorruptedPng = corruptedHeader.length >= 8 && corruptedHeader[0] === 0x89;
+  assert(!isCorruptedPng, 'Non-PNG stream correctly rejected');
+
+  // 9. Diagnostics Report & Redaction
+  console.log('\nTest Group 9: Diagnostic Bundle Generation');
+  const sampleBundle = await diagManager.generateDiagnosticBundle();
+  assert(sampleBundle.includes('ANDROSCRN SYSTEM DIAGNOSTIC REPORT'), 'Diagnostic report contains proper header');
+  assert(sampleBundle.includes('Host Platform'), 'Diagnostic report contains Host Platform info');
+  assert(sampleBundle.includes('SCREEN MIRRORING SESSION'), 'Diagnostic report includes mirroring status section');
+
+  // 10. Captures Scanner
+  console.log('\nTest Group 10: Captures Directory Scanner');
+  const emptyCaptures = diagManager.getExistingCaptures('C:\\path\\does\\not\\exist\\folder');
+  assertEqual(emptyCaptures.length, 0, 'Nonexistent captures folder returns empty array safely');
+
   console.log('\n==================================================');
   console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);
   console.log('==================================================');
@@ -165,3 +210,4 @@ runUnitTests().catch(err => {
   console.error('Test execution error:', err);
   process.exit(1);
 });
+

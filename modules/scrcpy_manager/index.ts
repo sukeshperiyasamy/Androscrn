@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { EventEmitter } from 'events';
 import { SecurityValidator } from '../security';
 
@@ -26,16 +27,45 @@ export interface ScrcpyProcessStatus {
   targetSerial?: string;
   exitCode?: number | null;
   error?: string;
+  lastError?: string;
 }
 
 export class ScrcpyManager extends EventEmitter {
   private scrcpyExePath: string;
   private currentProcess: ChildProcess | null = null;
   private currentSerial: string | null = null;
+  private lastExitCode: number | null = null;
+  private lastError: string | null = null;
 
   constructor(scrcpyExePath: string) {
     super();
     this.scrcpyExePath = scrcpyExePath;
+  }
+
+  /**
+   * Queries scrcpy version and compiled dependencies
+   */
+  public getScrcpyVersion(): Promise<string> {
+    return new Promise((resolve) => {
+      if (!fs.existsSync(this.scrcpyExePath)) {
+        return resolve('scrcpy binary not found');
+      }
+
+      const child = spawn(this.scrcpyExePath, ['--version'], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      child.stdout?.on('data', d => { stdout += d.toString(); });
+      child.on('close', () => {
+        const match = stdout.match(/scrcpy\s+([\d.]+)/i);
+        resolve(match ? `scrcpy ${match[1]}` : (stdout.split('\n')[0] || 'Unknown scrcpy'));
+      });
+      child.on('error', err => {
+        resolve(`Error: ${err.message}`);
+      });
+    });
   }
 
   /**
@@ -124,9 +154,27 @@ export class ScrcpyManager extends EventEmitter {
    * Starts screen mirroring process
    */
   public startMirroring(options: ScrcpyOptions): { success: boolean; pid?: number; message?: string } {
-    if (this.currentProcess) {
+    if (this.currentProcess && !this.currentProcess.killed) {
       return { success: false, message: 'A screen mirroring session is already active.' };
     }
+
+    if (!fs.existsSync(this.scrcpyExePath)) {
+      return { success: false, message: `scrcpy executable not found at: ${this.scrcpyExePath}` };
+    }
+
+    if (options.recordPath) {
+      const recordDir = path.dirname(options.recordPath);
+      if (!fs.existsSync(recordDir)) {
+        try {
+          fs.mkdirSync(recordDir, { recursive: true });
+        } catch (err: any) {
+          return { success: false, message: `Cannot create recording directory: ${err.message}` };
+        }
+      }
+    }
+
+    this.lastError = null;
+    this.lastExitCode = null;
 
     const args = this.buildArguments(options);
     const binDir = path.dirname(this.scrcpyExePath);
@@ -150,17 +198,19 @@ export class ScrcpyManager extends EventEmitter {
 
       child.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
+        this.lastError = text.trim();
         this.emit('log', { type: 'stderr', text });
       });
 
       child.on('close', (code) => {
         const exitedSerial = this.currentSerial;
+        this.lastExitCode = code;
         this.currentProcess = null;
         this.currentSerial = null;
 
         // Scrcpy Exit Codes:
         // 0: Normal termination
-        // 1: Start failure
+        // 1: Start failure (e.g. video encoder initialization error)
         // 2: Device disconnected while running
         this.emit('stopped', { code, serial: exitedSerial });
 
@@ -170,6 +220,7 @@ export class ScrcpyManager extends EventEmitter {
       });
 
       child.on('error', (err) => {
+        this.lastError = err.message;
         if (this.listenerCount('error') > 0) {
           this.emit('error', err);
         } else {
@@ -181,6 +232,7 @@ export class ScrcpyManager extends EventEmitter {
 
       return { success: true, pid: child.pid };
     } catch (err: any) {
+      this.lastError = err.message;
       return { success: false, message: err.message };
     }
   }
@@ -192,7 +244,7 @@ export class ScrcpyManager extends EventEmitter {
     if (!this.currentProcess) return false;
 
     try {
-      this.currentProcess.kill('SIGINT');
+      this.currentProcess.kill();
       this.currentProcess = null;
       this.currentSerial = null;
       return true;
@@ -202,13 +254,15 @@ export class ScrcpyManager extends EventEmitter {
   }
 
   /**
-   * Returns current process status
+   * Returns current process status and last exit information
    */
   public getStatus(): ScrcpyProcessStatus {
     return {
       running: this.currentProcess !== null && !this.currentProcess.killed,
       pid: this.currentProcess?.pid,
-      targetSerial: this.currentSerial || undefined
+      targetSerial: this.currentSerial || undefined,
+      exitCode: this.lastExitCode,
+      lastError: this.lastError || undefined
     };
   }
 }
