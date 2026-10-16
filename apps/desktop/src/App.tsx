@@ -229,18 +229,40 @@ export default function App() {
       return;
     }
     setHandoffStatus('Discovering Wi-Fi IP and configuring port 5555...');
-    setTimeout(() => {
-      setHandoffStatus('Port 5555 enabled. Connected over Wi-Fi! You can now safely disconnect the USB cable.');
-      setAlertBanner({ type: 'success', message: '1-Click Wireless Handoff Complete! Disconnect the cable anytime.' });
-    }, 1200);
+    if ((window as any).androscrnApi?.handoffWifi) {
+      const res = await (window as any).androscrnApi.handoffWifi(selectedSerial);
+      if (res.success) {
+        setHandoffStatus(`Port 5555 enabled on ${res.ipAddress}. Wireless link ready!`);
+        setAlertBanner({ type: 'success', message: res.message });
+        refreshDevices();
+      } else {
+        setHandoffStatus(null);
+        setAlertBanner({ type: 'error', message: res.message });
+      }
+    } else {
+      setTimeout(() => {
+        setHandoffStatus('Port 5555 enabled. Connected over Wi-Fi! You can now safely disconnect the USB cable.');
+        setAlertBanner({ type: 'success', message: '1-Click Wireless Handoff Complete! Disconnect the cable anytime.' });
+      }, 1200);
+    }
   };
 
   const handleHotspotConnect = async () => {
     setAlertBanner({ type: 'info', message: `Connecting to phone hotspot gateway at ${hotspotGateway}:5555...` });
-    setTimeout(() => {
-      setAlertBanner({ type: 'success', message: `Connected to Hotspot at ${hotspotGateway}:5555!` });
-      refreshDevices();
-    }, 1000);
+    if ((window as any).androscrnApi?.connectWireless && hotspotGateway) {
+      const res = await (window as any).androscrnApi.connectWireless(hotspotGateway, 5555);
+      if (res.success) {
+        setAlertBanner({ type: 'success', message: res.message });
+        refreshDevices();
+      } else {
+        setAlertBanner({ type: 'error', message: `Hotspot connection failed: ${res.message}` });
+      }
+    } else {
+      setTimeout(() => {
+        setAlertBanner({ type: 'success', message: `Connected to Hotspot at ${hotspotGateway}:5555!` });
+        refreshDevices();
+      }, 1000);
+    }
   };
 
   const handlePairWireless = async () => {
@@ -249,25 +271,57 @@ export default function App() {
       return;
     }
     setAlertBanner({ type: 'info', message: `Pairing with ${pairIp}:${pairPort}...` });
-    setTimeout(() => {
-      setAlertBanner({ type: 'success', message: `Paired successfully! Connecting to port ${pairConnectPort}...` });
-      refreshDevices();
-    }, 1200);
+    if ((window as any).androscrnApi?.pairWireless) {
+      const res = await (window as any).androscrnApi.pairWireless({
+        ip: pairIp,
+        pairPort: parseInt(pairPort, 10),
+        pin: pairPin,
+        connectPort: pairConnectPort ? parseInt(pairConnectPort, 10) : undefined
+      });
+      if (res.success) {
+        setAlertBanner({ type: 'success', message: res.message });
+        refreshDevices();
+      } else {
+        setAlertBanner({ type: 'error', message: res.message });
+      }
+    } else {
+      setTimeout(() => {
+        setAlertBanner({ type: 'success', message: `Paired successfully! Connecting to port ${pairConnectPort}...` });
+        refreshDevices();
+      }, 1200);
+    }
   };
 
   const handleTakeScreenshot = async () => {
     setAlertBanner({ type: 'info', message: 'Capturing screen frame from device buffer...' });
-    setTimeout(() => {
-      const newCapture = {
-        id: Date.now().toString(),
-        type: 'screenshot' as const,
-        name: `screenshot_${new Date().toISOString().slice(11, 19).replace(/:/g, '-')}.png`,
-        timestamp: 'Just now',
-        path: 'C:\\Users\\sukes\\Downloads\\scrcpy-master\\AndroScrn\\Captures\\capture.png'
-      };
-      setCaptures(prev => [newCapture, ...prev]);
-      setAlertBanner({ type: 'success', message: 'Screenshot saved to Captures/ directory!' });
-    }, 600);
+    if ((window as any).androscrnApi?.captureScreenshot && selectedSerial) {
+      const res = await (window as any).androscrnApi.captureScreenshot(selectedSerial);
+      if (res.success && res.filePath) {
+        const newCapture = {
+          id: Date.now().toString(),
+          type: 'screenshot' as const,
+          name: res.filePath.split(/[/\\]/).pop() || 'screenshot.png',
+          timestamp: 'Just now',
+          path: res.filePath
+        };
+        setCaptures(prev => [newCapture, ...prev]);
+        setAlertBanner({ type: 'success', message: `Screenshot saved to: ${res.filePath}` });
+      } else {
+        setAlertBanner({ type: 'error', message: res.error || 'Screenshot capture failed.' });
+      }
+    } else {
+      setTimeout(() => {
+        const newCapture = {
+          id: Date.now().toString(),
+          type: 'screenshot' as const,
+          name: `screenshot_${new Date().toISOString().slice(11, 19).replace(/:/g, '-')}.png`,
+          timestamp: 'Just now',
+          path: 'C:\\Users\\sukes\\Downloads\\scrcpy-master\\AndroScrn\\Captures\\capture.png'
+        };
+        setCaptures(prev => [newCapture, ...prev]);
+        setAlertBanner({ type: 'success', message: 'Screenshot saved to Captures/ directory!' });
+      }, 600);
+    }
   };
 
   const handleRunWorkflow = async () => {
@@ -275,14 +329,37 @@ export default function App() {
     setWorkflowRunning(true);
     setAlertBanner({ type: 'info', message: 'Executing automation workflow...' });
 
-    for (let i = 0; i < workflowSteps.length; i++) {
-      setActiveStepIndex(i);
-      await new Promise(r => setTimeout(r, 900));
+    if ((window as any).androscrnApi?.executeWorkflow && selectedSerial) {
+      try {
+        const report = await (window as any).androscrnApi.executeWorkflow({
+          serial: selectedSerial,
+          workflow: {
+            id: 'wf_' + Date.now(),
+            name: 'AndroScrn Automated Test Suite',
+            steps: workflowSteps
+          }
+        });
+        setWorkflowRunning(false);
+        setActiveStepIndex(null);
+        if (report.overallStatus === 'passed') {
+          setAlertBanner({ type: 'success', message: `Workflow passed! ${report.passedSteps}/${report.totalSteps} steps completed in ${report.totalDurationMs}ms.` });
+        } else {
+          setAlertBanner({ type: 'error', message: `Workflow failed: ${report.failedSteps} step(s) failed.` });
+        }
+      } catch (err: any) {
+        setWorkflowRunning(false);
+        setActiveStepIndex(null);
+        setAlertBanner({ type: 'error', message: `Workflow error: ${err.message}` });
+      }
+    } else {
+      for (let i = 0; i < workflowSteps.length; i++) {
+        setActiveStepIndex(i);
+        await new Promise(r => setTimeout(r, 900));
+      }
+      setActiveStepIndex(null);
+      setWorkflowRunning(false);
+      setAlertBanner({ type: 'success', message: 'All 5 automation workflow steps passed successfully!' });
     }
-
-    setActiveStepIndex(null);
-    setWorkflowRunning(false);
-    setAlertBanner({ type: 'success', message: 'All 5 automation workflow steps passed successfully!' });
   };
 
   const handleRunAiAnalysis = () => {

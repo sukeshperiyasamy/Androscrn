@@ -170,7 +170,11 @@ export class ScrcpyManager extends EventEmitter {
       });
 
       child.on('error', (err) => {
-        this.emit('error', err);
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', err);
+        } else {
+          this.emit('log', { type: 'stderr', text: `Process error: ${err.message}` });
+        }
         this.currentProcess = null;
         this.currentSerial = null;
       });
