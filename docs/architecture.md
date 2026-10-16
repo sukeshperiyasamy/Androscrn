@@ -4,18 +4,20 @@
 **Target OS:** Windows 10 / Windows 11 (x64)  
 **Author:** AndroScrn Core Architecture Team  
 **Date:** 2026-10-16  
+**Related Decision Records:** [ADR-001: Architecture Reconciliation, Standalone MCP Server & Security Model](adr/001-architecture-reconciliation-and-mcp.md)
 
 ---
 
 ## 1. System Vision & Design Principles
 
-AndroScrn is an independent Windows-first desktop application engineered to provide frictionless, ultra-reliable Android device control, high-framerate wireless mirroring, intelligent workflow automation, device diagnostics, and on-device privacy-preserving AI assistance.
+AndroScrn is an independent Windows-first desktop application engineered to provide frictionless, ultra-reliable Android device control, high-framerate wireless mirroring, intelligent workflow automation, device diagnostics, and local AI assistance via the Model Context Protocol (MCP).
 
 ### Key Architectural Pillars:
-1. **Local-First & Zero-Cloud Dependency:** Device streaming, input simulation, ADB handshakes, OCR, and AI features run 100% locally on the host machine.
+1. **Local-First & Zero-Cloud Dependency:** Device streaming, input simulation, ADB handshakes, OCR, diagnostics, and AI features run 100% locally on the host machine.
 2. **Modular Engine Integration:** Leverages Genymobile's low-latency C/SDL3/FFmpeg video pipeline and Google's official Android Debug Bridge (ADB) via decoupled supervisory adapters.
-3. **Enterprise Process Supervision:** Child processes are launched via isolated argument vectors (no raw shell interpolation), tracked via OS process identifiers, continuously monitored for exit codes, and recovered with exponential backoff.
-4. **Rich, Modern UI/UX:** Built with a dark glassmorphic design system, tactile micro-animations, clear empty/loading/error states, and intuitive one-click workflows for both non-technical users and QA engineers.
+3. **Enterprise Process Supervision:** Child processes are launched via isolated argument vectors (no raw shell interpolation), tracked via OS process identifiers, continuously monitored for exit codes, and recovered with defensive backoff.
+4. **Decoupled Standalone MCP Server:** Exposes a standard Model Context Protocol server over standard I/O (`stdio`), enabling external AI assistants (Claude Desktop, Cursor, Antigravity) to query devices, stream redacted logcat, and capture verified screenshots without requiring the GUI to be running.
+5. **Pairing-First Security Model:** Strict authorization boundary separating read-only telemetry (Tiers 0–2) from mutating device actions (Tiers 3–4), guarded by a 6-digit numeric PIN handshake, token validation, brute-force rate limits, and an Emergency Kill Switch.
 
 ---
 
@@ -23,23 +25,39 @@ AndroScrn is an independent Windows-first desktop application engineered to prov
 
 ```mermaid
 graph TD
-    UI[AndroScrn Modern UI - React & TypeScript]
-    IPC[Typed IPC Gateway - Electron Preload Bridge]
-    
-    subgraph Core Engine Modules
+    subgraph External Clients
+        AI_Client[AI Assistant / Claude Desktop / Cursor / Antigravity]
+    end
+
+    subgraph User Desktop Interface [apps/desktop/]
+        UI[AndroScrn Modern UI - React 18 & TypeScript]
+        IPC_Bridge[Electron Preload ContextBridge: window.androscrnApi]
+        IPC_Main[Electron Main Process Gateway: ipcMain Handlers]
+    end
+
+    subgraph Standalone MCP Server [modules/mcp/ - Stdio Process]
+        MCP_Core[AndroScrn MCP Server - @modelcontextprotocol/sdk]
+        MCP_Gate[Pairing & Security Gatekeeper - Tiers 0 to 4]
+        MCP_Tools[Tools: list_devices, get_device_info, get_logcat, get_diagnostics, capture_screenshot, pairing]
+    end
+
+    subgraph Core Engine Modules [modules/]
         DM[Device Manager - Auto-Discovery & Health]
         CM[Connection Manager - USB/WiFi/Hotspot Handoff]
         SM[Scrcpy Manager - Process Lifecycle & Presets]
-        DX[Diagnostics - Live Logcat & Bugreport]
+        DX[Diagnostics Manager - Binary Screencap & Redaction]
         WF[Workflow Engine - Automation & Test Runner]
-        SEC[Security Layer - Input Validation & Redaction]
+        SEC[Security Validator - Input Sanitization & Redaction]
+        PAIR[Pairing Manager - PIN Handshake & Session Tokens]
     end
 
-    subgraph Native Runtime Binaries
+    subgraph Native Runtime Binaries [bin/scrcpy-win64/]
         ADB_BIN[Official adb.exe v1.0.41]
         SCR_BIN[Official scrcpy.exe v5.0.1 + SDL3 + FFmpeg]
-        TESS_BIN[Local Tesseract OCR Engine]
-        OLLAMA_API[Local Ollama Inference API]
+    end
+
+    subgraph Future Rust Migration Layer
+        PIPE[Windows Named Pipe: \\.\pipe\androscrn-ipc]
     end
 
     subgraph Target Android Device
@@ -47,21 +65,31 @@ graph TD
         SCR_JAR[scrcpy-server JAR]
     end
 
-    UI <--> IPC
-    IPC <--> DM
-    IPC <--> CM
-    IPC <--> SM
-    IPC <--> DX
-    IPC <--> WF
-    
+    AI_Client <== stdio JSON-RPC ==> MCP_Core
+    MCP_Core --> MCP_Gate
+    MCP_Gate --> MCP_Tools
+    MCP_Tools --> DM
+    MCP_Tools --> DX
+    MCP_Tools --> SEC
+    MCP_Tools --> PAIR
+
+    UI <== contextBridge ==> IPC_Bridge
+    IPC_Bridge <== IPC ==> IPC_Main
+    IPC_Main --> DM
+    IPC_Main --> CM
+    IPC_Main --> SM
+    IPC_Main --> DX
+    IPC_Main --> WF
+
     DM --> ADB_BIN
     CM --> ADB_BIN
     SM --> SCR_BIN
     DX --> ADB_BIN
     WF --> ADB_BIN
-    WF --> TESS_BIN
-    WF --> OLLAMA_API
-    
+
+    DM -. Future Named Pipe .-> PIPE
+    MCP_Core -. Future Named Pipe .-> PIPE
+
     ADB_BIN <== USB / TCP:5555 ==> ADBD
     SCR_BIN <== Video Socket & Control Socket ==> SCR_JAR
 ```
@@ -93,19 +121,26 @@ graph TD
   * Feature toggles: Stay awake (`-w`), Turn screen off (`-S`), Fullscreen (`-f`), Show touches (`-t`).
 * **Session Recording:** Flags `--record=<path>` with automated timestamping in `Captures/` and zero CPU re-encoding overhead.
 
-### 3.4 Workflow & Automation Engine (`modules/workflow_engine`)
-* **Responsibility:** Step-by-step test execution:
-  * `tap(x, y)`: Injects touchscreen coordinate event.
-  * `swipe(x1, y1, x2, y2, duration)`: Injects gestures.
-  * `keyevent(code)`: Sends Android hardware keys (Home, Back, Enter).
-  * `input_text(str)`: Types text safely into focused inputs.
-  * `wait(ms)`: Delay timers.
-  * `screenshot(label)`: Captures screen frame for visual record.
-  * `assert_text(str)`: Leverages local Tesseract OCR to assert expected text appears on screen.
+### 3.4 Diagnostics Manager (`modules/diagnostics`)
+* **Responsibility:** System health introspection and device telemetry:
+  * **Binary Screencap:** Streams raw binary frame buffer via `adb exec-out screencap -p` and verifies PNG magic bytes (`89 50 4E 47`) directly from hardware.
+  * **Logcat Streamer:** Extracts bounded recent logcat lines formatted via threadtime with priority level parsing (`V`, `D`, `I`, `W`, `E`, `F`).
+  * **Sanitized Bundle Generation:** Combines host OS specifications, bundled ADB/scrcpy versions, device properties, and recent logs with automatic regex credential redaction.
 
-### 3.5 Local Intelligence Layer (`modules/intelligence`)
-* **Tesseract OCR:** In-process screen inspection to locate UI elements by visual text.
-* **Ollama Client:** Offline LLM interaction (e.g. explaining crash logs, diagnosing ANRs, auto-generating test sequences) via localhost REST requests.
+### 3.5 Security Validator (`modules/security`)
+* **Responsibility:** Defensive gatekeeper for all external and internal inputs:
+  * Serial format validation (alphanumeric, dot, colon, hyphen; rejects semicolons, pipes, and operators).
+  * IPv4 and port boundary validation (1–65535).
+  * Safe path resolution to defend against directory traversal attacks.
+  * Credential redaction engine (replaces email addresses, bearer tokens, API keys, and 6-digit PINs with sanitized placeholders).
+
+### 3.6 Model Context Protocol (MCP) Server (`modules/mcp`)
+* **Responsibility:** Standardized JSON-RPC interface for external AI assistants:
+  * Built on official `@modelcontextprotocol/sdk`.
+  * Standalone executable CLI (`bin/androscrn-mcp.bat` / `modules/mcp/cli.ts`).
+  * Decoupled from desktop GUI; runs headless in CI or local developer workflows.
+  * Exposes read-only telemetry tools (`list_devices`, `get_device_info`, `get_logcat`, `get_diagnostics`, `capture_screenshot`).
+  * Exposes pairing handshake tools (`request_pairing`, `pair_session`, `get_pairing_status`).
 
 ---
 
@@ -113,5 +148,12 @@ graph TD
 
 1. **Strict Argument-Vector Invocation:** Never pass commands to `cmd.exe /c` or shell strings. All parameters pass as immutable arrays to `child_process.spawn`.
 2. **Host-Bound Networking:** ADB server binds to `127.0.0.1:5037`. Remote ports are never exposed to public internet interfaces.
-3. **Sanitized Diagnostics:** Diagnostic exports redact sensitive tokens (passwords, serial numbers, personal accounts) prior to zip generation.
-4. **User-Approved Actions:** APK installation and shell actions require explicit user confirmation.
+3. **Multi-Tier Permission Matrix (Tiers 0–4):**
+   * **Tier 0 (`read:telemetry`):** Allowed unconditionally (sanitized metadata).
+   * **Tier 1 (`read:logs`):** Allowed with automatic token and email redaction.
+   * **Tier 2 (`read:screen`):** Allowed with PNG signature validation.
+   * **Tier 3 (`write:input`):** Requires active 6-digit PIN paired session token.
+   * **Tier 4 (`write:admin`):** Requires interactive human GUI confirmation.
+4. **Brute-Force Rate Limiting:** Pairing PIN invalidates after 3 incorrect attempts.
+5. **Emergency Kill Switch:** Instant revocation of all active session tokens via `PairingManager.revokeAllSessions()`.
+6. **Path Traversal Defense:** Capture file paths and logs resolve strictly within canonicalized destination folders via `SecurityValidator.resolveSafePath`.

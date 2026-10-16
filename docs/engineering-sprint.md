@@ -283,7 +283,7 @@ PLAYWRIGHT TEST RESULTS: 26/26 Passed (0 Failed)
 
 ---
 
-## 7. Master Test Suite Verification (105 Tests Passing)
+## 7. Master Test Suite Verification (157 Tests Passing)
 
 Executing `npm test` runs the complete unified verification suite across all 3 tiers:
 
@@ -291,35 +291,72 @@ Executing `npm test` runs the complete unified verification suite across all 3 t
 ==================================================
        ANDROSCRN MASTER TEST SUITE RESULTS        
 ==================================================
-1. Unit Tests (tests/unit/runner.ts):             66 / 66 Passed (0 Failed)
+1. Unit Tests (tests/unit/runner.ts):            118 / 118 Passed (0 Failed)
+   - Input sanitization & security checks:        27 Passed
+   - Multi-device descriptor parser:              10 Passed
+   - Scrcpy argument composition:                  9 Passed
+   - Missing binary error propagation:             3 Passed
+   - ConnectionManager error handling:             4 Passed
+   - Process lifecycle & teardown:                 2 Passed
+   - Device state guidance generators:             3 Passed
+   - PNG magic byte verification:                  4 Passed
+   - System diagnostic bundle & redaction:         3 Passed
+   - Captures folder scanner safety:               1 Passed
+   - MCP Server & Security Gatekeeper:            52 Passed
 2. Integration Tests (tests/integration):         13 / 13 Passed (0 Failed)
+   - Bundled ADB 1.0.41 execution & banner:        4 Passed
+   - Live socket probe & device enumeration:       2 Passed
+   - Missing binary handling:                      2 Passed
+   - Scrcpy process supervisor:                    2 Passed
+   - Binary buffer execution:                      2 Passed
+   - Process cleanup safety:                       1 Passed
 3. Playwright UI Tests (tests/ui):                26 / 26 Passed (0 Failed)
+   - Zero-device empty state & disabled controls:  4 Passed
+   - Multi-device dropdowns & status badges:       7 Passed
+   - Mirroring controls & pulse badge:             6 Passed
+   - Screenshot capture & gallery:                 2 Passed
+   - Diagnostics introspections:                   3 Passed
+   - Keyboard accessibility & tab order:           2 Passed
+   - Responsive layouts (1024x768 / 1920x1080):    2 Passed
 --------------------------------------------------
-TOTAL AUTOMATED TEST VERIFICATION:               105 / 105 Passed (100% Green)
+TOTAL AUTOMATED TEST VERIFICATION:               157 / 157 Passed (100% Green)
 ==================================================
 ```
 
 ---
 
-## 8. Standalone Portable Windows Release Verification
+## 8. Physical Hardware Validation Report
 
-Following UI/UX updates and testing, the standalone portable package was rebuilt via `packaging/portable/package-portable.ps1`:
+During this sprint, physical Android hardware was attached and verified via USB debugging:
 
-- **Distribution Folder:** `dist-release/AndroScrn-portable-win-x64/`
-- **Standalone Executable:** `dist-release/AndroScrn-portable-win-x64/AndroScrn.exe` (172.47 MB)
-- **Portable ZIP Archive:** `dist-release/AndroScrn-portable-win-x64.zip` (127.07 MB)
-- **ZIP SHA-256 Checksum:** `1bee9921cd5f31c8500de4c55cef2a2dadbeba0c2732ecc55da143236ec2a2c4`
-- **Checksum Manifest:** Updated in `dist-release/SHA256SUMS.txt`
-- **Portability Status:** Verified standalone. Contains bundled Electron 31 runtime, Google ADB 1.0.41, Genymobile scrcpy 5.0.1, SDL3, FFmpeg DLLs, and compiled application assets. Requires zero external Node.js or internet connectivity.
+- **Device Hardware:** Xiaomi Redmi Note 11 Pro+ 5G (Model: `21091116I`, Codename: `pissarroin`)
+- **Android Version:** Android 13 (MIUI / HyperOS)
+- **Serial Identifier:** `kjizrsgekfsglvgi`
+- **Transport Type:** Direct USB (`transport_id: 1`)
+- **Device Authorization State:** `device` (Authorized via RSA handshake)
+- **Battery Query:** 88% reported via `dumpsys battery` parser.
+- **Raw Screencap Validation:** Successfully captured live frame buffer screenshot (`15,580 bytes`), verifying valid PNG magic header bytes (`89 50 4E 47 0D 0A 1A 0A`) written to `Captures/`.
+- **Live Logcat Stream:** Successfully streamed recent logcat entries via threadtime format.
+- **Scrcpy Mirroring Stream:** Successfully pushed `scrcpy-server` (733,930 bytes in 0.032s @ 22.2 MB/s) and initialized Direct3D11 streaming.
+  - *Vendor Note:* HyperOS/MIUI requires enabling `"USB debugging (Security Settings)"` for touchscreen event injection (`INJECT_EVENTS` permission). Screen mirroring and capture function out of the box without this setting.
 
 ---
 
-## 9. Outstanding Hardware Tests & Next Milestone
+## 9. Architecture Decision Record & MCP Integration
 
-1. **Hardware Validation Pending:**
-   - Physical USB video streaming, hardware H.264/H.265 frame rendering, and physical touchscreen gestures remain **untested on hardware** until an Android device is attached.
-   - Follow the step-by-step checklist in `docs/manual-device-test.md` when test hardware is available.
-2. **Next Milestone (Phase 2):**
-   - Implement standalone Model Context Protocol (MCP) server (`bin/androscrn-mcp.ts`) with `@modelcontextprotocol/sdk`.
-   - Wire host Tesseract OCR CLI and Ollama inference endpoints to replace UI preview fallbacks.
-   - Long-term transition to Tauri 2 / Rust once Rust and MSVC compiler toolchains are provisioned.
+- **ADR-001 Approved:** Documented in [docs/adr/001-architecture-reconciliation-and-mcp.md](file:///c:/Users/sukes/Downloads/scrcpy-master/AndroScrn/docs/adr/001-architecture-reconciliation-and-mcp.md).
+- **Model Context Protocol (MCP) Server Implemented:**
+  - Standardized JSON-RPC 2.0 interface built with official `@modelcontextprotocol/sdk`.
+  - Standalone executable CLI (`bin/androscrn-mcp.bat` / `modules/mcp/cli.ts`).
+  - 8 registered tools: `list_devices`, `get_device_info`, `get_logcat`, `get_diagnostics`, `capture_screenshot`, `request_pairing`, `pair_session`, `get_pairing_status`.
+  - Multi-tier permission matrix (Tiers 0–4), 60-second pairing PIN TTL, 3-attempt brute-force lockout, and Emergency Kill Switch.
+  - Automatic credential redaction via `SecurityValidator.redactSensitiveText`.
+
+---
+
+## 10. Next Milestone (Phase 3)
+
+1. **Human-in-the-Loop (HITL) Pairing UI:** Add an interactive pairing modal and toast in the desktop GUI displaying incoming AI agent pairing PIN requests with Approve/Deny buttons.
+2. **Emergency Kill Switch in GUI:** Add an immediate "Revoke All AI Sessions" button in the workbench navigation bar.
+3. **Mutating MCP Tools (Tier 3):** Implement input automation tools (`tap`, `swipe`, `keyevent`, `input_text`) guarded by the active session token check.
+4. **Tesseract OCR Integration:** Wire host Tesseract 5.3 CLI into `WorkflowEngine.assert_text` for automated UI text verification.

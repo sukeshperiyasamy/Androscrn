@@ -2,6 +2,7 @@ import { SecurityValidator } from '../../modules/security';
 import { DeviceManager } from '../../modules/device_manager';
 import { ScrcpyManager } from '../../modules/scrcpy_manager';
 import { ConnectionManager } from '../../modules/connection_manager';
+import { runMcpTests } from './mcp.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -196,6 +197,9 @@ OFFLINE_DEV_1          offline transport_id:4
   console.log('\nTest Group 10: Captures Directory Scanner');
   const emptyCaptures = diagManager.getExistingCaptures('C:\\path\\does\\not\\exist\\folder');
   assertEqual(emptyCaptures.length, 0, 'Nonexistent captures folder returns empty array safely');
+
+  // 11. Model Context Protocol (MCP) Server & Security Gatekeeper
+  await runMcpTests(assert, assertEqual);
 
   console.log('\n==================================================');
   console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);
