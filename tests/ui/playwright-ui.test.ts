@@ -322,6 +322,131 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const fullHdNav = await page.isVisible('nav[aria-label="Workbench navigation"]');
     recordTest('Workbench sidebar nav intact at 1920x1080 resolution', fullHdNav);
 
+    // -------------------------------------------------------------
+    // Test Scenario 8: AI Agent & MCP Security Center, HITL Pairing UI & Emergency Revocation
+    // -------------------------------------------------------------
+    console.log('\nScenario 8: AI Agent & MCP Security Center, HITL Pairing UI & Emergency Revocation');
+    await page.evaluate(() => {
+      const mockPendingRequests = [
+        {
+          requestId: 'req-playwright-999',
+          pin: '847291',
+          clientName: 'Playwright-Autonomous-Agent',
+          requestedTier: 3,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 60000,
+          attempts: 0,
+          status: 'PENDING'
+        }
+      ];
+
+      const mockActiveSessions = [
+        {
+          sessionId: 'sess-active-101',
+          token: 'token_alpha_1234567890abcdef',
+          createdAt: Date.now() - 300000,
+          expiresAt: Date.now() + 1500000,
+          tiers: [0, 1, 2, 3],
+          clientName: 'Active-Analysis-Bot'
+        }
+      ];
+
+      let lastApprovedId = '';
+      let lastDeniedId = '';
+      let lastRevokedId = '';
+      let revokeAllCalled = false;
+
+      (window as any).__mcpAudit = {
+        getLastApproved: () => lastApprovedId,
+        getLastDenied: () => lastDeniedId,
+        getLastRevoked: () => lastRevokedId,
+        getRevokeAllCalled: () => revokeAllCalled
+      };
+
+      (window as any).androscrnApi.getMcpStatus = async () => ({
+        pipeName: '\\\\.\\pipe\\androscrn-mcp-control',
+        isListening: true,
+        connectedMcpProcesses: 1,
+        activeSessions: mockActiveSessions,
+        pendingRequests: mockPendingRequests
+      });
+
+      (window as any).androscrnApi.approveMcpPairing = async (id: string) => {
+        lastApprovedId = id;
+        mockPendingRequests.length = 0;
+        return true;
+      };
+
+      (window as any).androscrnApi.denyMcpPairing = async (id: string) => {
+        lastDeniedId = id;
+        mockPendingRequests.length = 0;
+        return true;
+      };
+
+      (window as any).androscrnApi.revokeMcpSession = async (sessionId: string) => {
+        lastRevokedId = sessionId;
+        const idx = mockActiveSessions.findIndex(s => s.sessionId === sessionId);
+        if (idx !== -1) mockActiveSessions.splice(idx, 1);
+        return true;
+      };
+
+      (window as any).androscrnApi.revokeAllMcpSessions = async () => {
+        revokeAllCalled = true;
+        mockActiveSessions.length = 0;
+        mockPendingRequests.length = 0;
+        return true;
+      };
+    });
+
+    // Refresh state by navigating to AI tab
+    await page.click('#tab-ai');
+    await page.waitForTimeout(400);
+
+    // 1. Verify AI Tab navigation and header
+    const aiHeader = await page.textContent('#mcp-security-center h3');
+    recordTest('AI Agent & MCP Security Center title visible', aiHeader?.includes('AI Agent & MCP Security Center') ?? false);
+
+    // 2. Verify Named Pipe status display
+    const pipeInfo = await page.textContent('#mcp-security-center');
+    recordTest('Named Pipe connection details rendered', pipeInfo?.includes('\\\\.\\pipe\\androscrn-mcp-control') ?? false);
+
+    // 3. Verify Pending Pairing Request Banner & Desktop PIN
+    const pairingBanner = await page.waitForSelector('#mcp-pairing-requests-container', { timeout: 3000 });
+    recordTest('Pending AI Pairing Request banner is displayed', pairingBanner !== null);
+
+    const bannerContent = await page.textContent('#mcp-pairing-requests-container');
+    recordTest('Pending pairing request shows requesting client name', bannerContent?.includes('Playwright-Autonomous-Agent') ?? false);
+    recordTest('Desktop PIN displayed prominently on screen', bannerContent?.includes('847291') ?? false);
+
+    // 4. Verify Active Sessions List rendering
+    const activeSessionItem = await page.waitForSelector('#session-item-sess-active-101', { timeout: 2000 });
+    recordTest('Active session item rendered in sessions table', activeSessionItem !== null);
+
+    const sessionContent = await page.textContent('#session-item-sess-active-101');
+    recordTest('Active session displays client name and Tier permissions', (sessionContent?.includes('Active-Analysis-Bot') && sessionContent?.includes('Tier')) ?? false);
+
+    // 5. Test Approve Pairing Button
+    await page.click('#btn-approve-pairing-req-playwright-999');
+    await page.waitForTimeout(400);
+    const approvedId = await page.evaluate(() => (window as any).__mcpAudit.getLastApproved());
+    recordTest('Approve Pairing button executes IPC with correct requestId', approvedId === 'req-playwright-999');
+
+    // 6. Test Individual Session Revocation Button
+    const singleRevokeBtn = await page.waitForSelector('#btn-revoke-session-sess-active-101');
+    recordTest('Individual session revoke button is accessible', singleRevokeBtn !== null);
+    await singleRevokeBtn.click();
+    await page.waitForTimeout(400);
+    const revokedId = await page.evaluate(() => (window as any).__mcpAudit.getLastRevoked());
+    recordTest('Individual session revoke button invokes IPC with sessionId', revokedId === 'sess-active-101');
+
+    // 7. Test Emergency Revocation Kill Switch
+    const killSwitchBtn = await page.waitForSelector('#btn-revoke-all-mcp');
+    recordTest('Emergency Kill Switch button ("Revoke All AI Sessions") is visible', killSwitchBtn !== null);
+    await killSwitchBtn.click();
+    await page.waitForTimeout(400);
+    const killSwitchTriggered = await page.evaluate(() => (window as any).__mcpAudit.getRevokeAllCalled());
+    recordTest('Emergency Kill Switch invalidates all active sessions via IPC', killSwitchTriggered);
+
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);
     recordTest('Playwright Suite Execution', false, err.message);

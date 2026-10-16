@@ -9,7 +9,7 @@
 [![scrcpy v5.0.1](https://img.shields.io/badge/Engine-scrcpy%20v5.0.1-brightgreen?style=for-the-badge)](https://github.com/Genymobile/scrcpy)
 [![ADB Verified](https://img.shields.io/badge/Bridge-Google%20ADB%201.0.41-orange?style=for-the-badge)](https://developer.android.com/tools/adb)
 [![MCP Server](https://img.shields.io/badge/MCP-Official%20SDK%20v1.32-purple?style=for-the-badge)](https://modelcontextprotocol.io)
-[![Tests Passing](https://img.shields.io/badge/Tests-157%20Passed-brightgreen?style=for-the-badge)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-200%20Passed-brightgreen?style=for-the-badge)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 *Ultra-low latency screen mirroring, 1-click wireless handoff, phone-hotspot discovery, raw binary screenshot capture, filtered logcat diagnostics, test automation workflows, and official Model Context Protocol (MCP) server for AI agents.*
@@ -23,7 +23,7 @@
 > **Architecture Reconciliation ([ADR-001](docs/adr/001-architecture-reconciliation-and-mcp.md)):**  
 > The approved target architecture is **Tauri 2 + Rust + React/TypeScript** with an out-of-process daemon communicating via Windows Named Pipes (`\\.\pipe\androscrn-ipc`).  
 > Because the current development machine lacks the MSVC C++ build environment and Rust compiler, the desktop workbench is distributed as a **provisional standalone Electron 31 + Node.js 20 LTS** portable package.  
-> The **Model Context Protocol (MCP) server** runs as a **completely decoupled, standalone CLI process over standard I/O (`stdio`)**, using the official `@modelcontextprotocol/sdk`. It can be invoked directly by AI agents (Claude Desktop, Cursor, Antigravity) without launching the Electron GUI.
+> The **Model Context Protocol (MCP) server** runs as a **completely decoupled, standalone CLI process over standard I/O (`stdio`)**, using the official `@modelcontextprotocol/sdk`. It bridges securely to the Electron GUI over a local Windows Named Pipe (`\\.\pipe\androscrn-mcp-control`) for Human-in-the-Loop approval.
 
 ---
 
@@ -47,16 +47,16 @@ In compliance with strict verification standards, every capability is classified
 | **Video Recording via scrcpy** | Pass-through `--record` muxing | **Implemented & tested** | Scrcpy recording flag composition with zero CPU re-encoding overhead. |
 | **Automation Workflow Runner** | Step sequencer (`WorkflowEngine`) | **Implemented & tested** | Core execution loop verified with coordinate validation. |
 | **MCP Stdio Server (Read-Only)** | `@modelcontextprotocol/sdk` | **Implemented & tested** | 8 tools: devices, info, logcat, diagnostics, screenshot, pairing handshake. |
-| **Pairing & Approval Gatekeeper** | 6-digit PIN & session tokens | **Implemented & tested** | Multi-tier security (Tiers 0–4), brute-force lockout, Emergency Kill Switch. |
+| **Human-in-the-Loop (HITL) Gatekeeper** | Windows Named Pipe Bridge | **Implemented & tested** | PIN never returned to AI agent; desktop Approve/Deny buttons & out-of-band PIN. |
+| **Emergency Revocation Kill Switch** | Global token invalidation | **Implemented & tested** | Real-time "Revoke All AI Sessions" button in desktop UI and IPC command. |
 | **Tesseract OCR Analysis** | Tesseract 5.3 CLI on host | **Mocked / Preview** | Engine installed on host; renderer currently uses mock preview. |
 | **Ollama Local AI Summary** | Local Ollama 0.34 API on host | **Mocked / Preview** | Engine installed on host; renderer currently uses mock preview. |
-| **Named-Pipe AI Firewall** | Windows Named Pipe Bridge | **Architected in ADR-001** | Migration bridge to future Rust daemon (`\\.\pipe\androscrn-ipc`). |
 
 ---
 
 ## 🤖 Model Context Protocol (MCP) Server for AI Agents
 
-AndroScrn exposes a standard, high-performance **Model Context Protocol (MCP)** server over standard input/output (`stdio`), enabling external AI assistants (such as Claude Desktop, Cursor, Antigravity, or custom agents) to inspect and diagnose attached Android devices.
+AndroScrn exposes a standard, high-performance **Model Context Protocol (MCP)** server over standard input/output (`stdio`), enabling external AI assistants (such as Claude Desktop, Cursor, Antigravity, or custom agents) to inspect, diagnose, and securely request pairing to attached Android devices.
 
 ### Registered MCP Tools
 
@@ -67,8 +67,8 @@ AndroScrn exposes a standard, high-performance **Model Context Protocol (MCP)** 
 | `get_logcat` | 1 | Fetches bounded recent logcat lines with automatic sensitive-data redaction. | `serial` (string), `lines` (number 1-500), `filterLevel` (V, D, I, W, E, F) |
 | `get_diagnostics` | 0 | Generates full host OS, toolchain version, and system diagnostic bundle. | None |
 | `capture_screenshot`| 2 | Captures verified raw PNG frame buffer with embedded base64 image block. | `serial` (string), `format` ('base64' \| 'file') |
-| `request_pairing` | — | Requests a 6-digit numeric pairing PIN with a 60-second TTL. | None |
-| `pair_session` | — | Submits the 6-digit PIN to obtain an authorized session token. | `pin` (string, 6 digits), `clientName` (string) |
+| `request_pairing` | — | Registers a pairing request via Named Pipe to Desktop UI. Never leaks PIN! | `clientName` (string), `requestedTier` (1-4) |
+| `pair_session` | — | Exchanges approved `requestId` or screen-displayed PIN for 64-char token. | `requestId` (string), `pin` (optional string), `clientName` (string) |
 | `get_pairing_status` | — | Checks validity and granted permission tiers of an active session token. | `token` (string, optional) |
 
 ### Claude Desktop Configuration
@@ -122,13 +122,13 @@ External AI agents have significant automation capabilities. To prevent unauthor
 * Android device with **USB Debugging** enabled (*Settings -> Developer Options -> USB Debugging*)
 
 ### Running Tests
-Execute the comprehensive 157-test validation suite:
+Execute the comprehensive 200-test validation suite:
 ```bash
 npm test
 ```
-* **Unit Tests (118):** Protocol sanitization, argument composition, PNG magic byte validation, redaction, and MCP protocol assertions.
+* **Unit Tests (149):** Protocol sanitization, argument composition, PNG magic byte validation, redaction, and MCP protocol assertions.
 * **Integration Tests (13):** Bundled binary smoke tests (`adb.exe` 1.0.41, `scrcpy.exe` 5.0.1, live daemon communication).
-* **Playwright UI Tests (26):** Automated headless browser tests verifying empty states, multi-device dropdowns, quality presets, captures gallery, and responsive layouts.
+* **Playwright UI Tests (38):** Automated headless browser tests verifying empty states, multi-device dropdowns, quality presets, captures gallery, responsive layouts, HITL pairing banner, and emergency revocation controls.
 
 ### Running Desktop Workbench
 ```bash

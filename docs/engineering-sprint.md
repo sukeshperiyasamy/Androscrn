@@ -354,9 +354,69 @@ During this sprint, physical Android hardware was attached and verified via USB 
 
 ---
 
-## 10. Next Milestone (Phase 3)
+## 10. Phase 3A Completion Report — HITL Pairing UI, Named-Pipe Control Bridge & Emergency Revocation
 
-1. **Human-in-the-Loop (HITL) Pairing UI:** Add an interactive pairing modal and toast in the desktop GUI displaying incoming AI agent pairing PIN requests with Approve/Deny buttons.
-2. **Emergency Kill Switch in GUI:** Add an immediate "Revoke All AI Sessions" button in the workbench navigation bar.
-3. **Mutating MCP Tools (Tier 3):** Implement input automation tools (`tap`, `swipe`, `keyevent`, `input_text`) guarded by the active session token check.
-4. **Tesseract OCR Integration:** Wire host Tesseract 5.3 CLI into `WorkflowEngine.assert_text` for automated UI text verification.
+**Milestone Completed:** Phase 3A  
+**Date:** 2026-10-17  
+**Scope:** Security Audit, Prevention of Agent Self-Authentication, Windows Named-Pipe IPC Control Bridge, Desktop HITL Pairing UI, Emergency Kill Switch, and Automated UI Regression Suite.
+
+### 10.1 Security Defect Remediation: Prevention of Self-Authentication
+- **Vulnerability Remediated:** The initial MCP prototype returned `{ pairingPin: pin }` directly in the JSON-RPC response of `request_pairing`. An autonomous AI agent could immediately read its own PIN and self-authenticate without user knowledge.
+- **Fix Implemented:** `request_pairing` now generates a `requestId` (UUIDv4) and pushes the request across the local Windows Named Pipe (`\\.\pipe\androscrn-mcp-control`) directly to the desktop UI. The JSON-RPC response returned to the calling agent contains **only** `{ requestId, status: "pending_desktop_approval", expiresInSeconds: 60 }`. The PIN is **never** leaked or returned in tool outputs.
+
+### 10.2 Windows Named-Pipe Control Bridge
+- **IPC Architecture:** Built on `modules/mcp/control-bridge.ts` using newline-delimited JSON (`NdjsonFramer`).
+- **Server:** Electron Main process hosts `McpControlServer` listening on `\\.\pipe\androscrn-mcp-control`.
+- **Client:** Standalone stdio MCP process connects via `McpControlClient` with automatic 5-second backoff reconnection.
+- **Fail-Safe Gate:** If the desktop application is closed or the named pipe is disconnected, `request_pairing` returns an explicit error requiring an active desktop session before any pairing can proceed.
+
+### 10.3 Desktop HITL Pairing UI & Security Center
+- **Pending Request Card:** Displays an amber pulsing notification with client name, requested tier, expiry countdown, bold out-of-band Desktop PIN, and **Approve Access** / **Deny** buttons.
+- **AI Agent & MCP Security Center:** Dedicated tab (`#tab-ai`) displaying:
+  - Real-time named pipe status and connected client count.
+  - Prominent red **"Revoke All AI Sessions"** Emergency Kill Switch button.
+  - Active sessions table with client name, granted permission tiers, expiration time, and individual **Revoke** buttons.
+  - Interactive pairing-first permission matrix reference.
+
+### 10.4 Automated Verification Summary
+```
+==================================================
+        ANDROSCRN PHASE 3A TEST VERIFICATION
+==================================================
+1. Unit Tests (tests/unit/runner.ts):              149 / 149 Passed (0 Failed)
+   - Input sanitization & injection defenses:      27 Passed
+   - Device parsing & alias management:            10 Passed
+   - Scrcpy argument composition:                  9 Passed
+   - Process lifecycle & missing binary handling:  8 Passed
+   - Device state guidance:                        3 Passed
+   - Binary screencap PNG magic byte check:        4 Passed
+   - Diagnostic bundle & sensitive redaction:      4 Passed
+   - Captures folder scanner:                      1 Passed
+   - MCP Server & HITL Handshake Security:         83 Passed
+2. Integration Tests (tests/integration):         13 / 13 Passed (0 Failed)
+   - Bundled ADB & scrcpy binary execution:        7 Passed
+   - Socket probe, discovery & process safety:     6 Passed
+3. Playwright UI Tests (tests/ui):                38 / 38 Passed (0 Failed)
+   - Zero-device empty state & guidance:           4 Passed
+   - Multi-device dropdowns & status badges:       7 Passed
+   - Mirroring controls, pulse & presets:          6 Passed
+   - Screenshot capture & media gallery:           2 Passed
+   - Diagnostics introspections & copy:            3 Passed
+   - Keyboard accessibility & tab navigation:      2 Passed
+   - Viewport responsiveness (1024x768 / 1080p):   2 Passed
+   - Scenario 8: AI Agent & MCP Security Center,
+     HITL Pairing Card, Desktop PIN display,
+     Approve/Deny buttons, Individual Revocation,
+     and Emergency Kill Switch:                   12 Passed
+--------------------------------------------------
+TOTAL AUTOMATED TEST VERIFICATION:               200 / 200 Passed (100% Green)
+==================================================
+```
+
+---
+
+## 11. Next Milestone (Phase 3B)
+
+1. **Mutating MCP Tools (Tier 3):** Implement input automation tools (`tap`, `swipe`, `keyevent`, `input_text`) strictly guarded by `pairingManager.isTierAllowed(token, 3)`.
+2. **Administrative MCP Tools (Tier 4):** Implement interactive confirmation prompts in the desktop UI for high-risk operations (`shell`, `install_app`, `reboot`, `file_push`).
+3. **Automated Workflow Sequencer:** Wire `WorkflowEngine` to execute multi-step macros with OCR text assertions.

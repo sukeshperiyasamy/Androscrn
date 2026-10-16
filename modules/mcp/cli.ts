@@ -26,11 +26,23 @@ async function main() {
 
   process.stderr.write(`[AndroScrn MCP] Starting server with ADB binary: ${adbPath}\n`);
 
+  // Initialize Windows Named Pipe Control Bridge to Desktop
+  const { McpControlClient } = await import('./control-bridge');
+  const controlClient = new McpControlClient();
+  controlClient.connect().then(connected => {
+    if (connected) {
+      process.stderr.write(`[AndroScrn MCP] Connected to AndroScrn desktop control bridge.\n`);
+    } else {
+      process.stderr.write(`[AndroScrn MCP] Desktop control bridge not available (will retry in background).\n`);
+    }
+  }).catch(() => {});
+
   const serverInstance = new AndroScrnMcpServer({
     name: 'androscrn-mcp',
     version: '1.0.0',
     adbPath,
-    capturesDir
+    capturesDir,
+    controlBridge: controlClient
   });
 
   const transport = new StdioServerTransport();

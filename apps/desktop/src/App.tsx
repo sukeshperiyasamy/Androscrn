@@ -20,7 +20,12 @@ import {
   Folder,
   Layers,
   ExternalLink,
-  Info
+  Info,
+  ShieldAlert,
+  Key,
+  Lock,
+  Unlock,
+  Trash2
 } from 'lucide-react';
 
 interface AndroidDevice {
@@ -118,6 +123,24 @@ export default function App() {
   const [logSource, setLogSource] = useState<'device' | 'app'>('device');
   const [copyReportSuccess, setCopyReportSuccess] = useState(false);
 
+  // MCP Control & Security State
+  const [mcpStatus, setMcpStatus] = useState<{
+    connectedMcpProcesses: number;
+    pendingRequests: Array<{
+      requestId: string;
+      clientName: string;
+      requestedTier: number;
+      pin: string;
+      expiresAt: number;
+    }>;
+    activeSessions: Array<{
+      sessionId: string;
+      clientName?: string;
+      tiers: number[];
+      expiresAt: number;
+    }>;
+  }>({ connectedMcpProcesses: 0, pendingRequests: [], activeSessions: [] });
+
   // Status Alerts
   const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>({
     type: 'info',
@@ -194,12 +217,91 @@ export default function App() {
     }
   };
 
+  const refreshMcpStatus = async () => {
+    try {
+      if (api?.getMcpStatus) {
+        const st = await api.getMcpStatus();
+        if (st) setMcpStatus(st);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleApprovePairing = async (requestId: string) => {
+    if (api?.approveMcpPairing) {
+      const ok = await api.approveMcpPairing(requestId);
+      if (ok) {
+        setAlertBanner({ type: 'success', message: 'Pairing request approved. AI agent authorized.' });
+        refreshMcpStatus();
+      } else {
+        setAlertBanner({ type: 'error', message: 'Failed to approve pairing request.' });
+      }
+    }
+  };
+
+  const handleDenyPairing = async (requestId: string) => {
+    if (api?.denyMcpPairing) {
+      await api.denyMcpPairing(requestId);
+      setAlertBanner({ type: 'info', message: 'Pairing request denied.' });
+      refreshMcpStatus();
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    if (api?.revokeMcpSession) {
+      await api.revokeMcpSession(sessionId);
+      setAlertBanner({ type: 'info', message: 'AI session revoked.' });
+      refreshMcpStatus();
+    }
+  };
+
+  const handleRevokeAllSessions = async () => {
+    if (api?.revokeAllMcpSessions) {
+      const ok = await api.revokeAllMcpSessions();
+      if (ok) {
+        setAlertBanner({ type: 'error', message: 'EMERGENCY REVOCATION: All active AI sessions revoked immediately.' });
+        refreshMcpStatus();
+      }
+    }
+  };
+
   useEffect(() => {
     refreshDevices();
     refreshSystemInfo();
+    refreshMcpStatus();
+
     const interval = setInterval(() => {
       refreshDevices();
-    }, 3000);
+      refreshMcpStatus();
+    }, 2500);
+
+    if (api?.onMcpPairingRequest) {
+      api.onMcpPairingRequest((req: any) => {
+        refreshMcpStatus();
+        setAlertBanner({
+          type: 'info',
+          message: `🔔 Incoming AI Pairing Request from '${req.clientName}' for Tier ${req.requestedTier}. Desktop approval required.`
+        });
+      });
+    }
+
+    if (api?.onMcpStatusChanged) {
+      api.onMcpStatusChanged(() => {
+        refreshMcpStatus();
+      });
+    }
+
+    if (api?.onMcpSessionsRevoked) {
+      api.onMcpSessionsRevoked(() => {
+        refreshMcpStatus();
+        setAlertBanner({
+          type: 'error',
+          message: '⚠️ All AI sessions have been revoked by the Emergency Kill Switch.'
+        });
+      });
+    }
+
     return () => clearInterval(interval);
   }, []);
 
@@ -207,6 +309,8 @@ export default function App() {
     if (activeTab === 'diagnostics') {
       refreshSystemInfo();
       refreshLogcat();
+    } else if (activeTab === 'ai') {
+      refreshMcpStatus();
     }
   }, [activeTab, selectedSerial]);
 
@@ -525,6 +629,54 @@ export default function App() {
               ×
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Pending AI Pairing Requests (Human-in-the-Loop Gatekeeper) */}
+      {mcpStatus.pendingRequests && mcpStatus.pendingRequests.length > 0 && (
+        <div className="mx-4 mt-3 space-y-2" role="region" aria-label="Pending AI Pairing Handshake Requests" id="mcp-pairing-requests-container">
+          {mcpStatus.pendingRequests.map(req => (
+            <div
+              key={req.requestId}
+              className="p-4 rounded-xl bg-amber-950/40 border-2 border-amber-500/60 backdrop-blur-md text-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-amber-500/10"
+              id={`pairing-card-${req.requestId}`}
+            >
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" aria-hidden="true" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Incoming AI Agent Pairing Request</span>
+                </div>
+                <div className="text-sm font-semibold text-white">
+                  Client: <span className="text-amber-300 font-mono font-bold">{req.clientName}</span> is requesting <span className="text-amber-300 font-mono">Tier {req.requestedTier} ({req.requestedTier === 3 ? 'write:input' : req.requestedTier === 4 ? 'write:admin' : 'read'})</span>
+                </div>
+                <div className="text-xs text-amber-300/80 flex items-center gap-3 flex-wrap">
+                  <span>Desktop PIN: <strong className="text-base text-white font-mono bg-slate-900/90 px-2.5 py-0.5 rounded border border-amber-500/40 tracking-widest">{req.pin}</strong></span>
+                  <span>(Expires in {Math.max(0, Math.floor((req.expiresAt - Date.now()) / 1000))}s)</span>
+                  <span className="text-[11px] text-slate-400">• Click Approve to grant access or paste this PIN to the agent</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  onClick={() => handleApprovePairing(req.requestId)}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer min-h-[38px]"
+                  id={`btn-approve-pairing-${req.requestId}`}
+                  aria-label={`Approve pairing request for ${req.clientName}`}
+                >
+                  <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
+                  Approve Access
+                </button>
+                <button
+                  onClick={() => handleDenyPairing(req.requestId)}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/20 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer min-h-[38px]"
+                  id={`btn-deny-pairing-${req.requestId}`}
+                  aria-label={`Deny pairing request for ${req.clientName}`}
+                >
+                  <AlertCircle className="w-4 h-4" aria-hidden="true" />
+                  Deny
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1270,30 +1422,132 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 6: LOCAL AI & OCR (EXPERIMENTAL) */}
+          {/* TAB 6: AI AGENT & MCP SECURITY CENTER */}
           {activeTab === 'ai' && (
-            <div className="glass-panel p-6 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="glass-panel p-6 space-y-6" id="mcp-security-center">
+              {/* Header & Status */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-indigo-400" />
-                    Local AI Assistant & OCR Studio (Experimental)
+                    <ShieldAlert className="w-5 h-5 text-indigo-400" aria-hidden="true" />
+                    AI Agent & MCP Security Center
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    On-device visual extraction and LLM diagnostic intelligence running 100% locally on your machine.
+                  <p className="text-xs text-slate-300 mt-1">
+                    Control bridge for external AI agents communicating via the Model Context Protocol (MCP).
                   </p>
                 </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                  Host Service Integration
-                </span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs">
+                    <span className={`w-2 h-2 rounded-full ${mcpStatus.connectedMcpProcesses > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                    <span className="text-slate-300">
+                      Pipe: <span className="text-indigo-300 font-mono text-[11px]">\\.\pipe\androscrn-mcp-control</span>
+                    </span>
+                    <span className="text-slate-500">|</span>
+                    <span className="text-slate-300 font-semibold">
+                      {mcpStatus.connectedMcpProcesses} client{mcpStatus.connectedMcpProcesses === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
-                Host environment verification:
-                <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
-                  <li>Tesseract OCR binary: <code className="text-indigo-300">C:\Program Files\Tesseract-OCR\tesseract.exe</code> (Version 5.3)</li>
-                  <li>Ollama local API: <code className="text-indigo-300">http://localhost:11434</code> (v0.34.4)</li>
-                </ul>
+              {/* Emergency Kill Switch Banner */}
+              <div className="p-4 rounded-xl bg-rose-950/30 border-2 border-rose-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-rose-950/20">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-rose-300 font-bold text-sm">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" aria-hidden="true" />
+                    <span>Emergency Revocation (Kill Switch)</span>
+                  </div>
+                  <p className="text-xs text-rose-200/80 leading-relaxed max-w-xl">
+                    Instantly invalidates all active AI session tokens across all running MCP instances and denies any further privileged operations.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRevokeAllSessions}
+                  className="px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-md shadow-rose-600/30 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer shrink-0 transition-all active:scale-95"
+                  id="btn-revoke-all-mcp"
+                  aria-label="Revoke all active AI sessions immediately"
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
+                  Revoke All AI Sessions
+                </button>
+              </div>
+
+              {/* Active Sessions List */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Key className="w-4 h-4 text-indigo-400" aria-hidden="true" />
+                    Active AI Sessions ({mcpStatus.activeSessions?.length || 0})
+                  </h4>
+                  <button
+                    onClick={refreshMcpStatus}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-0.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </button>
+                </div>
+
+                {mcpStatus.activeSessions && mcpStatus.activeSessions.length > 0 ? (
+                  <div className="space-y-2" id="active-sessions-list">
+                    {mcpStatus.activeSessions.map((session) => (
+                      <div
+                        key={session.sessionId}
+                        className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-4 text-xs"
+                        id={`session-item-${session.sessionId}`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{session.clientName || 'AI-Client'}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                              Tier {session.tiers?.join(', ') || '3'}
+                            </span>
+                          </div>
+                          <div className="text-slate-400 text-[11px] font-mono">
+                            ID: {session.sessionId.slice(0, 18)}... | Expires: {new Date(session.expiresAt).toLocaleTimeString()}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRevokeSession(session.sessionId)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/40 text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-400"
+                          id={`btn-revoke-session-${session.sessionId}`}
+                          aria-label={`Revoke session for ${session.clientName || session.sessionId}`}
+                        >
+                          Revoke
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-400 text-xs" id="empty-active-sessions">
+                    No active AI agent sessions. External agents must request and receive human pairing approval before acquiring tokens.
+                  </div>
+                )}
+              </div>
+
+              {/* Permission Matrix Reference */}
+              <div className="space-y-3 pt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                  Pairing-First Permission Matrix
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1">
+                    <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                      <Unlock className="w-3.5 h-3.5" /> Tier 0–2: Read-Only Telemetry & Screen
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      <code>list_devices</code>, <code>get_device_info</code>, <code>get_diagnostics</code>, <code>capture_screenshot</code>, and redacted <code>get_logcat</code>. Unconditional observation.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1">
+                    <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" /> Tier 3–4: Mutating Actions & Administration
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Touch injection, keyevents, shell commands, APK installation. Strictly requires 6-digit PIN handshake or desktop 1-click human approval.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

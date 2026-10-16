@@ -19,11 +19,25 @@ export interface PairingSession {
   clientName?: string;
 }
 
+export type PairingRequestStatus = 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED';
+
 export interface PendingPairingRequest {
+  requestId: string;
   pin: string;
+  clientName: string;
+  requestedTier: PermissionTier;
   createdAt: number;
   expiresAt: number;
   attempts: number;
+  status: PairingRequestStatus;
+}
+
+export interface IControlBridge {
+  isConnected(): boolean;
+  sendPairingRequest(request: PendingPairingRequest): Promise<boolean>;
+  onPairingDecision(handler: (requestId: string, decision: 'APPROVED' | 'DENIED') => void): void;
+  onRevokeSession(handler: (sessionId: string) => void): void;
+  onRevokeAll(handler: () => void): void;
 }
 
 export interface McpServerConfig {
@@ -33,4 +47,5 @@ export interface McpServerConfig {
   capturesDir?: string;
   sessionTtlMs?: number;
   pinTtlMs?: number;
+  controlBridge?: IControlBridge;
 }

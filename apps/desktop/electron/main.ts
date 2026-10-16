@@ -6,6 +6,7 @@ import { ConnectionManager } from '../../../dist/modules/connection_manager';
 import { ScrcpyManager } from '../../../dist/modules/scrcpy_manager';
 import { DiagnosticsManager } from '../../../dist/modules/diagnostics';
 import { WorkflowEngine } from '../../../dist/modules/workflow_engine';
+import { McpControlServer } from '../../../dist/modules/mcp/control-bridge';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -380,11 +381,103 @@ ipcMain.handle('execute-adb', async (_, args) => {
   }
 });
 
-app.whenReady().then(createWindow);
+// MCP Named Pipe Control Bridge Handlers
+const mcpControlServer = new McpControlServer();
+
+mcpControlServer.on('pairingRequested', (req) => {
+  appLog('INFO', `Incoming MCP Pairing Request for client '${req.clientName}' (Tier ${req.requestedTier})`);
+  mainWindow?.webContents.send('mcp-pairing-requested', req);
+});
+
+mcpControlServer.on('sessionCreated', (session) => {
+  appLog('INFO', `MCP Session created for '${session.clientName}' [SessionId: ${session.sessionId}]`);
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
+mcpControlServer.on('sessionRevoked', (sessionId) => {
+  appLog('INFO', `MCP Session revoked: ${sessionId}`);
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
+mcpControlServer.on('allSessionsRevoked', () => {
+  appLog('WARN', 'Emergency Kill Switch: All MCP AI Sessions Revoked');
+  mainWindow?.webContents.send('mcp-sessions-revoked');
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
+mcpControlServer.on('clientConnected', (count) => {
+  appLog('INFO', `MCP Client connected via Named Pipe. Active clients: ${count}`);
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
+mcpControlServer.on('clientDisconnected', (count) => {
+  appLog('INFO', `MCP Client disconnected. Active clients: ${count}`);
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
+ipcMain.handle('get-mcp-status', () => {
+  try {
+    return mcpControlServer.getStatus();
+  } catch (err: any) {
+    appLog('ERROR', 'Error querying MCP status', err?.message || err);
+    return { connectedMcpProcesses: 0, pendingRequests: [], activeSessions: [] };
+  }
+});
+
+ipcMain.handle('approve-mcp-pairing', (_, { requestId }) => {
+  try {
+    appLog('INFO', `User clicked Approve for MCP Request: ${requestId}`);
+    return mcpControlServer.approveRequest(requestId);
+  } catch (err: any) {
+    appLog('ERROR', 'Error approving MCP request', err?.message || err);
+    return false;
+  }
+});
+
+ipcMain.handle('deny-mcp-pairing', (_, { requestId }) => {
+  try {
+    appLog('INFO', `User clicked Deny for MCP Request: ${requestId}`);
+    return mcpControlServer.denyRequest(requestId);
+  } catch (err: any) {
+    appLog('ERROR', 'Error denying MCP request', err?.message || err);
+    return false;
+  }
+});
+
+ipcMain.handle('revoke-mcp-session', (_, { sessionId }) => {
+  try {
+    appLog('INFO', `User revoked MCP session: ${sessionId}`);
+    return mcpControlServer.revokeSession(sessionId);
+  } catch (err: any) {
+    appLog('ERROR', 'Error revoking MCP session', err?.message || err);
+    return false;
+  }
+});
+
+ipcMain.handle('revoke-all-mcp-sessions', () => {
+  try {
+    appLog('WARN', 'User triggered Revoke All AI Sessions');
+    mcpControlServer.revokeAllSessions();
+    return true;
+  } catch (err: any) {
+    appLog('ERROR', 'Error during emergency revocation', err?.message || err);
+    return false;
+  }
+});
+
+app.whenReady().then(() => {
+  createWindow();
+  mcpControlServer.start().then(() => {
+    appLog('INFO', 'MCP Named Pipe Control Server listening on \\\\.\\pipe\\androscrn-mcp-control');
+  }).catch((err: any) => {
+    appLog('WARN', 'Failed to start MCP Named Pipe control server (standalone fallback active)', err?.message || err);
+  });
+});
 
 app.on('window-all-closed', () => {
   try {
     scrcpyManager.stopMirroring();
+    mcpControlServer.stop().catch(() => {});
   } catch {
     // ignore
   }

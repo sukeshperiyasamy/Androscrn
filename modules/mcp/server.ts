@@ -35,7 +35,7 @@ export class AndroScrnMcpServer {
 
     this.deviceManager = deviceManager || new DeviceManager(adbPath);
     this.diagnosticsManager = diagnosticsManager || new DiagnosticsManager(this.deviceManager);
-    this.pairingManager = pairingManager || new PairingManager(config.pinTtlMs, config.sessionTtlMs);
+    this.pairingManager = pairingManager || new PairingManager(config.pinTtlMs, config.sessionTtlMs, config.controlBridge);
 
     this.registerTools();
   }
@@ -282,39 +282,51 @@ export class AndroScrnMcpServer {
     /**
      * Tool 6: request_pairing (Pairing Handshake)
      */
-    this.server.tool(
-      'request_pairing',
-      'Request a 6-digit numeric pairing PIN with a 60-second TTL to authorize device-modifying actions.',
-      {},
-      async () => {
-        const { pin, expiresInSeconds } = this.pairingManager.requestPin();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                pairingPin: pin,
-                expiresInSeconds,
-                instructions: 'Enter this 6-digit PIN using pair_session within the TTL to obtain a scoped authorization token.'
-              }, null, 2)
-            }
-          ]
-        };
-      }
-    );
+     this.server.tool(
+       'request_pairing',
+       'Request human-in-the-loop authorization to execute device-modifying actions. The pairing request is forwarded to the AndroScrn desktop application for user approval. The verification PIN is displayed strictly on the user desktop monitor.',
+       {
+         clientName: z.string().default('AI-Agent').describe('Name of the requesting AI client or agent'),
+         requestedTier: z.number().int().min(1).max(4).default(3).describe('Requested permission tier (3: write:input, 4: write:admin)')
+       },
+       async ({ clientName, requestedTier }) => {
+         const res = await this.pairingManager.requestPairing(clientName, requestedTier as any);
+         if (res.error) {
+           return {
+             isError: true,
+             content: [{ type: 'text', text: res.error }]
+           };
+         }
+
+         return {
+           content: [
+             {
+               type: 'text',
+               text: JSON.stringify({
+                 requestId: res.requestId,
+                 status: 'pending_desktop_approval',
+                 expiresInSeconds: res.expiresInSeconds,
+                 instructions: `Pairing request registered for client '${clientName}' (Tier ${requestedTier}). Please wait for the user to approve the request in the AndroScrn desktop application, or obtain the 6-digit PIN displayed on the desktop screen and submit it using pair_session.`
+               }, null, 2)
+             }
+           ]
+         };
+       }
+     );
 
     /**
      * Tool 7: pair_session (Pairing Handshake)
      */
     this.server.tool(
       'pair_session',
-      'Submit the 6-digit pairing PIN to obtain an authorized session token for mutating tools.',
+      'Finalize pairing by submitting the requestId (after desktop approval) or with the verification PIN displayed on the desktop screen.',
       {
-        pin: z.string().describe('The 6-digit numeric pairing PIN'),
+        requestId: z.string().describe('The pairing requestId returned by request_pairing'),
+        pin: z.string().optional().describe('Optional 6-digit verification PIN displayed on the user desktop screen'),
         clientName: z.string().optional().describe('Optional client identifier')
       },
-      async ({ pin, clientName }) => {
-        const res = this.pairingManager.pairSession(pin, clientName);
+      async ({ requestId, pin, clientName }) => {
+        const res = this.pairingManager.pairSession(requestId, pin, clientName);
         if (!res.success) {
           return {
             isError: true,
@@ -329,8 +341,7 @@ export class AndroScrnMcpServer {
               text: JSON.stringify({
                 success: true,
                 sessionToken: res.token,
-                grantedTiers: [0, 1, 2, 3],
-                note: 'Token is valid for 30 minutes. Pass token with mutating tool calls.'
+                note: 'Session token authorized. Pass token with mutating tool calls.'
               }, null, 2)
             }
           ]

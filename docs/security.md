@@ -40,9 +40,9 @@ AndroScrn interacts directly with Android debugging interfaces (`adbd`), OS proc
 
 ---
 
-## 2. Model Context Protocol (MCP) Pairing-First Security Model
+## 2. Model Context Protocol (MCP) Human-in-the-Loop (HITL) Pairing Model
 
-External AI agents (such as Claude Desktop, Cursor, or Antigravity) interface with AndroScrn via the Model Context Protocol. Because autonomous agents can execute rapidly, a multi-tier permission matrix and pairing gatekeeper are enforced:
+External AI agents (such as Claude Desktop, Cursor, or autonomous test runners) interface with AndroScrn via the Model Context Protocol. To ensure absolute user sovereignty and prevent AI agents from acquiring remote control without human authorization, AndroScrn enforces a strict **Human-in-the-Loop (HITL)** pairing gatekeeper backed by local Windows Named Pipe IPC.
 
 ### 2.1 Multi-Tier Permission Matrix
 
@@ -51,21 +51,54 @@ External AI agents (such as Claude Desktop, Cursor, or Antigravity) interface wi
 | **0** | `read:telemetry` | `list_devices`, `get_device_info`, `get_diagnostics` | **Always Permitted** (Sanitized metadata) |
 | **1** | `read:logs` | `get_logcat` (bounded 1–500 lines) | **Permitted with Automatic Redaction** |
 | **2** | `read:screen` | `capture_screenshot` | **Permitted** (Local visual inspection, PNG verified) |
-| **3** | `write:input` | `tap`, `swipe`, `keyevent`, `input_text` | **Requires 6-Digit PIN Paired Token** |
+| **3** | `write:input` | `tap`, `swipe`, `keyevent`, `input_text` | **Requires Human-in-the-Loop Paired Session** |
 | **4** | `write:admin` | `shell`, `install_app`, `reboot`, `file_push` | **Requires Interactive Human GUI Confirmation** |
 
-### 2.2 Pairing Handshake Protocol
+### 2.2 Security Defect Remediation: Prevention of Self-Authentication
 
-1. **PIN Generation:** The client requests a pairing code via `request_pairing`. The `PairingManager` generates a cryptographically random 6-digit numeric PIN with a strict **60-second Time-To-Live (TTL)**.
-2. **Brute-Force Lockout:** The pairing request allows a maximum of 3 failed PIN attempts. Upon the 4th incorrect attempt, the PIN is permanently invalidated, requiring a fresh request.
-3. **Session Issuance:** Upon successful verification (`pair_session`), a high-entropy 64-character session token (`x-androscrn-session`) is issued with a 30-minute validity window.
-4. **Emergency Kill Switch:** Both the desktop application and `PairingManager.revokeAllSessions()` provide an immediate revocation mechanism that invalidates all active session tokens in real time.
+* **Vulnerability Identified:** In initial prototypes, `request_pairing` returned `{ pairingPin: pin }` directly in the JSON-RPC response to the calling MCP client. An autonomous AI agent could immediately call `pair_session({ pin })` with the returned PIN, completely bypassing the human.
+* **Remediation Implemented (Phase 3A):**
+  1. `request_pairing` generates a unique `requestId` (UUIDv4) and a cryptographically secure 6-digit numeric PIN.
+  2. The PIN is pushed exclusively across the Windows Named Pipe (`\\.\pipe\androscrn-mcp-control`) to the trusted Electron desktop process.
+  3. The JSON-RPC tool response returned to the AI agent contains **only** `{ requestId, status: "pending_desktop_approval", expiresInSeconds: 60 }`. The PIN is **never** leaked or returned in the MCP protocol response.
+  4. If the desktop application is not open or the Named Pipe is disconnected, pairing requests are refused with an explicit error requiring an active desktop session.
+
+### 2.3 Dual-Path Human-in-the-Loop Verification
+
+1. **Path A — Desktop Interactive Approval (Recommended):**
+   * The user observes an incoming pairing card in the desktop application showing the client name, requested tier, and expiry countdown.
+   * The user clicks **Approve Access** directly in the UI.
+   * The desktop sends `PAIRING_DECISION (APPROVED)` over the Named Pipe to the MCP process.
+   * The AI agent completes pairing by calling `pair_session({ requestId })` without needing to handle the PIN.
+
+2. **Path B — Out-of-Band PIN Submission:**
+   * The user reads the 6-digit verification PIN displayed on their physical desktop monitor.
+   * The user manually dictates or pastes the PIN to the agent.
+   * The AI agent calls `pair_session({ requestId, pin })`.
+   * A strict maximum of 3 incorrect attempts is enforced; on the 4th incorrect attempt, the request is permanently purged (brute-force lockout).
+
+3. **Path C — Desktop Denial:**
+   * If the user clicks **Deny**, the request is immediately transitioned to `DENIED` status. Any subsequent `pair_session` attempt by the agent is rejected with an explicit user denial error.
+
+### 2.4 Emergency Kill Switch & Session Revocation
+
+* **Instantaneous Global Revocation:** The desktop UI features a prominent red **"Revoke All AI Sessions"** emergency button. When clicked, it broadcasts a `REVOKE_ALL_SESSIONS` IPC message over the Named Pipe, instantly clearing all active session tokens and purging all pending pairing requests.
+* **Granular Session Revocation:** Each active session is listed in the desktop UI with its client name, granted tiers, creation timestamp, and an individual **Revoke** button (`REVOKE_SESSION`).
+* **High-Entropy Tokens:** Approved sessions receive a 256-bit (64-character hex) cryptographically random token (`crypto.randomBytes(32)`).
+* **Automatic Expiry:** Sessions have an absolute 30-minute validity window, after which re-authorization is mandatory.
 
 ---
 
-## 3. Windows Named-Pipe Security (Target Architecture)
+## 3. Windows Named-Pipe IPC Control Architecture
 
-For the target Tauri 2 / Rust daemon migration:
-* **Pipe Namespace:** `\\.\pipe\androscrn-ipc`
-* **Access Control Lists (ACLs):** Configured with discretionary access control lists granting read/write access solely to the `CURRENT_USER_SID`. Unprivileged local background services or other local user accounts cannot open or inject commands into the pipe.
-* **Message Framing:** Length-delimited JSON-RPC 2.0 messages with strict payload length caps (maximum 16 MB per frame for binary screencap transfer).
+AndroScrn decouples the UI process from external AI agents using a local Windows Named Pipe:
+
+* **Pipe Name:** `\\.\pipe\androscrn-mcp-control`
+* **Transport:** Windows Named Pipe using newline-delimited JSON (`NdjsonFramer`) framing.
+* **Server:** Hosted inside the trusted Electron main process (`McpControlServer`).
+* **Client:** Connects from the standalone stdio MCP process (`McpControlClient`) with automated reconnection (5-second backoff).
+* **Security Controls:**
+  * Only accepts local connections on the local machine.
+  * Payloads are strictly schema-validated (`McpIpcMessage`).
+  * Malformed or oversized frames are discarded safely without disrupting the IPC channel.
+  * Device-modifying commands (`tap`, `swipe`, `keyevent`, `input_text`) are completely barred until the session token is verified against the active session store.

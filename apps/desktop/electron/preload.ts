@@ -19,5 +19,13 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   getDiagnosticReport: (serial?: string) => ipcRenderer.invoke('get-diagnostic-report', { serial }),
   exportDiagnostics: (serial: string) => ipcRenderer.invoke('export-diagnostics', { serial }),
   executeWorkflow: (data: any) => ipcRenderer.invoke('execute-workflow', data),
-  executeAdb: (args: string[]) => ipcRenderer.invoke('execute-adb', args)
+  executeAdb: (args: string[]) => ipcRenderer.invoke('execute-adb', args),
+  getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
+  approveMcpPairing: (requestId: string) => ipcRenderer.invoke('approve-mcp-pairing', { requestId }),
+  denyMcpPairing: (requestId: string) => ipcRenderer.invoke('deny-mcp-pairing', { requestId }),
+  revokeMcpSession: (sessionId: string) => ipcRenderer.invoke('revoke-mcp-session', { sessionId }),
+  revokeAllMcpSessions: () => ipcRenderer.invoke('revoke-all-mcp-sessions'),
+  onMcpPairingRequest: (cb: (req: any) => void) => { ipcRenderer.on('mcp-pairing-requested', (_, req) => cb(req)); },
+  onMcpStatusChanged: (cb: () => void) => { ipcRenderer.on('mcp-status-changed', () => cb()); },
+  onMcpSessionsRevoked: (cb: () => void) => { ipcRenderer.on('mcp-sessions-revoked', () => cb()); }
 });

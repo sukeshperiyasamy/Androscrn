@@ -6,6 +6,7 @@ import { AndroScrnMcpServer } from '../../modules/mcp/server';
 import { PairingManager } from '../../modules/mcp/pairing';
 import { DeviceManager } from '../../modules/device_manager';
 import { DiagnosticsManager } from '../../modules/diagnostics';
+import { NdjsonFramer } from '../../modules/mcp/control-bridge';
 
 export async function runMcpTests(
   assert: (condition: boolean, testName: string) => void,
@@ -212,61 +213,180 @@ export async function runMcpTests(
   });
   assert(malSnapRes.isError, 'capture_screenshot rejected ampersand injection');
 
-  // Test 12: Pairing Handshake - request_pairing
+  // Test 12: Pairing Handshake - request_pairing never leaks PIN to MCP client
   const pairReqRes: any = await client.callTool({
     name: 'request_pairing',
-    arguments: {}
+    arguments: { clientName: 'AI-Audit-Agent', requestedTier: 3 }
   });
   assert(!pairReqRes.isError, 'request_pairing returned valid response');
   const pairReqJson = JSON.parse(pairReqRes.content[0].text);
-  assert(/^\d{6}$/.test(pairReqJson.pairingPin), `Generated pairing PIN is a 6-digit number (${pairReqJson.pairingPin})`);
+  assert(
+    typeof pairReqJson.requestId === 'string' && pairReqJson.requestId.length >= 32,
+    `request_pairing returned valid requestId (${pairReqJson.requestId})`
+  );
+  assertEqual(pairReqJson.status, 'pending_desktop_approval', 'Status is pending_desktop_approval');
+  assert(
+    pairReqJson.pairingPin === undefined,
+    'SECURITY REGRESSION CHECK: Pairing PIN is NOT leaked in the JSON-RPC response to the MCP client'
+  );
   assertEqual(pairReqJson.expiresInSeconds, 60, 'Pairing PIN TTL is 60 seconds');
 
-  // Test 13: pair_session with invalid PIN
-  const badPairRes: any = await client.callTool({
+  // Test 13: pair_session rejected without prior approval or PIN
+  const unapprovedRes: any = await client.callTool({
     name: 'pair_session',
-    arguments: { pin: '000000', clientName: 'Untrusted-Bot' }
+    arguments: { requestId: pairReqJson.requestId }
   });
-  assert(badPairRes.isError, 'pair_session rejected invalid PIN');
-  assert(badPairRes.content[0].text.includes('Invalid PIN'), 'Invalid PIN error message returned');
+  assert(unapprovedRes.isError, 'pair_session rejected unapproved request without PIN');
+  assert(
+    unapprovedRes.content[0].text.includes('pending user approval'),
+    'Error indicates pending desktop user approval'
+  );
 
-  // Test 14: pair_session brute-force lockout
-  await client.callTool({ name: 'pair_session', arguments: { pin: '000001' } });
-  await client.callTool({ name: 'pair_session', arguments: { pin: '000002' } });
-  const lockoutRes: any = await client.callTool({ name: 'pair_session', arguments: { pin: '000003' } });
-  assert(lockoutRes.isError, 'Brute-force lockout triggered on 4th incorrect attempt');
-  assert(lockoutRes.content[0].text.includes('Too many incorrect attempts'), 'Lockout message verified');
-
-  // Test 15: pair_session success with fresh PIN
-  const freshPinRes: any = await client.callTool({ name: 'request_pairing', arguments: {} });
-  const freshPin = JSON.parse(freshPinRes.content[0].text).pairingPin;
-
-  const validPairRes: any = await client.callTool({
+  // Test 14: pair_session rejects invalid PIN and decrements remaining attempts
+  const badPinRes: any = await client.callTool({
     name: 'pair_session',
-    arguments: { pin: freshPin, clientName: 'Verified-Agent' }
+    arguments: { requestId: pairReqJson.requestId, pin: '000000', clientName: 'Untrusted-Bot' }
   });
-  assert(!validPairRes.isError, 'pair_session succeeded with correct PIN');
-  const validPairJson = JSON.parse(validPairRes.content[0].text);
-  assert(validPairJson.success, 'Pairing marked as success');
-  assert(validPairJson.sessionToken.length >= 64, 'High-entropy 64-char session token issued');
+  assert(badPinRes.isError, 'pair_session rejected invalid PIN');
+  assert(
+    badPinRes.content[0].text.includes('Invalid PIN. 3 attempt(s) remaining.'),
+    'Invalid PIN error message shows correct remaining attempts'
+  );
 
-  // Test 16: get_pairing_status verification
+  // Test 15: pair_session brute-force lockout after repeated incorrect attempts
+  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000001' } });
+  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000002' } });
+  const lockoutRes: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: pairReqJson.requestId, pin: '000003' }
+  });
+  assert(lockoutRes.isError, 'Brute-force lockout triggered after 4 incorrect attempts');
+  assert(
+    lockoutRes.content[0].text.includes('Too many incorrect PIN attempts'),
+    'Lockout message verified'
+  );
+
+  // Test 16: Path A - Desktop UI approval enables pairing without PIN
+  const reqARes: any = await client.callTool({
+    name: 'request_pairing',
+    arguments: { clientName: 'Desktop-Approved-Agent', requestedTier: 3 }
+  });
+  const reqA = JSON.parse(reqARes.content[0].text);
+  assert(reqA.requestId, 'Path A request created');
+
+  // Desktop user clicks "Approve Access"
+  const approved = pairingManager.approveRequest(reqA.requestId);
+  assert(approved, 'Desktop user approved request in UI');
+
+  const pairSuccessA: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: reqA.requestId }
+  });
+  assert(!pairSuccessA.isError, 'pair_session succeeded with desktop approval (no PIN required)');
+  const pairSuccessAJson = JSON.parse(pairSuccessA.content[0].text);
+  assert(pairSuccessAJson.success, 'Pairing marked as success');
+  assert(
+    typeof pairSuccessAJson.sessionToken === 'string' && pairSuccessAJson.sessionToken.length >= 64,
+    'High-entropy 64-char session token issued upon desktop approval'
+  );
+
+  // Test 17: get_pairing_status verification and permission tier enforcement
   const statusRes: any = await client.callTool({
     name: 'get_pairing_status',
-    arguments: { token: validPairJson.sessionToken }
+    arguments: { token: pairSuccessAJson.sessionToken }
   });
   const statusJson = JSON.parse(statusRes.content[0].text);
   assert(statusJson.valid, 'Active session token verified by get_pairing_status');
-  assertEqual(statusJson.session.clientName, 'Verified-Agent', 'Session clientName preserved');
+  assertEqual(statusJson.session.clientName, 'Desktop-Approved-Agent', 'Session clientName preserved');
+  assert(pairingManager.isTierAllowed(pairSuccessAJson.sessionToken, 0), 'Tier 0 permitted');
+  assert(pairingManager.isTierAllowed(pairSuccessAJson.sessionToken, 1), 'Tier 1 permitted');
+  assert(pairingManager.isTierAllowed(pairSuccessAJson.sessionToken, 2), 'Tier 2 permitted');
+  assert(pairingManager.isTierAllowed(pairSuccessAJson.sessionToken, 3), 'Tier 3 permitted');
+  assert(!pairingManager.isTierAllowed(pairSuccessAJson.sessionToken, 4), 'Tier 4 denied without admin grant');
+  assert(!pairingManager.isTierAllowed('invalid-token-12345', 3), 'Invalid token denied for Tier 3');
+  assert(!pairingManager.isTierAllowed(undefined, 3), 'Undefined token denied for Tier 3');
 
-  // Test 17: Emergency Kill Switch (revokeAllSessions)
+  // Test 18: Path B - Out-of-band PIN verification
+  const reqBRes: any = await client.callTool({
+    name: 'request_pairing',
+    arguments: { clientName: 'Pin-Verified-Agent', requestedTier: 3 }
+  });
+  const reqB = JSON.parse(reqBRes.content[0].text);
+
+  // Desktop screen displays the 6-digit PIN
+  const pendingRequests = pairingManager.getPendingRequests();
+  const matchB = pendingRequests.find(r => r.requestId === reqB.requestId);
+  assert(matchB !== undefined, 'Pending request found on desktop side');
+  assert(/^\d{6}$/.test(matchB!.pin), `Desktop screen displays 6-digit PIN (${matchB?.pin})`);
+
+  const pairSuccessB: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: reqB.requestId, pin: matchB!.pin }
+  });
+  assert(!pairSuccessB.isError, 'pair_session succeeded with desktop-displayed PIN');
+  const pairSuccessBJson = JSON.parse(pairSuccessB.content[0].text);
+  assert(pairSuccessBJson.success, 'PIN-verified session issued');
+
+  // Test 19: Path C - Desktop User Denial
+  const reqCRes: any = await client.callTool({
+    name: 'request_pairing',
+    arguments: { clientName: 'Denied-Agent', requestedTier: 3 }
+  });
+  const reqC = JSON.parse(reqCRes.content[0].text);
+  const denied = pairingManager.denyRequest(reqC.requestId);
+  assert(denied, 'Desktop user clicked "Deny" in UI');
+
+  const pairDeniedRes: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: reqC.requestId }
+  });
+  assert(pairDeniedRes.isError, 'pair_session rejected denied request');
+  assert(
+    pairDeniedRes.content[0].text.includes('denied by the user in the desktop application'),
+    'Explicit desktop denial error message returned'
+  );
+
+  // Test 20: Individual Session Revocation
+  const revokedOne = pairingManager.revokeSession(pairSuccessBJson.sessionToken);
+  assert(revokedOne, 'Individual session token successfully revoked');
+  assert(
+    !pairingManager.isTierAllowed(pairSuccessBJson.sessionToken, 3),
+    'Revoked session no longer permitted for Tier 3'
+  );
+
+  // Test 21: Emergency Kill Switch (revokeAllSessions)
   pairingManager.revokeAllSessions();
   const killedStatusRes: any = await client.callTool({
     name: 'get_pairing_status',
-    arguments: { token: validPairJson.sessionToken }
+    arguments: { token: pairSuccessAJson.sessionToken }
   });
   const killedStatusJson = JSON.parse(killedStatusRes.content[0].text);
   assert(!killedStatusJson.valid, 'Emergency Kill Switch successfully invalidated active session');
+  assertEqual(pairingManager.getActiveSessions().length, 0, 'All active sessions cleared');
+  assertEqual(pairingManager.getPendingRequests().length, 0, 'All pending requests cleared');
+
+  // Test 22: Control Bridge NdjsonFramer message framing and chunking
+  const framer = new NdjsonFramer();
+  const receivedMessages: any[] = [];
+  const parseErrors: any[] = [];
+  framer.on('message', msg => receivedMessages.push(msg));
+  framer.on('parseError', err => parseErrors.push(err));
+
+  framer.handleData(Buffer.from('{"type":"PAIR'));
+  assertEqual(receivedMessages.length, 0, 'Incomplete JSON chunk yields 0 messages');
+
+  framer.handleData(Buffer.from('ING_REQUEST","payload":{"req":1}}\n{"type":"REV'));
+  assertEqual(receivedMessages.length, 1, 'Completed newline delimited message parsed correctly');
+  assertEqual(receivedMessages[0].type, 'PAIRING_REQUEST', 'First parsed message type matches');
+
+  framer.handleData(Buffer.from('OKE_ALL_SESSIONS"}\n'));
+  assertEqual(receivedMessages.length, 2, 'Second message parsed correctly after split chunk');
+  assertEqual(receivedMessages[1].type, 'REVOKE_ALL_SESSIONS', 'Second parsed message type matches');
+
+  // Malformed JSON frame handling
+  framer.handleData(Buffer.from('{corrupted json}\n'));
+  assertEqual(receivedMessages.length, 2, 'Malformed JSON frame discarded safely without adding message');
+  assertEqual(parseErrors.length, 1, 'Parse error event emitted for malformed frame');
 
   // Clean up
   await client.close();
