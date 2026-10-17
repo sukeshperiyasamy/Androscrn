@@ -14,22 +14,64 @@ import { IControlBridge, PendingPairingRequest, PairingSession } from './types';
 
 /**
  * Message framer: Serializes objects to newline-delimited JSON and parses incoming chunks.
+ * Enforces maximum message size and message structure validation to prevent memory exhaustion.
  */
 export class NdjsonFramer extends EventEmitter {
   private buffer = '';
+  private maxMessageBytes: number;
+
+  constructor(maxMessageBytes = 1024 * 1024) {
+    super();
+    this.maxMessageBytes = maxMessageBytes;
+  }
 
   public handleData(chunk: Buffer | string): void {
     this.buffer += chunk.toString('utf8');
+
+    // Memory exhaustion protection: drop buffer if oversized without newline
+    if (this.buffer.length > this.maxMessageBytes) {
+      this.emit(
+        'parseError',
+        new Error(`Message payload exceeded limit of ${this.maxMessageBytes} bytes`),
+        this.buffer.slice(0, 256)
+      );
+      this.buffer = '';
+      return;
+    }
+
     let newlineIndex = this.buffer.indexOf('\n');
     while (newlineIndex !== -1) {
       const line = this.buffer.slice(0, newlineIndex).trim();
       this.buffer = this.buffer.slice(newlineIndex + 1);
       if (line.length > 0) {
-        try {
-          const parsed = JSON.parse(line);
-          this.emit('message', parsed);
-        } catch (err) {
-          this.emit('parseError', err, line);
+        if (line.length > this.maxMessageBytes) {
+          this.emit(
+            'parseError',
+            new Error(`Message line exceeded limit of ${this.maxMessageBytes} bytes`),
+            line.slice(0, 256)
+          );
+        } else {
+          try {
+            const parsed = JSON.parse(line);
+            // Protocol schema guard: must be a non-null object with a valid string type property
+            if (
+              parsed &&
+              typeof parsed === 'object' &&
+              !Array.isArray(parsed) &&
+              typeof parsed.type === 'string' &&
+              parsed.type.length > 0
+            ) {
+              this.emit('message', parsed);
+            } else {
+              this.emit(
+                'parseError',
+                new Error('Invalid message shape: expected JSON object with non-empty string type property'),
+                line
+              );
+            }
+          } catch (err) {
+            this.emit('parseError', err, line);
+          }
         }
       }
       newlineIndex = this.buffer.indexOf('\n');
@@ -62,14 +104,35 @@ export class McpControlClient extends EventEmitter implements IControlBridge {
     });
   }
 
-  public connect(): Promise<boolean> {
+  public connect(timeoutMs = 5000): Promise<boolean> {
     return new Promise(resolve => {
       if (this.connected || this.socket) {
         return resolve(true);
       }
 
       this.closedExplicitly = false;
+      let resolved = false;
+
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          if (sock) {
+            try {
+              sock.destroy();
+            } catch {
+              // ignore
+            }
+          }
+          this.connected = false;
+          this.socket = null;
+          resolve(false);
+        }
+      }, timeoutMs);
+
       const sock = net.connect(this.pipePath, () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
         this.socket = sock;
         this.connected = true;
         this.emit('connected');
@@ -91,12 +154,16 @@ export class McpControlClient extends EventEmitter implements IControlBridge {
       });
 
       sock.on('error', err => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
         this.connected = false;
         this.socket = null;
         resolve(false);
       });
 
       sock.on('close', () => {
+        clearTimeout(timer);
         const wasConnected = this.connected;
         this.connected = false;
         this.socket = null;
@@ -193,10 +260,16 @@ export class McpControlClient extends EventEmitter implements IControlBridge {
       this.reconnectTimer = null;
     }
     if (this.socket) {
-      this.socket.destroy();
+      this.socket.removeAllListeners();
+      try {
+        this.socket.destroy();
+      } catch {
+        // ignore
+      }
       this.socket = null;
       this.connected = false;
     }
+    this.framer.removeAllListeners();
   }
 }
 
@@ -211,6 +284,10 @@ export class McpControlServer extends EventEmitter {
   private pendingRequests: Map<string, PendingPairingRequest> = new Map();
   private activeSessions: Map<string, PairingSession> = new Map();
   private recentAudits: any[] = [];
+
+  public static readonly MAX_CLIENTS = 10;
+  public static readonly MAX_PENDING_REQUESTS = 25;
+  public static readonly MAX_AUDIT_LOGS = 50;
 
   constructor(pipePath = ANDROSCRN_PIPE_NAME) {
     super();
@@ -361,40 +438,83 @@ export class McpControlServer extends EventEmitter {
   }
 
   private handleClientConnection(socket: net.Socket): void {
+    // Bound total concurrent connected clients to prevent denial-of-service
+    if (this.clients.size >= McpControlServer.MAX_CLIENTS) {
+      try {
+        socket.destroy();
+      } catch {
+        // ignore
+      }
+      this.emit('connectionRejected', 'Max client connections reached');
+      return;
+    }
+
     this.clients.add(socket);
     this.emit('clientConnected', this.clients.size);
 
     const framer = new NdjsonFramer();
-    socket.on('data', chunk => framer.handleData(chunk));
-
-    framer.on('message', (msg: McpIpcMessage) => {
+    const dataHandler = (chunk: Buffer | string) => framer.handleData(chunk);
+    const messageHandler = (msg: McpIpcMessage) => {
       this.handleClientMessage(socket, msg);
-    });
+    };
 
-    socket.on('error', () => {
+    const cleanup = () => {
+      socket.removeListener('data', dataHandler);
+      socket.removeListener('error', cleanup);
+      socket.removeListener('close', cleanup);
+      framer.removeListener('message', messageHandler);
+      framer.removeAllListeners();
       this.clients.delete(socket);
       this.emit('clientDisconnected', this.clients.size);
-    });
+    };
 
-    socket.on('close', () => {
-      this.clients.delete(socket);
-      this.emit('clientDisconnected', this.clients.size);
-    });
+    socket.on('data', dataHandler);
+    framer.on('message', messageHandler);
+    socket.on('error', cleanup);
+    socket.on('close', cleanup);
   }
 
   private handleClientMessage(socket: net.Socket, msg: McpIpcMessage): void {
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+      return;
+    }
+
     switch (msg.type) {
       case 'MCP_HELLO':
         this.emit('mcpHello', msg);
         break;
       case 'PAIRING_REQUEST': {
+        // Validate required fields and field types
+        if (
+          typeof msg.requestId !== 'string' || !msg.requestId ||
+          typeof msg.clientName !== 'string' || !msg.clientName ||
+          typeof msg.requestedTier !== 'number' ||
+          typeof msg.pin !== 'string' || !msg.pin
+        ) {
+          return;
+        }
+
+        // Prune expired requests
+        const now = Date.now();
+        for (const [id, r] of this.pendingRequests.entries()) {
+          if (now > r.expiresAt) {
+            this.pendingRequests.delete(id);
+          }
+        }
+
+        // Enforce maximum pending requests limit
+        if (this.pendingRequests.size >= McpControlServer.MAX_PENDING_REQUESTS) {
+          this.emit('error', new Error('Max pending pairing requests limit reached'));
+          return;
+        }
+
         const req: PendingPairingRequest = {
           requestId: msg.requestId,
           pin: msg.pin,
           clientName: msg.clientName,
           requestedTier: msg.requestedTier as any,
-          createdAt: msg.createdAt,
-          expiresAt: msg.expiresAt,
+          createdAt: typeof msg.createdAt === 'number' ? msg.createdAt : now,
+          expiresAt: typeof msg.expiresAt === 'number' ? msg.expiresAt : (now + 60000),
           attempts: 0,
           status: 'PENDING'
         };
@@ -403,21 +523,36 @@ export class McpControlServer extends EventEmitter {
         break;
       }
       case 'SESSION_CREATED': {
+        if (
+          typeof msg.sessionId !== 'string' || !msg.sessionId ||
+          typeof msg.expiresAt !== 'number' ||
+          !Array.isArray(msg.tiers)
+        ) {
+          return;
+        }
+
         const session: PairingSession = {
           sessionId: msg.sessionId,
           token: '[REDACTED]', // Desktop does not store raw secrets
           createdAt: Date.now(),
           expiresAt: msg.expiresAt,
           tiers: msg.tiers as any,
-          clientName: msg.clientName
+          clientName: typeof msg.clientName === 'string' ? msg.clientName : 'AI-Client'
         };
         this.activeSessions.set(msg.sessionId, session);
         this.emit('sessionCreated', session);
         break;
       }
       case 'ACTION_AUDIT': {
+        if (
+          typeof msg.action !== 'string' ||
+          typeof msg.serial !== 'string' ||
+          typeof msg.status !== 'string'
+        ) {
+          return;
+        }
         this.recentAudits.unshift(msg);
-        if (this.recentAudits.length > 50) {
+        if (this.recentAudits.length > McpControlServer.MAX_AUDIT_LOGS) {
           this.recentAudits.pop();
         }
         this.emit('actionAudit', msg);

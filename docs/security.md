@@ -147,3 +147,36 @@ Phase 3B activates the four narrowly scoped Tier 3 device-control tools: `tap(se
   * `REJECTED`: Request rejected at authorization gate (invalid token, missing token, revoked token, out-of-bounds coordinates, or injection attempt).
 * **Privacy & Token Redaction:** Authentication tokens and raw input text (such as passwords or typed messages) are **never** logged or broadcast across IPC. Only sanitized metadata (e.g., character length, coordinates, and keyCode) is retained.
 
+---
+
+## 5. Windows Named-Pipe Threat Model, Runtime Realities & IPC Hardening (Phase 3D)
+
+### 5.1 Named Pipe Security Boundary & Threat Model
+
+The named pipe endpoint `\\.\pipe\androscrn-mcp-control` connects the trusted Electron Desktop Workbench (server) with standalone MCP processes (client).
+
+| Threat Vector | Mitigation Strategy | Implemented Control |
+| :--- | :--- | :--- |
+| **Unprivileged Local Process Connect** | Application-level pairing & token validation | Connect alone grants zero tool execution; all Tier 3 operations require human-approved session tokens. |
+| **Process Identity Spoofing** | Identity binding & single-use consumption | Client name established at `request_pairing` must match during `pair_session`; pairing requests cannot be reused or replayed. |
+| **Malformed / Oversized NDJSON** | Frame boundary caps & JSON validation | 1MB maximum message and buffer limit (`NdjsonFramer`); malformed or unexpected shapes (primitives, arrays, missing `type`) emit `parseError` safely without crashing. |
+| **Replayed Requests** | Single-use requestId consumption & TTL | Requests are deleted from memory immediately upon consumption or expiration (60s default). |
+| **Stale Client Operations** | Automatic token TTL & revocation | Expired tokens are purged; revoked tokens immediately reject subsequent operations. |
+| **TOCTOU Revocation Race** | Pre-dispatch authorization re-check | In-flight revocation during async device/screen queries is caught by a second authorization check immediately prior to ADB dispatch. |
+| **Resource Exhaustion (DoS)** | Bounded server state | Maximum 10 concurrent pipe clients (`MAX_CLIENTS`), maximum 25 pending requests (`MAX_PENDING_REQUESTS`), 50 recent audits. |
+| **Defunct Client Connection** | Connection timeout & cleanup | 5000ms connect timeout; complete socket listener and timer cleanup on client disconnect or server shutdown. |
+
+### 5.2 Windows Pipe ACL Analysis & Technical Runtime Realities
+
+* **Investigation:** Windows Named Pipes support Win32 Security Descriptors (`SECURITY_ATTRIBUTES`) and Discretionary Access Control Lists (DACLs) via the Win32 `CreateNamedPipeW` API.
+* **Node.js 20 LTS Runtime Limitation:** In Node.js `net.createServer().listen('\\\\.\\pipe\\...')`, the call delegates directly through libuv's `uv_pipe_bind`. Under libuv on Windows, `CreateNamedPipeW` is called with `lpSecurityAttributes = NULL`. This applies the default Windows security descriptor associated with the current user's access token, granting access to the current Windows logon session, Administrators, and SYSTEM.
+* **API Availability:** Pure Node.js exposes no public configuration parameter or native API in `net.Server` to supply SDDL strings or custom security descriptors to `listen()`.
+* **Architectural Decision:** To adhere strictly to AndroScrn's zero-install, portable execution model without native C++ compilation (`node-gyp`), we do not introduce unstable native binary addons or require running the application as Administrator. Instead, the application relies on:
+  1. Default Windows security descriptor restricting access to the user session.
+  2. Multi-tier application-level pairing and human approval gatekeeper.
+  3. Pre-dispatch re-verification and framing guards.
+
+### 5.3 Local ADB Daemon Exposure vs. MCP Pipe Boundary
+
+* **Critical Distinction:** The Android Debug Bridge daemon (`adbd` on device and local `adb.exe` server) listens locally on TCP loopback `127.0.0.1:5037`. By Google's Android SDK platform architecture, the local ADB server has no built-in client authentication mechanism for local processes running under the same user.
+* **Scope Boundary:** Securing the MCP named pipe (`\\.\pipe\androscrn-mcp-control`) controls the communication bridge between external AI agents and AndroScrn's input execution engine. It does not replace Google's local ADB loopback socket. Physical device access additionally depends on the user physically accepting the RSA host key fingerprint on the physical phone screen.

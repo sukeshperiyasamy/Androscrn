@@ -7,6 +7,7 @@
     "test:unit": "tsc -p tsconfig.json && node dist/tests/unit/runner.js",
     "test:integration": "tsc -p tsconfig.json && node dist/tests/integration/integration.test.js",
     "test:ui": "tsc -p tsconfig.json && node dist/tests/ui/playwright-ui.test.js",
+    "test:hardware": "tsc -p tsconfig.json && node dist/tests/hardware/hardware-validation.js",
     "test": "tsc -p tsconfig.json && node dist/tests/unit/runner.js && node dist/tests/integration/integration.test.js && node dist/tests/ui/playwright-ui.test.js",
     "build:modules": "tsc -p tsconfig.json",
     "dev:desktop": "cd apps/desktop && npm run dev",

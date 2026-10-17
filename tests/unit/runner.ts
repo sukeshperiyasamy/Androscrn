@@ -3,6 +3,7 @@ import { DeviceManager } from '../../modules/device_manager';
 import { ScrcpyManager } from '../../modules/scrcpy_manager';
 import { ConnectionManager } from '../../modules/connection_manager';
 import { runMcpTests } from './mcp.test';
+import { runSecurityRegressionTests } from './security-regression.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -200,6 +201,9 @@ OFFLINE_DEV_1          offline transport_id:4
 
   // 11. Model Context Protocol (MCP) Server & Security Gatekeeper
   await runMcpTests(assert, assertEqual);
+
+  // 12. Security Regression Test Suite (Phase 3C)
+  await runSecurityRegressionTests(assert, assertEqual);
 
   console.log('\n==================================================');
   console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);

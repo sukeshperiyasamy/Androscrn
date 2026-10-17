@@ -544,7 +544,23 @@ export class AndroScrnMcpServer {
           }
         }
 
-        // 5. Execute ADB tap
+        // 5. Pre-dispatch authorization re-check (TOCTOU race defense)
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `(${x}, ${y})`,
+            error: 'Unauthorized: Session was revoked or expired prior to execution dispatch'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Session was revoked or expired prior to execution dispatch.' }]
+          };
+        }
+
+        // 6. Execute ADB tap
         try {
           const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()], 5000);
           const durationMs = Date.now() - startTime;
@@ -707,7 +723,23 @@ export class AndroScrnMcpServer {
           }
         }
 
-        // 5. Execute ADB swipe
+        // 5. Pre-dispatch authorization re-check (TOCTOU race defense)
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'swipe',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `(${x1},${y1})->(${x2},${y2}) ${durationMs}ms`,
+            error: 'Unauthorized: Session was revoked or expired prior to execution dispatch'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Session was revoked or expired prior to execution dispatch.' }]
+          };
+        }
+
+        // 6. Execute ADB swipe
         try {
           const timeout = Math.max(5000, durationMs + 3000);
           const res = await this.deviceManager.executeAdb(
@@ -835,7 +867,23 @@ export class AndroScrnMcpServer {
           };
         }
 
-        // 4. Execute ADB keyevent
+        // 4. Pre-dispatch authorization re-check (TOCTOU race defense)
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'keyevent',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `keyCode: ${keyCode}`,
+            error: 'Unauthorized: Session was revoked or expired prior to execution dispatch'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Session was revoked or expired prior to execution dispatch.' }]
+          };
+        }
+
+        // 5. Execute ADB keyevent
         try {
           const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'keyevent', keyCode.toString()], 5000);
           const durationMs = Date.now() - startTime;
@@ -969,7 +1017,23 @@ export class AndroScrnMcpServer {
           };
         }
 
-        // 5. Execute ADB input text
+        // 5. Pre-dispatch authorization re-check (TOCTOU race defense)
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'input_text',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `[TEXT_INPUT: ${text.length} chars]`,
+            error: 'Unauthorized: Session was revoked or expired prior to execution dispatch'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Session was revoked or expired prior to execution dispatch.' }]
+          };
+        }
+
+        // 6. Execute ADB input text
         try {
           const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'text', sanitized.encoded], 5000);
           const durationMs = Date.now() - startTime;

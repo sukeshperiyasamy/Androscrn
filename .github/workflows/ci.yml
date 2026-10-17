@@ -1,0 +1,50 @@
+name: AndroScrn CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & Test (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Install Desktop UI Dependencies
+        run: npm --prefix apps/desktop ci
+
+      - name: Install Playwright Chromium Browser
+        run: npx playwright install chromium
+
+      - name: Build Modules and Desktop UI
+        run: npm run build
+
+      - name: Run Complete Test Suite
+        run: npm test
+
+      - name: Upload Test Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-diagnostics
+          path: |
+            dist/
+            apps/desktop/dist/
+          retention-days: 7
