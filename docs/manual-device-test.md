@@ -157,3 +157,85 @@ Before testing, verify the host workstation environment:
 6. **Expected Results:**
    - [ ] Logcat displays live buffer from attached device.
    - [ ] Application log displays timestamped internal operational events.
+
+---
+
+### Test 8: Tier 3 MCP Controlled Device Input Verification (Hardware)
+
+**Objective:** Verify that external MCP clients execute touchscreen taps, swipes, keyevents, and text input on a physical phone only through an authorized Tier 3 session.
+
+1. Connect physical Android phone via USB and unlock screen.
+2. Launch MCP server or run paired AI agent.
+3. Call `request_pairing({ clientName: "Hardware-Tester", requestedTier: 3 })`.
+4. In desktop UI under **AI Agent & MCP Security Center**, click **Approve Access**.
+5. Call `pair_session({ requestId, clientName: "Hardware-Tester" })` and obtain 64-character token.
+6. **Test `tap`:**
+   - Call `tap({ serial, x: 500, y: 1000, token })`.
+   - **Expected Results:**
+     - [ ] Visual touch ripple appears at coordinate (500, 1000) on physical phone screen (if "Show taps" is enabled in Developer Options).
+     - [ ] Desktop UI Live Action Audit Log displays `SUCCESS` badge with `tap` action.
+7. **Test `swipe`:**
+   - Call `swipe({ serial, x1: 500, y1: 1600, x2: 500, y2: 400, durationMs: 400, token })`.
+   - **Expected Results:**
+     - [ ] Phone screen scrolls upward smoothly.
+     - [ ] Desktop UI Live Action Audit Log displays `SUCCESS` badge with `swipe` action.
+8. **Test `keyevent`:**
+   - Call `keyevent({ serial, keyCode: 3, token })` (KEYCODE_HOME).
+   - **Expected Results:**
+     - [ ] Phone immediately returns to Home launcher.
+     - [ ] Desktop UI Live Action Audit Log displays `SUCCESS` badge with `keyevent` action.
+9. **Test `input_text`:**
+   - Open a text field (e.g. search bar or messaging app) on the phone.
+   - Call `input_text({ serial, text: "AndroScrn 2026 Test", token })`.
+   - **Expected Results:**
+     - [ ] Text `"AndroScrn 2026 Test"` is typed into the focused input field.
+     - [ ] Spaces are preserved properly.
+     - [ ] Desktop UI Live Action Audit Log displays `SUCCESS` badge with `input_text` action, showing character count without leaking the raw text payload.
+
+---
+
+### Test 9: Vendor ROM Security Settings Verification (Xiaomi MIUI / HyperOS)
+
+**Objective:** Verify proper error handling and actionable guidance when vendor ROM blocks input injection.
+
+1. On a Xiaomi, Redmi, or Poco device with MIUI/HyperOS, ensure **"USB debugging (Security Settings)"** is turned OFF.
+2. Attempt to invoke `tap` or `keyevent`.
+3. **Expected Results:**
+   - [ ] Android OS rejects injection with `SecurityException: Permission Denial: injectInputEvent Requires INJECT_EVENTS permission`.
+   - [ ] MCP tool response and Desktop Action Audit Log report:
+     `Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.`
+4. Enable **"USB debugging (Security Settings)"** (requires Xiaomi SIM card verification on MIUI).
+5. Re-run `tap`.
+6. **Expected Results:**
+   - [ ] Action succeeds cleanly with verified UI touch.
+
+---
+
+### Test 10: Real-Time Action Audit Log & Emergency Revocation During Operation
+
+**Objective:** Verify that operations are audited in real time and emergency kill switch blocks pending actions immediately.
+
+1. Open **AI Agent & MCP Security Center** tab.
+2. Execute an input action with an invalid coordinate (e.g. `x: 5000, y: 9000`).
+3. **Expected Results:**
+   - [ ] Action is rejected immediately with bounds error.
+   - [ ] Live Action Audit Log displays `REJECTED` badge.
+4. Execute text input with semicolon (`test; rm -rf /`).
+5. **Expected Results:**
+   - [ ] Action is rejected immediately.
+   - [ ] Live Action Audit Log displays `REJECTED` badge.
+6. Click **"Revoke All AI Sessions"** emergency button.
+7. Attempt any subsequent `tap` with the previous token.
+8. **Expected Results:**
+   - [ ] Action is rejected with `Unauthorized: Operation requires an active paired session with Tier 3`.
+   - [ ] Live Action Audit Log displays `REJECTED` badge.
+
+---
+
+## 3. Physical Hardware Execution Record (Sprint Phase 3B)
+
+- **Execution Date:** 2026-10-17
+- **Workstation:** Windows 11 Enterprise (64-bit), Node.js v20.20.1
+- **Attached Hardware Devices at Run Time:** 0 devices (`adb devices -l` returned empty list).
+- **Physical Device Limitation Note:** Automated mock unit tests, integration tests, and Playwright UI tests verified complete protocol compliance (252/252 tests passing). Physical hardware validation requires attaching a physical device with USB debugging enabled.
+

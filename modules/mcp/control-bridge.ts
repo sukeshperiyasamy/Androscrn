@@ -141,6 +141,10 @@ export class McpControlClient extends EventEmitter implements IControlBridge {
     return this.send(msg);
   }
 
+  public sendActionAudit(audit: any): boolean {
+    return this.send(audit);
+  }
+
   public onPairingDecision(handler: (requestId: string, decision: 'APPROVED' | 'DENIED') => void): void {
     this.on('pairingDecision', handler);
   }
@@ -206,6 +210,7 @@ export class McpControlServer extends EventEmitter {
   private clients: Set<net.Socket> = new Set();
   private pendingRequests: Map<string, PendingPairingRequest> = new Map();
   private activeSessions: Map<string, PairingSession> = new Map();
+  private recentAudits: any[] = [];
 
   constructor(pipePath = ANDROSCRN_PIPE_NAME) {
     super();
@@ -328,6 +333,7 @@ export class McpControlServer extends EventEmitter {
     connectedMcpProcesses: number;
     pendingRequests: PendingPairingRequest[];
     activeSessions: PairingSession[];
+    recentAudits?: any[];
   } {
     const now = Date.now();
     // Prune expired
@@ -345,8 +351,13 @@ export class McpControlServer extends EventEmitter {
     return {
       connectedMcpProcesses: this.clients.size,
       pendingRequests: Array.from(this.pendingRequests.values()),
-      activeSessions: Array.from(this.activeSessions.values())
+      activeSessions: Array.from(this.activeSessions.values()),
+      recentAudits: this.recentAudits.slice(0, 25)
     };
+  }
+
+  public getRecentAudits(): any[] {
+    return [...this.recentAudits];
   }
 
   private handleClientConnection(socket: net.Socket): void {
@@ -402,6 +413,14 @@ export class McpControlServer extends EventEmitter {
         };
         this.activeSessions.set(msg.sessionId, session);
         this.emit('sessionCreated', session);
+        break;
+      }
+      case 'ACTION_AUDIT': {
+        this.recentAudits.unshift(msg);
+        if (this.recentAudits.length > 50) {
+          this.recentAudits.pop();
+        }
+        this.emit('actionAudit', msg);
         break;
       }
       default:

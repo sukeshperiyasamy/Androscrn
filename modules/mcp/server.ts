@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DeviceManager } from '../device_manager';
 import { DiagnosticsManager } from '../diagnostics';
 import { SecurityValidator } from '../security';
 import { PairingManager } from './pairing';
-import { McpServerConfig } from './types';
+import { McpServerConfig, IControlBridge } from './types';
 
 export class AndroScrnMcpServer {
   public readonly server: McpServer;
@@ -14,6 +15,7 @@ export class AndroScrnMcpServer {
   private diagnosticsManager: DiagnosticsManager;
   public readonly pairingManager: PairingManager;
   private capturesDir: string;
+  private controlBridge?: IControlBridge;
 
   constructor(
     config: McpServerConfig = {},
@@ -32,12 +34,59 @@ export class AndroScrnMcpServer {
     // Default binary path resolution
     const adbPath = config.adbPath || path.resolve(__dirname, '../../bin/scrcpy-win64/adb.exe');
     this.capturesDir = config.capturesDir || path.resolve(__dirname, '../../Captures');
+    this.controlBridge = config.controlBridge;
 
     this.deviceManager = deviceManager || new DeviceManager(adbPath);
     this.diagnosticsManager = diagnosticsManager || new DiagnosticsManager(this.deviceManager);
     this.pairingManager = pairingManager || new PairingManager(config.pinTtlMs, config.sessionTtlMs, config.controlBridge);
 
     this.registerTools();
+  }
+
+  public onActionAudit?: (audit: {
+    action: 'tap' | 'swipe' | 'keyevent' | 'input_text';
+    serial: string;
+    clientName: string;
+    status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REJECTED';
+    details?: string;
+    durationMs?: number;
+    error?: string;
+  }) => void;
+
+  private notifyActionAudit(audit: {
+    action: 'tap' | 'swipe' | 'keyevent' | 'input_text';
+    serial: string;
+    clientName: string;
+    status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REJECTED';
+    details?: string;
+    durationMs?: number;
+    error?: string;
+  }): void {
+    if (this.onActionAudit) {
+      try {
+        this.onActionAudit(audit);
+      } catch {
+        // ignore
+      }
+    }
+    if (this.controlBridge && this.controlBridge.isConnected()) {
+      try {
+        this.controlBridge.sendActionAudit({
+          type: 'ACTION_AUDIT',
+          actionId: crypto.randomUUID(),
+          action: audit.action,
+          serial: audit.serial,
+          clientName: audit.clientName,
+          status: audit.status,
+          details: audit.details,
+          durationMs: audit.durationMs,
+          error: audit.error,
+          timestamp: Date.now()
+        });
+      } catch {
+        // Non-blocking audit notification
+      }
+    }
   }
 
   private registerTools(): void {
@@ -391,6 +440,595 @@ export class AndroScrnMcpServer {
             }
           ]
         };
+      }
+    );
+
+    /**
+     * Tool 9: tap (Tier 3 - write:input)
+     */
+    this.server.tool(
+      'tap',
+      'Simulate a touchscreen tap gesture at specific (x, y) display coordinates on an authorized Android device. Requires Tier 3 paired session token.',
+      {
+        token: z.string().describe('Active paired session token with Tier 3 permission'),
+        serial: z.string().describe('Target Android device serial identifier'),
+        x: z.number().int().min(0).describe('Target horizontal screen coordinate in pixels (X >= 0)'),
+        y: z.number().int().min(0).describe('Target vertical screen coordinate in pixels (Y >= 0)')
+      },
+      async ({ token, serial, x, y }) => {
+        const startTime = Date.now();
+        const session = this.pairingManager.getSession(token);
+        const clientName = session?.clientName || 'Unauthenticated';
+
+        // 1. Authorization Gatekeeper
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `(${x}, ${y})`,
+            error: 'Unauthorized: Tier 3 permission required'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Operation requires an active paired session with Tier 3 (write:input) permission. Please call request_pairing first.' }]
+          };
+        }
+
+        // 2. Serial Validation
+        if (!SecurityValidator.isValidSerial(serial)) {
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `(${x}, ${y})`,
+            error: 'Invalid serial identifier format'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid device serial identifier format: "${serial}".` }]
+          };
+        }
+
+        // 3. Device Attached & State Verification
+        const devices = await this.deviceManager.getDevices();
+        const target = devices.find(d => d.serial === serial);
+        if (!target) {
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'FAILED',
+            details: `(${x}, ${y})`,
+            error: 'Target device not found or disconnected'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Target device "${serial}" is not attached or was disconnected.` }]
+          };
+        }
+        if (target.state !== 'device') {
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'FAILED',
+            details: `(${x}, ${y})`,
+            error: `Device is in state "${target.state}"`
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Device "${serial}" is in "${target.state}" state. Device must be authorized and ready ("device") to accept input.` }]
+          };
+        }
+
+        // 4. Screen Bounds Validation
+        const screenSize = await this.deviceManager.getScreenSize(serial);
+        if (screenSize) {
+          if (!SecurityValidator.isValidCoordinate(x, screenSize.width) || !SecurityValidator.isValidCoordinate(y, screenSize.height)) {
+            const err = `Out-of-bounds coordinates: (${x}, ${y}) exceeds device screen dimensions (${screenSize.width}x${screenSize.height}).`;
+            this.notifyActionAudit({
+              action: 'tap',
+              serial,
+              clientName,
+              status: 'REJECTED',
+              details: `(${x}, ${y})`,
+              error: err
+            });
+            return {
+              isError: true,
+              content: [{ type: 'text', text: err }]
+            };
+          }
+        }
+
+        // 5. Execute ADB tap
+        try {
+          const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()], 5000);
+          const durationMs = Date.now() - startTime;
+
+          if (res.code !== 0 || (res.stderr && res.stderr.length > 0)) {
+            const isMiuiSec = res.stderr.includes('INJECT_EVENTS') || res.stderr.includes('SecurityException');
+            const errMsg = isMiuiSec
+              ? 'Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.'
+              : `Tap execution failed: ${res.stderr || `Exit code ${res.code}`}`;
+
+            this.notifyActionAudit({
+              action: 'tap',
+              serial,
+              clientName,
+              status: 'FAILED',
+              details: `(${x}, ${y})`,
+              durationMs,
+              error: errMsg
+            });
+
+            return {
+              isError: true,
+              content: [{ type: 'text', text: errMsg }]
+            };
+          }
+
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'SUCCESS',
+            details: `(${x}, ${y})`,
+            durationMs
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  action: 'tap',
+                  serial,
+                  x,
+                  y,
+                  coordinates: { x, y },
+                  durationMs,
+                  status: 'completed'
+                }, null, 2)
+              }
+            ]
+          };
+        } catch (err: any) {
+          const durationMs = Date.now() - startTime;
+          this.notifyActionAudit({
+            action: 'tap',
+            serial,
+            clientName,
+            status: 'FAILED',
+            details: `(${x}, ${y})`,
+            durationMs,
+            error: err?.message || String(err)
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `ADB execution error: ${err?.message || err}` }]
+          };
+        }
+      }
+    );
+
+    /**
+     * Tool 10: swipe (Tier 3 - write:input)
+     */
+    this.server.tool(
+      'swipe',
+      'Simulate a touchscreen drag/swipe gesture from (x1, y1) to (x2, y2) over durationMs. Requires Tier 3 paired session token.',
+      {
+        token: z.string().describe('Active paired session token with Tier 3 permission'),
+        serial: z.string().describe('Target Android device serial identifier'),
+        x1: z.number().int().min(0).describe('Starting horizontal coordinate'),
+        y1: z.number().int().min(0).describe('Starting vertical coordinate'),
+        x2: z.number().int().min(0).describe('Ending horizontal coordinate'),
+        y2: z.number().int().min(0).describe('Ending vertical coordinate'),
+        durationMs: z.number().int().min(50).max(10000).default(300).describe('Swipe duration in milliseconds (50ms - 10000ms)')
+      },
+      async ({ token, serial, x1, y1, x2, y2, durationMs }) => {
+        const startTime = Date.now();
+        const session = this.pairingManager.getSession(token);
+        const clientName = session?.clientName || 'Unauthenticated';
+
+        // 1. Authorization
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'swipe',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `(${x1},${y1})->(${x2},${y2}) ${durationMs}ms`,
+            error: 'Unauthorized: Tier 3 permission required'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Operation requires an active paired session with Tier 3 (write:input) permission.' }]
+          };
+        }
+
+        // 2. Serial & Duration Validation
+        if (!SecurityValidator.isValidSerial(serial)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid device serial identifier format: "${serial}".` }]
+          };
+        }
+        if (!SecurityValidator.isValidSwipeDuration(durationMs)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid durationMs: ${durationMs}. Must be an integer between 50ms and 10000ms.` }]
+          };
+        }
+
+        // 3. Device Connected Verification
+        const devices = await this.deviceManager.getDevices();
+        const target = devices.find(d => d.serial === serial);
+        if (!target) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Target device "${serial}" is not attached or was disconnected.` }]
+          };
+        }
+        if (target.state !== 'device') {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Device "${serial}" is in "${target.state}" state. Device must be authorized and ready ("device") to accept input.` }]
+          };
+        }
+
+        // 4. Screen Bounds Validation
+        const screenSize = await this.deviceManager.getScreenSize(serial);
+        if (screenSize) {
+          if (
+            !SecurityValidator.isValidCoordinate(x1, screenSize.width) ||
+            !SecurityValidator.isValidCoordinate(x2, screenSize.width) ||
+            !SecurityValidator.isValidCoordinate(y1, screenSize.height) ||
+            !SecurityValidator.isValidCoordinate(y2, screenSize.height)
+          ) {
+            const err = `Out-of-bounds swipe coordinates: (${x1}, ${y1}) -> (${x2}, ${y2}) exceeds screen dimensions (${screenSize.width}x${screenSize.height}).`;
+            this.notifyActionAudit({
+              action: 'swipe',
+              serial,
+              clientName,
+              status: 'REJECTED',
+              details: `(${x1},${y1})->(${x2},${y2}) ${durationMs}ms`,
+              error: err
+            });
+            return {
+              isError: true,
+              content: [{ type: 'text', text: err }]
+            };
+          }
+        }
+
+        // 5. Execute ADB swipe
+        try {
+          const timeout = Math.max(5000, durationMs + 3000);
+          const res = await this.deviceManager.executeAdb(
+            ['-s', serial, 'shell', 'input', 'swipe', x1.toString(), y1.toString(), x2.toString(), y2.toString(), durationMs.toString()],
+            timeout
+          );
+          const elapsed = Date.now() - startTime;
+
+          if (res.code !== 0 || (res.stderr && res.stderr.length > 0)) {
+            const isMiuiSec = res.stderr.includes('INJECT_EVENTS') || res.stderr.includes('SecurityException');
+            const errMsg = isMiuiSec
+              ? 'Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.'
+              : `Swipe execution failed: ${res.stderr || `Exit code ${res.code}`}`;
+
+            this.notifyActionAudit({
+              action: 'swipe',
+              serial,
+              clientName,
+              status: 'FAILED',
+              details: `(${x1},${y1})->(${x2},${y2}) ${durationMs}ms`,
+              durationMs: elapsed,
+              error: errMsg
+            });
+
+            return {
+              isError: true,
+              content: [{ type: 'text', text: errMsg }]
+            };
+          }
+
+          this.notifyActionAudit({
+            action: 'swipe',
+            serial,
+            clientName,
+            status: 'SUCCESS',
+            details: `(${x1},${y1})->(${x2},${y2}) ${durationMs}ms`,
+            durationMs: elapsed
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  action: 'swipe',
+                  serial,
+                  from: { x: x1, y: y1 },
+                  to: { x: x2, y: y2 },
+                  durationMs,
+                  status: 'completed'
+                }, null, 2)
+              }
+            ]
+          };
+        } catch (err: any) {
+          const elapsed = Date.now() - startTime;
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `ADB swipe error: ${err?.message || err}` }]
+          };
+        }
+      }
+    );
+
+    /**
+     * Tool 11: keyevent (Tier 3 - write:input)
+     */
+    this.server.tool(
+      'keyevent',
+      'Simulate an Android hardware or navigation keyevent (e.g. 3=HOME, 4=BACK, 24=VOL_UP, 25=VOL_DOWN, 26=POWER, 82=MENU, 187=APP_SWITCH). Requires Tier 3 paired session token.',
+      {
+        token: z.string().describe('Active paired session token with Tier 3 permission'),
+        serial: z.string().describe('Target Android device serial identifier'),
+        keyCode: z.number().int().min(0).max(300).describe('Android keycode integer (0-300)')
+      },
+      async ({ token, serial, keyCode }) => {
+        const startTime = Date.now();
+        const session = this.pairingManager.getSession(token);
+        const clientName = session?.clientName || 'Unauthenticated';
+
+        // 1. Authorization
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'keyevent',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `keyCode: ${keyCode}`,
+            error: 'Unauthorized: Tier 3 permission required'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Operation requires an active paired session with Tier 3 (write:input) permission.' }]
+          };
+        }
+
+        // 2. Serial & KeyCode Validation
+        if (!SecurityValidator.isValidSerial(serial)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid device serial identifier format: "${serial}".` }]
+          };
+        }
+        if (!SecurityValidator.isValidKeyCode(keyCode)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid keyCode: ${keyCode}. Keycode must be an integer between 0 and 300.` }]
+          };
+        }
+
+        // 3. Device Connected Verification
+        const devices = await this.deviceManager.getDevices();
+        const target = devices.find(d => d.serial === serial);
+        if (!target) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Target device "${serial}" is not attached or was disconnected.` }]
+          };
+        }
+        if (target.state !== 'device') {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Device "${serial}" is in "${target.state}" state. Device must be authorized and ready ("device") to accept input.` }]
+          };
+        }
+
+        // 4. Execute ADB keyevent
+        try {
+          const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'keyevent', keyCode.toString()], 5000);
+          const durationMs = Date.now() - startTime;
+
+          if (res.code !== 0 || (res.stderr && res.stderr.length > 0)) {
+            const isMiuiSec = res.stderr.includes('INJECT_EVENTS') || res.stderr.includes('SecurityException');
+            const errMsg = isMiuiSec
+              ? 'Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.'
+              : `Keyevent execution failed: ${res.stderr || `Exit code ${res.code}`}`;
+
+            this.notifyActionAudit({
+              action: 'keyevent',
+              serial,
+              clientName,
+              status: 'FAILED',
+              details: `keyCode: ${keyCode}`,
+              durationMs,
+              error: errMsg
+            });
+
+            return {
+              isError: true,
+              content: [{ type: 'text', text: errMsg }]
+            };
+          }
+
+          this.notifyActionAudit({
+            action: 'keyevent',
+            serial,
+            clientName,
+            status: 'SUCCESS',
+            details: `keyCode: ${keyCode}`,
+            durationMs
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  action: 'keyevent',
+                  serial,
+                  keyCode,
+                  durationMs,
+                  status: 'completed'
+                }, null, 2)
+              }
+            ]
+          };
+        } catch (err: any) {
+          const durationMs = Date.now() - startTime;
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `ADB keyevent error: ${err?.message || err}` }]
+          };
+        }
+      }
+    );
+
+    /**
+     * Tool 12: input_text (Tier 3 - write:input)
+     */
+    this.server.tool(
+      'input_text',
+      'Inject alphanumeric text into the currently focused input field on an Android device. Automatically encodes spaces as %s and strictly verifies safe ASCII printable characters to prevent corruption or shell injection. Requires Tier 3 paired session token.',
+      {
+        token: z.string().describe('Active paired session token with Tier 3 permission'),
+        serial: z.string().describe('Target Android device serial identifier'),
+        text: z.string().describe('Text string to enter (ASCII printable characters; spaces are automatically encoded as %s)')
+      },
+      async ({ token, serial, text }) => {
+        const startTime = Date.now();
+        const session = this.pairingManager.getSession(token);
+        const clientName = session?.clientName || 'Unauthenticated';
+
+        // 1. Authorization
+        if (!this.pairingManager.isTierAllowed(token, 3)) {
+          this.notifyActionAudit({
+            action: 'input_text',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `[TEXT_INPUT: ${text.length} chars]`,
+            error: 'Unauthorized: Tier 3 permission required'
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Unauthorized: Operation requires an active paired session with Tier 3 (write:input) permission.' }]
+          };
+        }
+
+        // 2. Serial Validation
+        if (!SecurityValidator.isValidSerial(serial)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Invalid device serial identifier format: "${serial}".` }]
+          };
+        }
+
+        // 3. Text Sanitization & Encoding
+        const sanitized = SecurityValidator.sanitizeInputText(text);
+        if (!sanitized.valid || !sanitized.encoded) {
+          this.notifyActionAudit({
+            action: 'input_text',
+            serial,
+            clientName,
+            status: 'REJECTED',
+            details: `[TEXT_INPUT: ${text.length} chars]`,
+            error: sanitized.error
+          });
+          return {
+            isError: true,
+            content: [{ type: 'text', text: sanitized.error || 'Text validation failed.' }]
+          };
+        }
+
+        // 4. Device Connected Verification
+        const devices = await this.deviceManager.getDevices();
+        const target = devices.find(d => d.serial === serial);
+        if (!target) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Target device "${serial}" is not attached or was disconnected.` }]
+          };
+        }
+        if (target.state !== 'device') {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Device "${serial}" is in "${target.state}" state. Device must be authorized and ready ("device") to accept input.` }]
+          };
+        }
+
+        // 5. Execute ADB input text
+        try {
+          const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'text', sanitized.encoded], 5000);
+          const durationMs = Date.now() - startTime;
+
+          if (res.code !== 0 || (res.stderr && res.stderr.length > 0)) {
+            const isMiuiSec = res.stderr.includes('INJECT_EVENTS') || res.stderr.includes('SecurityException');
+            const errMsg = isMiuiSec
+              ? 'Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.'
+              : `Input text execution failed: ${res.stderr || `Exit code ${res.code}`}`;
+
+            this.notifyActionAudit({
+              action: 'input_text',
+              serial,
+              clientName,
+              status: 'FAILED',
+              details: `[TEXT_INPUT: ${text.length} chars]`,
+              durationMs,
+              error: errMsg
+            });
+
+            return {
+              isError: true,
+              content: [{ type: 'text', text: errMsg }]
+            };
+          }
+
+          // Successful execution (Notice: we do NOT log the raw text in audit logs to preserve sensitive data/passwords!)
+          this.notifyActionAudit({
+            action: 'input_text',
+            serial,
+            clientName,
+            status: 'SUCCESS',
+            details: `[TEXT_INPUT: ${text.length} chars]`,
+            durationMs
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  action: 'input_text',
+                  serial,
+                  charactersInjected: text.length,
+                  length: text.length,
+                  durationMs,
+                  status: 'completed'
+                }, null, 2)
+              }
+            ]
+          };
+        } catch (err: any) {
+          const durationMs = Date.now() - startTime;
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `ADB input text error: ${err?.message || err}` }]
+          };
+        }
       }
     );
   }

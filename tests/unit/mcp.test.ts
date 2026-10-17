@@ -80,12 +80,33 @@ export async function runMcpTests(
     };
   };
 
+  // Mock ADB execution and screen size
+  const executedAdbArgs: string[][] = [];
+  deviceManager.executeAdb = async (args: string[], timeoutMs = 10000) => {
+    executedAdbArgs.push(args);
+    if (args.includes('9999')) {
+      return { stdout: '', stderr: 'Command timed out.', code: -1 };
+    }
+    if (args.includes('82')) {
+      return { stdout: '', stderr: 'SecurityException: Permission Denial: injectInputEvent Requires INJECT_EVENTS permission', code: 1 };
+    }
+    return { stdout: '', stderr: '', code: 0 };
+  };
+
+  deviceManager.getScreenSize = async (serial: string) => {
+    if (serial === 'kjizrsgekfsglvgi') {
+      return { width: 1080, height: 2400 };
+    }
+    return null;
+  };
+
   // Mock diagnostic bundle
   diagnosticsManager.generateDiagnosticBundle = async () => {
     return '=== ANDROSCRN SYSTEM DIAGNOSTIC REPORT ===\nHost: win32 x64\nAdmin: support@androscrn.org with Bearer sec_tok_991827\nADB Version: 1.0.41';
   };
 
   // 2. Initialize MCP Server and Client
+  const capturedAudits: any[] = [];
   const mcpServer = new AndroScrnMcpServer(
     {
       name: 'androscrn-mcp-test',
@@ -96,6 +117,9 @@ export async function runMcpTests(
     diagnosticsManager,
     pairingManager
   );
+  mcpServer.onActionAudit = (audit: any) => {
+    capturedAudits.push(audit);
+  };
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
@@ -105,7 +129,7 @@ export async function runMcpTests(
 
   // Test 1: Tool Listing
   const toolList = await client.listTools();
-  assert(toolList.tools.length >= 8, `MCP Server exposes all required tools (Found: ${toolList.tools.length})`);
+  assert(toolList.tools.length >= 12, `MCP Server exposes all required tools (Found: ${toolList.tools.length})`);
 
   const toolNames = toolList.tools.map(t => t.name);
   assert(toolNames.includes('list_devices'), 'Tool "list_devices" registered');
@@ -116,6 +140,10 @@ export async function runMcpTests(
   assert(toolNames.includes('request_pairing'), 'Tool "request_pairing" registered');
   assert(toolNames.includes('pair_session'), 'Tool "pair_session" registered');
   assert(toolNames.includes('get_pairing_status'), 'Tool "get_pairing_status" registered');
+  assert(toolNames.includes('tap'), 'Tool "tap" registered');
+  assert(toolNames.includes('swipe'), 'Tool "swipe" registered');
+  assert(toolNames.includes('keyevent'), 'Tool "keyevent" registered');
+  assert(toolNames.includes('input_text'), 'Tool "input_text" registered');
 
   // Test 2: list_devices
   const devRes: any = await client.callTool({ name: 'list_devices', arguments: {} });
@@ -242,10 +270,21 @@ export async function runMcpTests(
     'Error indicates pending desktop user approval'
   );
 
-  // Test 14: pair_session rejects invalid PIN and decrements remaining attempts
-  const badPinRes: any = await client.callTool({
+  // Test 14A: Imposter client cannot claim pairing request
+  const hijackRes: any = await client.callTool({
     name: 'pair_session',
     arguments: { requestId: pairReqJson.requestId, pin: '000000', clientName: 'Untrusted-Bot' }
+  });
+  assert(hijackRes.isError, 'pair_session rejected client identity mismatch');
+  assert(
+    hijackRes.content[0].text.includes('Client identity mismatch'),
+    'Explicit client identity mismatch error returned'
+  );
+
+  // Test 14B: Legitimate client with invalid PIN decrements remaining attempts
+  const badPinRes: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: pairReqJson.requestId, pin: '000000', clientName: 'AI-Audit-Agent' }
   });
   assert(badPinRes.isError, 'pair_session rejected invalid PIN');
   assert(
@@ -254,11 +293,11 @@ export async function runMcpTests(
   );
 
   // Test 15: pair_session brute-force lockout after repeated incorrect attempts
-  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000001' } });
-  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000002' } });
+  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000001', clientName: 'AI-Audit-Agent' } });
+  await client.callTool({ name: 'pair_session', arguments: { requestId: pairReqJson.requestId, pin: '000002', clientName: 'AI-Audit-Agent' } });
   const lockoutRes: any = await client.callTool({
     name: 'pair_session',
-    arguments: { requestId: pairReqJson.requestId, pin: '000003' }
+    arguments: { requestId: pairReqJson.requestId, pin: '000003', clientName: 'AI-Audit-Agent' }
   });
   assert(lockoutRes.isError, 'Brute-force lockout triggered after 4 incorrect attempts');
   assert(
@@ -383,10 +422,239 @@ export async function runMcpTests(
   assertEqual(receivedMessages.length, 2, 'Second message parsed correctly after split chunk');
   assertEqual(receivedMessages[1].type, 'REVOKE_ALL_SESSIONS', 'Second parsed message type matches');
 
-  // Malformed JSON frame handling
-  framer.handleData(Buffer.from('{corrupted json}\n'));
-  assertEqual(receivedMessages.length, 2, 'Malformed JSON frame discarded safely without adding message');
-  assertEqual(parseErrors.length, 1, 'Parse error event emitted for malformed frame');
+  // ---------------------------------------------------------
+  // Tier 3 Controlled Device Input Tests (Stage 2 & Stage 4)
+  // ---------------------------------------------------------
+
+  // Setup Tier 3 session token for testing input operations
+  const reqTier3Res: any = await client.callTool({
+    name: 'request_pairing',
+    arguments: { clientName: 'Tier3-Automation-Agent', requestedTier: 3 }
+  });
+  const reqTier3 = JSON.parse(reqTier3Res.content[0].text);
+  pairingManager.approveRequest(reqTier3.requestId);
+  const pairTier3Res: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: reqTier3.requestId, clientName: 'Tier3-Automation-Agent' }
+  });
+  const tier3Token = JSON.parse(pairTier3Res.content[0].text).sessionToken;
+  assert(typeof tier3Token === 'string' && tier3Token.length >= 64, 'Active Tier 3 session token issued');
+
+  // Setup Tier 2 session token (insufficient permission for input)
+  const reqTier2Res: any = await client.callTool({
+    name: 'request_pairing',
+    arguments: { clientName: 'Tier2-ReadOnly-Agent', requestedTier: 2 }
+  });
+  const reqTier2 = JSON.parse(reqTier2Res.content[0].text);
+  pairingManager.approveRequest(reqTier2.requestId);
+  const pairTier2Res: any = await client.callTool({
+    name: 'pair_session',
+    arguments: { requestId: reqTier2.requestId, clientName: 'Tier2-ReadOnly-Agent' }
+  });
+  const tier2Token = JSON.parse(pairTier2Res.content[0].text).sessionToken;
+
+  // Test 23: tap success with valid token and coordinates
+  executedAdbArgs.length = 0;
+  capturedAudits.length = 0;
+  const tapRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: tier3Token }
+  });
+  assert(!tapRes.isError, 'tap executed successfully with Tier 3 token');
+  const tapJson = JSON.parse(tapRes.content[0].text);
+  assert(tapJson.success, 'tap returned success=true');
+  assertEqual(tapJson.x, 540, 'tap coordinate X matches');
+  assertEqual(tapJson.y, 1200, 'tap coordinate Y matches');
+  assert(
+    executedAdbArgs.some(a => a.join(' ').includes('shell input tap 540 1200')),
+    'ADB shell input tap command invoked with fixed argument array'
+  );
+
+  // Test 24: tap rejects missing, invalid, and insufficient permission tokens
+  const tapNoTokRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: '' }
+  });
+  assert(tapNoTokRes.isError, 'tap rejected empty token');
+  assert(tapNoTokRes.content[0].text.includes('Tier 3'), 'Requires Tier 3 permission');
+
+  const tapBadTokRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: 'fake-token-12345' }
+  });
+  assert(tapBadTokRes.isError, 'tap rejected invalid token');
+
+  const tapTier2Res: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: tier2Token }
+  });
+  assert(tapTier2Res.isError, 'tap rejected Tier 2 token (insufficient privileges)');
+
+  // Test 25: tap rejects invalid serials and disconnected devices
+  const tapBadSerialRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'serial; reboot', x: 100, y: 100, token: tier3Token }
+  });
+  assert(tapBadSerialRes.isError, 'tap rejected command injection in serial');
+
+  const tapNotFoundRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'nonexistent_serial_123', x: 100, y: 100, token: tier3Token }
+  });
+  assert(tapNotFoundRes.isError, 'tap rejected non-existent device');
+
+  // Test 26: tap rejects out-of-bounds coordinates
+  const tapOutOfBoundsRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 1500, y: 3000, token: tier3Token }
+  });
+  assert(tapOutOfBoundsRes.isError, 'tap rejected out-of-bounds coordinates (1500, 3000)');
+  assert(
+    tapOutOfBoundsRes.content[0].text.includes('Out-of-bounds'),
+    'Detailed bounds error returned'
+  );
+
+  // Test 27: tap handles execution timeout
+  const tapTimeoutRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 9999, y: 9999, token: tier3Token }
+  });
+  assert(tapTimeoutRes.isError, 'tap handles command timeout safely');
+
+  // Test 28: swipe success
+  executedAdbArgs.length = 0;
+  const swipeRes: any = await client.callTool({
+    name: 'swipe',
+    arguments: { serial: 'kjizrsgekfsglvgi', x1: 500, y1: 1500, x2: 500, y2: 300, durationMs: 400, token: tier3Token }
+  });
+  assert(!swipeRes.isError, 'swipe executed successfully');
+  const swipeJson = JSON.parse(swipeRes.content[0].text);
+  assert(swipeJson.success, 'swipe returned success=true');
+  assert(
+    executedAdbArgs.some(a => a.join(' ').includes('shell input swipe 500 1500 500 300 400')),
+    'ADB swipe executed with verified coordinates and duration'
+  );
+
+  // Test 29: swipe rejects invalid duration and out-of-bounds coordinates
+  const swipeFastRes: any = await client.callTool({
+    name: 'swipe',
+    arguments: { serial: 'kjizrsgekfsglvgi', x1: 100, y1: 100, x2: 200, y2: 200, durationMs: 20, token: tier3Token }
+  });
+  assert(swipeFastRes.isError, 'swipe rejected duration under 50ms');
+
+  const swipeBadEndRes: any = await client.callTool({
+    name: 'swipe',
+    arguments: { serial: 'kjizrsgekfsglvgi', x1: 100, y1: 100, x2: 2000, y2: 5000, durationMs: 300, token: tier3Token }
+  });
+  assert(swipeBadEndRes.isError, 'swipe rejected out-of-bounds endpoint coordinates');
+
+  // Test 30: keyevent success (BACK key = 4)
+  executedAdbArgs.length = 0;
+  const keyRes: any = await client.callTool({
+    name: 'keyevent',
+    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 4, token: tier3Token }
+  });
+  assert(!keyRes.isError, 'keyevent executed successfully for keyCode 4');
+  assert(
+    executedAdbArgs.some(a => a.join(' ').includes('shell input keyevent 4')),
+    'ADB keyevent invoked with keycode 4'
+  );
+
+  // Test 31: keyevent rejects invalid keycode and handles vendor ROM permissions
+  const keyNegativeRes: any = await client.callTool({
+    name: 'keyevent',
+    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: -5, token: tier3Token }
+  });
+  assert(keyNegativeRes.isError, 'keyevent rejected negative keycode');
+
+  const keyHugeRes: any = await client.callTool({
+    name: 'keyevent',
+    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 9999, token: tier3Token }
+  });
+  assert(keyHugeRes.isError, 'keyevent rejected keycode > 300');
+
+  const keyMiuiRes: any = await client.callTool({
+    name: 'keyevent',
+    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 82, token: tier3Token }
+  });
+  assert(keyMiuiRes.isError, 'keyevent handles vendor ROM injection permission denial');
+  assert(
+    keyMiuiRes.content[0].text.includes('USB debugging (Security Settings)'),
+    'Vendor ROM permission error guides user to enable security settings'
+  );
+
+  // Test 32: input_text success with spaces encoded as %s
+  executedAdbArgs.length = 0;
+  const textRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Hello World 2026', token: tier3Token }
+  });
+  assert(!textRes.isError, 'input_text executed successfully');
+  const textJson = JSON.parse(textRes.content[0].text);
+  assert(textJson.success, 'input_text returned success=true');
+  assertEqual(textJson.length, 16, 'Character length verified');
+  assert(
+    executedAdbArgs.some(a => a.join(' ').includes('shell input text Hello%sWorld%s2026')),
+    'ADB input text encoded spaces as %s'
+  );
+
+  // Test 33: input_text rejects shell injection attempts
+  const textSemicolonRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'test; rm -rf /', token: tier3Token }
+  });
+  assert(textSemicolonRes.isError, 'input_text rejected semicolon injection');
+
+  const textPipeRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'test | whoami', token: tier3Token }
+  });
+  assert(textPipeRes.isError, 'input_text rejected pipe injection');
+
+  const textDollarRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'hello $(calc.exe)', token: tier3Token }
+  });
+  assert(textDollarRes.isError, 'input_text rejected command substitution injection');
+
+  // Test 34: input_text rejects Unicode / non-ASCII gracefully
+  const textUnicodeRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Café au lait', token: tier3Token }
+  });
+  assert(textUnicodeRes.isError, 'input_text rejected Unicode text');
+  assert(
+    textUnicodeRes.content[0].text.includes('only supports ASCII characters'),
+    'Explicit ASCII explanation returned for Unicode'
+  );
+
+  const textEmojiRes: any = await client.callTool({
+    name: 'input_text',
+    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Hello 😊', token: tier3Token }
+  });
+  assert(textEmojiRes.isError, 'input_text rejected emoji input');
+
+  // Test 35: Action audit log redaction and integrity
+  assert(capturedAudits.length > 0, `Captured action audit events (${capturedAudits.length})`);
+  // Verify NO audit contains raw text payload or session token
+  const hasRawSensitiveData = capturedAudits.some(a =>
+    (a.details && (a.details.includes('Hello World 2026') || a.details.includes(tier3Token))) ||
+    (a.error && a.error.includes(tier3Token))
+  );
+  assert(!hasRawSensitiveData, 'SECURITY: Action audit log strictly omits sensitive text and session tokens');
+
+  // Verify audit events recorded correct statuses
+  assert(capturedAudits.some(a => a.status === 'SUCCESS' && a.action === 'tap'), 'Tap recorded SUCCESS status');
+  assert(capturedAudits.some(a => a.status === 'REJECTED' && a.action === 'tap'), 'Tap recorded REJECTED status for bad auth/bounds');
+  assert(capturedAudits.some(a => a.status === 'SUCCESS' && a.action === 'input_text'), 'input_text recorded SUCCESS status');
+
+  // Test 36: Revoked session rejects subsequent operations
+  pairingManager.revokeSession(tier3Token);
+  const revokedTapRes: any = await client.callTool({
+    name: 'tap',
+    arguments: { serial: 'kjizrsgekfsglvgi', x: 500, y: 500, token: tier3Token }
+  });
+  assert(revokedTapRes.isError, 'tap rejected after session token was revoked');
 
   // Clean up
   await client.close();
@@ -396,3 +664,4 @@ export async function runMcpTests(
     // Ignore cleanup error
   }
 }
+

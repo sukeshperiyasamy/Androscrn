@@ -9,7 +9,7 @@
 [![scrcpy v5.0.1](https://img.shields.io/badge/Engine-scrcpy%20v5.0.1-brightgreen?style=for-the-badge)](https://github.com/Genymobile/scrcpy)
 [![ADB Verified](https://img.shields.io/badge/Bridge-Google%20ADB%201.0.41-orange?style=for-the-badge)](https://developer.android.com/tools/adb)
 [![MCP Server](https://img.shields.io/badge/MCP-Official%20SDK%20v1.32-purple?style=for-the-badge)](https://modelcontextprotocol.io)
-[![Tests Passing](https://img.shields.io/badge/Tests-200%20Passed-brightgreen?style=for-the-badge)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-252%20Passed-brightgreen?style=for-the-badge)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 *Ultra-low latency screen mirroring, 1-click wireless handoff, phone-hotspot discovery, raw binary screenshot capture, filtered logcat diagnostics, test automation workflows, and official Model Context Protocol (MCP) server for AI agents.*
@@ -70,6 +70,10 @@ AndroScrn exposes a standard, high-performance **Model Context Protocol (MCP)** 
 | `request_pairing` | — | Registers a pairing request via Named Pipe to Desktop UI. Never leaks PIN! | `clientName` (string), `requestedTier` (1-4) |
 | `pair_session` | — | Exchanges approved `requestId` or screen-displayed PIN for 64-char token. | `requestId` (string), `pin` (optional string), `clientName` (string) |
 | `get_pairing_status` | — | Checks validity and granted permission tiers of an active session token. | `token` (string, optional) |
+| `tap` | 3 | Simulates touchscreen tap gesture at validated (x, y) coordinates. | `token` (string), `serial` (string), `x` (int), `y` (int) |
+| `swipe` | 3 | Simulates directional swipe gesture between validated screen endpoints. | `token` (string), `serial` (string), `x1`, `y1`, `x2`, `y2`, `durationMs` |
+| `keyevent` | 3 | Injects Android key event (0-300) with vendor security handling. | `token` (string), `serial` (string), `keyCode` (int) |
+| `input_text` | 3 | Injects text with safe %s space encoding and shell injection rejection. | `token` (string), `serial` (string), `text` (string) |
 
 ### Claude Desktop Configuration
 
@@ -122,13 +126,13 @@ External AI agents have significant automation capabilities. To prevent unauthor
 * Android device with **USB Debugging** enabled (*Settings -> Developer Options -> USB Debugging*)
 
 ### Running Tests
-Execute the comprehensive 200-test validation suite:
+Execute the comprehensive 252-test validation suite:
 ```bash
 npm test
 ```
-* **Unit Tests (149):** Protocol sanitization, argument composition, PNG magic byte validation, redaction, and MCP protocol assertions.
+* **Unit Tests (195):** Protocol sanitization, argument composition, PNG magic byte validation, credential redaction, MCP pairing handshake security, and Tier 3 controlled device input tools (`tap`, `swipe`, `keyevent`, `input_text`).
 * **Integration Tests (13):** Bundled binary smoke tests (`adb.exe` 1.0.41, `scrcpy.exe` 5.0.1, live daemon communication).
-* **Playwright UI Tests (38):** Automated headless browser tests verifying empty states, multi-device dropdowns, quality presets, captures gallery, responsive layouts, HITL pairing banner, and emergency revocation controls.
+* **Playwright UI Tests (44):** Automated headless browser tests verifying empty states, multi-device dropdowns, quality presets, captures gallery, responsive layouts, HITL pairing banner, emergency revocation controls, and the real-time Live Action Audit Log.
 
 ### Running Desktop Workbench
 ```bash

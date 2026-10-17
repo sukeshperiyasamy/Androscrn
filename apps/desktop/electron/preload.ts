@@ -27,5 +27,7 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   revokeAllMcpSessions: () => ipcRenderer.invoke('revoke-all-mcp-sessions'),
   onMcpPairingRequest: (cb: (req: any) => void) => { ipcRenderer.on('mcp-pairing-requested', (_, req) => cb(req)); },
   onMcpStatusChanged: (cb: () => void) => { ipcRenderer.on('mcp-status-changed', () => cb()); },
-  onMcpSessionsRevoked: (cb: () => void) => { ipcRenderer.on('mcp-sessions-revoked', () => cb()); }
+  onMcpSessionsRevoked: (cb: () => void) => { ipcRenderer.on('mcp-sessions-revoked', () => cb()); },
+  onMcpActionAudit: (cb: (audit: any) => void) => { ipcRenderer.on('mcp-action-audit', (_, audit) => cb(audit)); }
 });
+

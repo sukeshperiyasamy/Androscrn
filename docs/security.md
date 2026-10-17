@@ -102,3 +102,48 @@ AndroScrn decouples the UI process from external AI agents using a local Windows
   * Payloads are strictly schema-validated (`McpIpcMessage`).
   * Malformed or oversized frames are discarded safely without disrupting the IPC channel.
   * Device-modifying commands (`tap`, `swipe`, `keyevent`, `input_text`) are completely barred until the session token is verified against the active session store.
+
+---
+
+## 4. Tier 3 Controlled Device Input & Execution Hardening (Phase 3B)
+
+Phase 3B activates the four narrowly scoped Tier 3 device-control tools: `tap(serial, x, y, token)`, `swipe(serial, x1, y1, x2, y2, durationMs, token)`, `keyevent(serial, keyCode, token)`, and `input_text(serial, text, token)`. Every invocation traverses strict security verification gates before contacting the Android operating system.
+
+### 4.1 Client Identity Binding & Anti-Hijacking
+* Pairing requests bind the calling client identity (`clientName`). When `pair_session` is called, the provided `clientName` must strictly match the identity established during `request_pairing`.
+* Imposter clients cannot claim an approved request or hijack a pending pairing token established by another client.
+
+### 4.2 Safe Process Execution & Non-Interpolated Command Arrays
+* Unrestricted shell commands and string interpolation (`cmd.exe /c`, `sh -c`) are strictly prohibited.
+* Input commands are dispatched using immutable argument vectors:
+  * `tap`: `['spawn', 'adb.exe', ['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()]]`
+  * `swipe`: `['spawn', 'adb.exe', ['-s', serial, 'shell', 'input', 'swipe', x1.toString(), y1.toString(), x2.toString(), y2.toString(), durationMs.toString()]]`
+  * `keyevent`: `['spawn', 'adb.exe', ['-s', serial, 'shell', 'input', 'keyevent', keyCode.toString()]]`
+  * `input_text`: `['spawn', 'adb.exe', ['-s', serial, 'shell', 'input', 'text', encodedText]]`
+* All operations run with `windowsHide: true`, explicit process timeout (5000ms), and automated process termination on timeout.
+
+### 4.3 Screen Dimension Bounds Verification
+* Prior to dispatching touch injection (`tap` and `swipe`), AndroScrn queries the device screen geometry via `adb shell wm size`.
+* Both physical screen dimensions (`Physical size: 1080x2400`) and display override dimensions (`Override size: ...`) are parsed and validated.
+* Out-of-bounds coordinates (e.g. `x < 0`, `x >= width`, `y < 0`, `y >= height`) are rejected at the gate before any ADB command is executed, preventing anomalous driver states or accidental out-of-screen clicks.
+
+### 4.4 ADB Text Input Sanitization & Encoding
+* Android's `/system/bin/input text` utility runs inside Android's shell environment and has critical encoding limitations:
+  1. **Shell Injection Prevention:** Text strings containing shell metacharacters (`[;&|`$<>(){}[\]\\"]`) are rejected immediately, preventing command injection in `adbd`.
+  2. **Space Encoding:** Spaces are automatically encoded as `%s`, matching the Android input binary syntax without loss or corrupted splits.
+  3. **Unicode / Non-ASCII Handling:** Android's native `input text` does not support multi-byte Unicode or emoji and silently drops or corrupts characters. AndroScrn detects characters with code points `> 127` and returns an explicit, actionable error explaining that non-ASCII characters require clipboard paste or an IME rather than silent corruption.
+
+### 4.5 Vendor ROM Security Guidance (MIUI / HyperOS)
+* On Xiaomi (MIUI / HyperOS), Meizu, and certain custom vendor distributions, Android blocks input injection via ADB by default and throws `SecurityException: Permission Denial: injectInputEvent Requires INJECT_EVENTS permission`.
+* When this condition is detected from ADB stderr, AndroScrn provides targeted user guidance:
+  `Permission Denied: Android security settings require enabling "USB debugging (Security Settings)" in Developer Options to allow input event injection on this vendor ROM.`
+
+### 4.6 Redacted Live Action Audit Log
+* Every Tier 3 device-control operation emits an `ACTION_AUDIT` IPC message across the Named Pipe.
+* The Electron UI displays actions in the **Live Action Audit Log** with real-time status transitions:
+  * `PENDING`: Command accepted and execution underway.
+  * `SUCCESS`: Command completed with verified exit code 0.
+  * `FAILED`: Command exited with non-zero code, execution timeout, or vendor permission denial.
+  * `REJECTED`: Request rejected at authorization gate (invalid token, missing token, revoked token, out-of-bounds coordinates, or injection attempt).
+* **Privacy & Token Redaction:** Authentication tokens and raw input text (such as passwords or typed messages) are **never** logged or broadcast across IPC. Only sanitized metadata (e.g., character length, coordinates, and keyCode) is retained.
+

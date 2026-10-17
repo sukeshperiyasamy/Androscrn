@@ -14,6 +14,7 @@ export type McpIpcMessageType =
   | 'REVOKE_ALL_SESSIONS'
   | 'GET_STATUS_REQUEST'
   | 'GET_STATUS_RESPONSE'
+  | 'ACTION_AUDIT'
   | 'PING'
   | 'PONG';
 
@@ -84,6 +85,18 @@ export interface GetStatusResponseIpcMessage extends BaseMcpIpcMessage {
   }>;
 }
 
+export interface ActionAuditIpcMessage extends BaseMcpIpcMessage {
+  type: 'ACTION_AUDIT';
+  actionId: string;
+  action: 'tap' | 'swipe' | 'keyevent' | 'input_text';
+  serial: string;
+  clientName: string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REJECTED';
+  details?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 export interface PingIpcMessage extends BaseMcpIpcMessage {
   type: 'PING';
 }
@@ -101,5 +114,6 @@ export type McpIpcMessage =
   | RevokeAllSessionsIpcMessage
   | GetStatusRequestIpcMessage
   | GetStatusResponseIpcMessage
+  | ActionAuditIpcMessage
   | PingIpcMessage
   | PongIpcMessage;

@@ -415,8 +415,80 @@ TOTAL AUTOMATED TEST VERIFICATION:               200 / 200 Passed (100% Green)
 
 ---
 
-## 11. Next Milestone (Phase 3B)
+## 11. Phase 3B Sprint Results: Controlled Device Input & Security Verification
 
-1. **Mutating MCP Tools (Tier 3):** Implement input automation tools (`tap`, `swipe`, `keyevent`, `input_text`) strictly guarded by `pairingManager.isTierAllowed(token, 3)`.
-2. **Administrative MCP Tools (Tier 4):** Implement interactive confirmation prompts in the desktop UI for high-risk operations (`shell`, `install_app`, `reboot`, `file_push`).
-3. **Automated Workflow Sequencer:** Wire `WorkflowEngine` to execute multi-step macros with OCR text assertions.
+**Date Completed:** 2026-10-17  
+**Baseline Commit:** `8ecfbbf`  
+**Status:** Completed & Validated  
+
+### 11.1 Objectives Achieved
+
+1. **Security Boundary Verification:**
+   - Enforced client identity binding during pairing: `pair_session` verifies that the claiming client identity matches the identity in `request_pairing`.
+   - Hardened named pipe control server and framing against malformed inputs and replay attempts.
+   - Preserved emergency revocation kill switch (`REVOKE_ALL_SESSIONS`) with instantaneous invalidation of all active session tokens.
+
+2. **Tier 3 Controlled Device Input Tools:**
+   - **`tap(serial, x, y, token)`**: Touchscreen tap simulation with physical/override screen bounds verification via `wm size`.
+   - **`swipe(serial, x1, y1, x2, y2, durationMs, token)`**: Multi-point gesture drag with endpoint bounds checking and 50–10,000ms duration validation.
+   - **`keyevent(serial, keyCode, token)`**: Android key event injection for valid keycodes (0–300) with vendor ROM (`INJECT_EVENTS`) exception guidance.
+   - **`input_text(serial, text, token)`**: Text injection with automated `%s` space encoding, strict shell metacharacter rejection, and explicit Unicode / non-ASCII guidance.
+
+3. **Desktop Safety & User Feedback (Live Action Audit Log):**
+   - Implemented real-time `ACTION_AUDIT` IPC event dispatching across the Windows Named Pipe.
+   - Added the **Live AI Action Audit Log** to the desktop application's AI Agent & MCP Security Center tab.
+   - Displays real-time operational status badges (`PENDING`, `SUCCESS`, `FAILED`, `REJECTED`), requesting client, target device, and safe metadata.
+   - Strictly omits authentication tokens and sensitive input text from logs and IPC messages.
+
+### 11.2 Automated Test Execution Summary
+```
+==================================================
+        ANDROSCRN PHASE 3B TEST VERIFICATION
+==================================================
+1. Unit Tests (tests/unit/runner.ts):              195 / 195 Passed (0 Failed)
+   - Input sanitization & injection defenses:      31 Passed
+   - Device parsing & alias management:            10 Passed
+   - Scrcpy argument composition:                  9 Passed
+   - Process lifecycle & missing binary handling:  8 Passed
+   - Device state guidance:                        3 Passed
+   - Binary screencap PNG magic byte check:        4 Passed
+   - Diagnostic bundle & sensitive redaction:      4 Passed
+   - Captures folder scanner:                      1 Passed
+   - MCP Server & HITL Handshake Security:         83 Passed
+   - Tier 3 Controlled Device Input Tools:         42 Passed
+     * tap success, bounds, timeout, auth gating
+     * swipe success, duration validation, endpoints
+     * keyevent success, keycode range, MIUI guidance
+     * input_text encoding, shell defense, Unicode
+     * Action audit redaction, token isolation, kill switch
+2. Integration Tests (tests/integration):         13 / 13 Passed (0 Failed)
+   - Bundled ADB & scrcpy binary execution:        7 Passed
+   - Socket probe, discovery & process safety:     6 Passed
+3. Playwright UI Tests (tests/ui):                44 / 44 Passed (0 Failed)
+   - Zero-device empty state & guidance:           4 Passed
+   - Multi-device dropdowns & status badges:       7 Passed
+   - Mirroring controls, pulse & presets:          6 Passed
+   - Screenshot capture & media gallery:           2 Passed
+   - Diagnostics introspections & copy:            3 Passed
+   - Keyboard accessibility & tab navigation:      2 Passed
+   - Viewport responsiveness (1024x768 / 1080p):   2 Passed
+   - Scenario 8: AI Agent & MCP Security Center,
+     HITL Pairing Card, Desktop PIN display,
+     Approve/Deny buttons, Individual Revocation,
+     and Emergency Kill Switch:                   12 Passed
+   - Scenario 9: Live AI Action Audit Log,
+     SUCCESS / REJECTED status badges,
+     client and device metadata verification:      6 Passed
+--------------------------------------------------
+TOTAL AUTOMATED TEST VERIFICATION:               252 / 252 Passed (100% Green)
+==================================================
+```
+
+---
+
+## 12. Next Milestone (Phase 4)
+
+1. **Administrative MCP Tools (Tier 4):** Implement interactive confirmation prompts in the desktop UI for high-risk operations (`shell`, `install_app`, `reboot`, `file_push`).
+2. **Automated Workflow Sequencer:** Wire `WorkflowEngine` to execute multi-step macros with OCR text assertions.
+3. **Cross-Platform Packaging:** Prepare native MSI / installer pipelines for production distributions.
+

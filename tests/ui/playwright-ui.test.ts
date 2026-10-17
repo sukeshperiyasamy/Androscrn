@@ -363,12 +363,34 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
         getRevokeAllCalled: () => revokeAllCalled
       };
 
+      const mockAudits = [
+        {
+          id: 'audit-101',
+          timestamp: Date.now() - 5000,
+          action: 'tap',
+          clientName: 'Active-Analysis-Bot',
+          serial: 'kjizrsgekfsglvgi',
+          status: 'SUCCESS',
+          details: '(540, 1200)'
+        },
+        {
+          id: 'audit-102',
+          timestamp: Date.now() - 2000,
+          action: 'input_text',
+          clientName: 'Active-Analysis-Bot',
+          serial: 'kjizrsgekfsglvgi',
+          status: 'REJECTED',
+          details: 'Disallowed characters in input'
+        }
+      ];
+
       (window as any).androscrnApi.getMcpStatus = async () => ({
         pipeName: '\\\\.\\pipe\\androscrn-mcp-control',
         isListening: true,
         connectedMcpProcesses: 1,
         activeSessions: mockActiveSessions,
-        pendingRequests: mockPendingRequests
+        pendingRequests: mockPendingRequests,
+        recentAudits: mockAudits
       });
 
       (window as any).androscrnApi.approveMcpPairing = async (id: string) => {
@@ -446,6 +468,27 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     await page.waitForTimeout(400);
     const killSwitchTriggered = await page.evaluate(() => (window as any).__mcpAudit.getRevokeAllCalled());
     recordTest('Emergency Kill Switch invalidates all active sessions via IPC', killSwitchTriggered);
+
+    // -------------------------------------------------------------
+    // Test Scenario 9: Live AI Action Audit Log Verification
+    // -------------------------------------------------------------
+    console.log('\nScenario 9: Live AI Action Audit Log Verification');
+    const auditSection = await page.waitForSelector('#mcp-action-audit-section', { timeout: 3000 });
+    recordTest('Live AI Action Audit Log section rendered', auditSection !== null);
+
+    const auditItem1 = await page.waitForSelector('#audit-item-audit-101', { timeout: 2000 });
+    recordTest('Audit item 101 (tap) rendered in audit list', auditItem1 !== null);
+
+    const audit101Content = await page.textContent('#audit-item-audit-101');
+    recordTest('Audit item 101 shows SUCCESS status and tap action', (audit101Content?.includes('SUCCESS') && audit101Content?.includes('tap')) ?? false);
+    recordTest('Audit item 101 shows client name and target device serial', (audit101Content?.includes('Active-Analysis-Bot') && audit101Content?.includes('kjizrsgekfsglvgi')) ?? false);
+
+    const auditItem2 = await page.waitForSelector('#audit-item-audit-102', { timeout: 2000 });
+    recordTest('Audit item 102 (input_text) rendered in audit list', auditItem2 !== null);
+
+    const audit102Content = await page.textContent('#audit-item-audit-102');
+    recordTest('Audit item 102 shows REJECTED status and input_text action', (audit102Content?.includes('REJECTED') && audit102Content?.includes('input_text')) ?? false);
+
 
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);

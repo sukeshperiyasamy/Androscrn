@@ -415,6 +415,12 @@ mcpControlServer.on('clientDisconnected', (count) => {
   mainWindow?.webContents.send('mcp-status-changed');
 });
 
+mcpControlServer.on('actionAudit', (audit) => {
+  appLog('INFO', `MCP Action [${audit.action}] by '${audit.clientName}' on ${audit.serial}: ${audit.status}`);
+  mainWindow?.webContents.send('mcp-action-audit', audit);
+  mainWindow?.webContents.send('mcp-status-changed');
+});
+
 ipcMain.handle('get-mcp-status', () => {
   try {
     return mcpControlServer.getStatus();

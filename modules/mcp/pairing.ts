@@ -157,6 +157,13 @@ export class PairingManager {
       return { success: false, error: 'Pairing request was denied by the user in the desktop application.' };
     }
 
+    if (clientName && clientName.trim() !== req.clientName) {
+      return {
+        success: false,
+        error: `Client identity mismatch: pair_session clientName ('${clientName}') does not match the clientName in request_pairing ('${req.clientName}').`
+      };
+    }
+
     let authorized = false;
 
     // Path A: Desktop user approved via UI button
@@ -198,13 +205,42 @@ export class PairingManager {
       createdAt: now,
       expiresAt: now + this.sessionTtlMs,
       tiers: [0, 1, 2, req.requestedTier],
-      clientName: clientName || req.clientName
+      clientName: req.clientName
     };
 
     this.activeSessions.set(token, session);
     this.pendingRequests.delete(requestId); // Request consumed
 
+    if (this.controlBridge && this.controlBridge.isConnected()) {
+      try {
+        this.controlBridge.send({
+          type: 'SESSION_CREATED',
+          sessionId: session.sessionId,
+          clientName: session.clientName || 'AI-Client',
+          tiers: session.tiers,
+          expiresAt: session.expiresAt,
+          timestamp: Date.now()
+        });
+      } catch {
+        // Non-blocking IPC notification
+      }
+    }
+
     return { success: true, token };
+  }
+
+  /**
+   * Retrieves active session by token if valid and non-expired.
+   */
+  public getSession(token: string | undefined): PairingSession | undefined {
+    if (!token) return undefined;
+    const session = this.activeSessions.get(token);
+    if (!session) return undefined;
+    if (Date.now() > session.expiresAt) {
+      this.activeSessions.delete(token);
+      return undefined;
+    }
+    return session;
   }
 
   /**

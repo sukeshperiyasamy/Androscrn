@@ -237,4 +237,33 @@ export class DeviceManager {
     }
     return undefined;
   }
+
+  /**
+   * Queries device screen dimensions via `wm size`
+   */
+  public async getScreenSize(serial: string): Promise<{ width: number; height: number } | null> {
+    if (!SecurityValidator.isValidSerial(serial)) return null;
+    const res = await this.executeAdb(['-s', serial, 'shell', 'wm', 'size'], 4000);
+    if (res.code !== 0) return null;
+
+    // Check for Override size first (e.g. "Override size: 1080x2400")
+    const overrideMatch = res.stdout.match(/Override size:\s*(\d+)x(\d+)/i);
+    if (overrideMatch) {
+      return {
+        width: parseInt(overrideMatch[1], 10),
+        height: parseInt(overrideMatch[2], 10)
+      };
+    }
+
+    // Physical size fallback (e.g. "Physical size: 1080x2400")
+    const physicalMatch = res.stdout.match(/Physical size:\s*(\d+)x(\d+)/i);
+    if (physicalMatch) {
+      return {
+        width: parseInt(physicalMatch[1], 10),
+        height: parseInt(physicalMatch[2], 10)
+      };
+    }
+
+    return null;
+  }
 }

@@ -34,7 +34,9 @@ export interface PendingPairingRequest {
 
 export interface IControlBridge {
   isConnected(): boolean;
+  send(msg: any): boolean;
   sendPairingRequest(request: PendingPairingRequest): Promise<boolean>;
+  sendActionAudit(audit: any): boolean;
   onPairingDecision(handler: (requestId: string, decision: 'APPROVED' | 'DENIED') => void): void;
   onRevokeSession(handler: (sessionId: string) => void): void;
   onRevokeAll(handler: () => void): void;

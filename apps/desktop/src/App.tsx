@@ -139,7 +139,16 @@ export default function App() {
       tiers: number[];
       expiresAt: number;
     }>;
-  }>({ connectedMcpProcesses: 0, pendingRequests: [], activeSessions: [] });
+    recentAudits?: Array<{
+      id: string;
+      timestamp: number;
+      action: string;
+      clientName: string;
+      serial: string;
+      status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REJECTED';
+      details?: string;
+    }>;
+  }>({ connectedMcpProcesses: 0, pendingRequests: [], activeSessions: [], recentAudits: [] });
 
   // Status Alerts
   const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>({
@@ -299,6 +308,12 @@ export default function App() {
           type: 'error',
           message: '⚠️ All AI sessions have been revoked by the Emergency Kill Switch.'
         });
+      });
+    }
+
+    if (api?.onMcpActionAudit) {
+      api.onMcpActionAudit((audit: any) => {
+        refreshMcpStatus();
       });
     }
 
@@ -1520,6 +1535,68 @@ export default function App() {
                 ) : (
                   <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-400 text-xs" id="empty-active-sessions">
                     No active AI agent sessions. External agents must request and receive human pairing approval before acquiring tokens.
+                  </div>
+                )}
+              </div>
+
+              {/* Live AI Action Audit Log */}
+              <div className="space-y-3 pt-2" id="mcp-action-audit-section">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-indigo-400" aria-hidden="true" />
+                    Live Action Audit Log (Token-Free & Redacted)
+                  </h4>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    Last {mcpStatus.recentAudits?.length || 0} events
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Audits every Tier 3 input operation (<code>tap</code>, <code>swipe</code>, <code>keyevent</code>, <code>input_text</code>) in real time. Authentication tokens and sensitive text contents are strictly omitted.
+                </p>
+
+                {mcpStatus.recentAudits && mcpStatus.recentAudits.length > 0 ? (
+                  <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1" id="mcp-action-audit-list">
+                    {mcpStatus.recentAudits.map((item) => {
+                      const statusBadgeClass = {
+                        PENDING: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
+                        SUCCESS: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+                        FAILED: 'bg-rose-500/10 border-rose-500/30 text-rose-400',
+                        REJECTED: 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                      }[item.status] || 'bg-slate-800 text-slate-300';
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                          id={`audit-item-${item.id}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${statusBadgeClass}`}>
+                              {item.status}
+                            </span>
+                            <span className="font-mono text-indigo-300 font-semibold">{item.action}</span>
+                            <span className="text-slate-500 text-[11px]">by</span>
+                            <span className="text-white font-medium">{item.clientName}</span>
+                            <span className="text-slate-500 text-[11px]">on</span>
+                            <span className="font-mono text-slate-300 text-[11px]">{item.serial}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-slate-400 text-[11px]">
+                            {item.details && (
+                              <span className="text-slate-300 font-mono text-[10px] bg-slate-950/80 px-1.5 py-0.5 rounded border border-slate-800">
+                                {item.details}
+                              </span>
+                            )}
+                            <span className="text-slate-500 font-mono text-[10px]">
+                              {new Date(item.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-400 text-xs" id="empty-action-audits">
+                    No input actions executed yet. Once an authorized AI agent invokes <code>tap</code>, <code>swipe</code>, <code>keyevent</code>, or <code>input_text</code>, execution events will appear here in real time.
                   </div>
                 )}
               </div>
