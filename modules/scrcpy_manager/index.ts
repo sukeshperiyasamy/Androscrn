@@ -36,6 +36,7 @@ export class ScrcpyManager extends EventEmitter {
   private currentSerial: string | null = null;
   private lastExitCode: number | null = null;
   private lastError: string | null = null;
+  private isStarting = false;
 
   constructor(scrcpyExePath: string) {
     super();
@@ -154,6 +155,10 @@ export class ScrcpyManager extends EventEmitter {
    * Starts screen mirroring process
    */
   public startMirroring(options: ScrcpyOptions): { success: boolean; pid?: number; message?: string } {
+    if (this.isStarting) {
+      return { success: false, message: 'Screen mirroring launch already in progress.' };
+    }
+
     if (this.currentProcess && !this.currentProcess.killed) {
       return { success: false, message: 'A screen mirroring session is already active.' };
     }
@@ -162,12 +167,15 @@ export class ScrcpyManager extends EventEmitter {
       return { success: false, message: `scrcpy executable not found at: ${this.scrcpyExePath}` };
     }
 
+    this.isStarting = true;
+
     if (options.recordPath) {
       const recordDir = path.dirname(options.recordPath);
       if (!fs.existsSync(recordDir)) {
         try {
           fs.mkdirSync(recordDir, { recursive: true });
         } catch (err: any) {
+          this.isStarting = false;
           return { success: false, message: `Cannot create recording directory: ${err.message}` };
         }
       }
@@ -234,6 +242,8 @@ export class ScrcpyManager extends EventEmitter {
     } catch (err: any) {
       this.lastError = err.message;
       return { success: false, message: err.message };
+    } finally {
+      this.isStarting = false;
     }
   }
 

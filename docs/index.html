@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AndroScrn — High-Performance Android Desktop Workbench & Camera Studio</title>
+  <meta name="description" content="Mirror, inspect, and automate Android device workflows from Windows with low-latency scrcpy streaming, MCP automation layer, and Camera Studio.">
+  <meta name="theme-color" content="#07090e">
+
+  <!-- Open Graph / Social Sharing -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AndroScrn — High-Performance Android Desktop Workbench & Camera Studio">
+  <meta property="og:description" content="Mirror, inspect, and automate Android device workflows from Windows with low-latency scrcpy streaming, MCP automation layer, and Camera Studio.">
+  <meta property="og:url" content="https://sukeshperiyasamy.github.io/Androscrn/">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AndroScrn — High-Performance Android Desktop Workbench">
+  <meta name="twitter:description" content="Mirror, inspect, and automate Android device workflows from Windows with low-latency scrcpy streaming, MCP automation layer, and Camera Studio.">
+
+  <!-- Favicon: Clean SVG Mark -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307090e'/%3E%3Cpath d='M8 10C8 8.89543 8.89543 8 10 8H22C23.1046 8 24 8.89543 24 10V22C24 23.1046 23.1046 24 22 24H10C8.89543 24 8 23.1046 8 22V10Z' stroke='%2338bdf8' stroke-width='2' fill='none'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23818cf8'/%3E%3C/svg%3E">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="./site.css">
+</head>
+<body>
+  <!-- Ambient Glow Background -->
+  <div class="ambient-glow" aria-hidden="true"></div>
+
+  <!-- Header Navigation -->
+  <header class="site-nav">
+    <div class="container nav-inner">
+      <a href="#hero" class="nav-brand" aria-label="AndroScrn Home">
+        <div class="brand-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="3"></rect>
+            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+        </div>
+        <span>AndroScrn</span>
+      </a>
+
+      <nav aria-label="Primary Navigation">
+        <ul class="nav-links">
+          <li><a href="#overview" class="nav-link">Overview</a></li>
+          <li><a href="#features" class="nav-link">Features</a></li>
+          <li><a href="#getting-started" class="nav-link">Getting Started</a></li>
+          <li><a href="#camera-studio" class="nav-link">Camera Studio</a></li>
+          <li><a href="#architecture" class="nav-link">Architecture</a></li>
+          <li><a href="#security" class="nav-link">Security</a></li>
+          <li><a href="#use-cases" class="nav-link">Use Cases</a></li>
+          <li><a href="#roadmap" class="nav-link">Roadmap</a></li>
+          <li><a href="#faq" class="nav-link">FAQ</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-actions">
+        <a href="https://github.com/sukeshperiyasamy/Androscrn" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" aria-label="View on GitHub">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path>
+          </svg>
+          <span>GitHub</span>
+        </a>
+        <button class="mobile-menu-btn" aria-label="Open navigation menu" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Section B: Hero -->
+    <section id="hero" class="hero-section">
+      <div class="container">
+        <div class="hero-pill">
+          <span class="dot"></span>
+          <span>Windows 10/11 x64 • scrcpy 5.0.1 • MCP Control Layer</span>
+        </div>
+
+        <h1 class="hero-title">
+          Your Android.<br>
+          <span class="gradient-text">On your desktop.</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Mirror, inspect, and automate Android device workflows from Windows—with a growing vision for a multipurpose remote Camera Studio.
+        </p>
+
+        <div class="hero-ctas">
+          <a href="https://github.com/sukeshperiyasamy/Androscrn" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path>
+            </svg>
+            <span>Explore GitHub</span>
+          </a>
+          <a href="#getting-started" class="btn btn-secondary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>Get Started</span>
+          </a>
+        </div>
+
+        <!-- Workbench Application Mockup -->
+        <div class="mockup-wrapper">
+          <div class="mockup-header">
+            <div class="mockup-dots">
+              <span class="mockup-dot red"></span>
+              <span class="mockup-dot yellow"></span>
+              <span class="mockup-dot green"></span>
+            </div>
+            <span style="font-family: ui-monospace, monospace; font-size: 0.75rem;">AndroScrn Workbench — Xiaomi Redmi Note 11 Pro+ (21091116I)</span>
+            <div class="mockup-badge">scrcpy 5.0.1 Direct3D11 Active</div>
+          </div>
+          <div class="mockup-body">
+            <!-- Sidebar -->
+            <aside class="mockup-sidebar">
+              <div class="sidebar-heading">Connected Devices</div>
+              <div class="sidebar-item active">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                <span>21091116I</span>
+              </div>
+              <div class="sidebar-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                <span>TCP/IP Pair</span>
+              </div>
+
+              <div class="sidebar-heading" style="margin-top: 16px;">Tools & Views</div>
+              <div class="sidebar-item active">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                <span>Mirror View</span>
+              </div>
+              <div class="sidebar-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                <span>Camera Studio</span>
+              </div>
+              <div class="sidebar-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                <span>Logcat Terminal</span>
+              </div>
+              <div class="sidebar-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <span>MCP Gatekeeper</span>
+              </div>
+            </aside>
+
+            <!-- Center Viewport -->
+            <div class="mockup-viewport">
+              <div class="viewport-toolbar">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="status-badge badge-verified">Direct3D11</span>
+                  <span style="color: var(--text-muted);">1080x2400 • 60 FPS</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-ghost btn-sm" aria-label="Take screenshot">Screenshot</button>
+                  <button class="btn btn-ghost btn-sm" aria-label="Toggle device screen">Screen Off</button>
+                </div>
+              </div>
+
+              <div class="viewport-screen">
+                <!-- Phone Representation -->
+                <div class="phone-wireframe">
+                  <div class="phone-notch"></div>
+                  <div class="phone-content">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: #94a3b8; font-family: ui-monospace, monospace;">
+                      <span>19:42</span>
+                      <span>5G • 76%</span>
+                    </div>
+                    <div class="phone-widget" style="margin-top: 10px;">
+                      <div style="font-size: 0.7rem; font-weight: 700; color: #38bdf8;">AndroScrn Agent</div>
+                      <div style="font-size: 0.6rem; color: #64748b; margin-top: 2px;">HITL Pairing Approved</div>
+                    </div>
+                    <div class="phone-widget" style="height: 60px; display: flex; align-items: center; justify-content: center;">
+                      <div style="font-size: 0.65rem; color: #94a3b8; text-align: center;">Device Ready<br><span style="color: #34d399; font-size: 0.6rem;">USB 3.0 High-Speed</span></div>
+                    </div>
+                    <div class="phone-widget" style="flex: 1; border-style: dashed; display: flex; align-items: center; justify-content: center;">
+                      <span style="font-size: 0.6rem; color: #475569;">Interactive Touch Mirror</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Inspector -->
+            <aside class="mockup-inspector">
+              <div class="inspector-card">
+                <div class="inspector-title">Hardware Telemetry</div>
+                <div class="inspector-stat"><span>Model</span><span>Redmi Note 11 Pro+</span></div>
+                <div class="inspector-stat"><span>SoC</span><span>Snapdragon 695 5G</span></div>
+                <div class="inspector-stat"><span>Android</span><span>13 (API 33)</span></div>
+                <div class="inspector-stat"><span>Battery</span><span style="color: var(--accent-emerald);">76% (Charging)</span></div>
+                <div class="inspector-stat"><span>Thermals</span><span>31.2°C (Normal)</span></div>
+              </div>
+
+              <div class="inspector-card">
+                <div class="inspector-title">Supervised MCP IPC</div>
+                <div class="inspector-stat"><span>Named Pipe</span><span style="font-size: 0.7rem;">\\.\pipe\androscrn-mcp</span></div>
+                <div class="inspector-stat"><span>Status</span><span style="color: var(--accent-cyan);">Listening (1 Client)</span></div>
+                <div class="inspector-stat"><span>Session</span><span style="color: var(--accent-indigo);">Active (5m TTL)</span></div>
+                <div class="inspector-stat"><span>Tools Registered</span><span>12 Tools</span></div>
+              </div>
+
+              <div class="inspector-card" style="border-left: 2px solid var(--accent-emerald);">
+                <div class="inspector-title">Security Governance</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
+                  Tier 3 controlled input requires operator approval token before dispatch.
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+        <p style="margin-top: 16px; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
+          Interactive concept representation of AndroScrn's unified desktop workbench.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section C: Product Overview -->
+    <section id="overview" class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">System Overview</span>
+          <h2 class="section-title">Built for Precision Android Workflows</h2>
+          <p class="section-subtitle">
+            AndroScrn pairs low-latency Direct3D11 device mirroring with structured ADB telemetry and a supervised Model Context Protocol (MCP) server for modern development teams.
+          </p>
+        </div>
+
+        <div class="grid-4">
+          <div class="card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </div>
+            <h3 class="card-title">Low-Latency Mirroring</h3>
+            <p class="card-desc">
+              Leverages an integrated scrcpy 5.0.1 engine with Direct3D11 rendering, H.264/H.265 video decoding, and sub-frame input translation over USB or Wi-Fi.
+            </p>
+            <span class="status-badge badge-verified">Verified In Repository</span>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            </div>
+            <h3 class="card-title">Live Diagnostics</h3>
+            <p class="card-desc">
+              Continuous battery state tracking, thermal health, display resolution geometry, and dual-stream Logcat output with real-time credential redaction.
+            </p>
+            <span class="status-badge badge-verified">Verified In Repository</span>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+            <h3 class="card-title">Supervised MCP Automation</h3>
+            <p class="card-desc">
+              Exposes 12 stdio MCP tools for compatible AI clients. Protected by Windows named-pipe IPC, human approval tokens, and instant emergency revocation.
+            </p>
+            <span class="status-badge badge-verified">403 Passing Tests</span>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+            </div>
+            <h3 class="card-title">Camera Studio Vision</h3>
+            <p class="card-desc">
+              Extending the workbench into an optical inspection lab. Remote zoom, torch control, high-res snapshot capture, and multi-sensor support.
+            </p>
+            <span class="status-badge badge-in-dev">Active Milestone</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section D: Features Matrix -->
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Capabilities Matrix</span>
+          <h2 class="section-title">Tested Implementation vs. Planned Vision</h2>
+          <p class="section-subtitle">
+            Every feature status is grounded in verified repository code, passing regression tests, and physical hardware validation.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <!-- Feature 1 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+            </div>
+            <h3 class="card-title">Device Discovery & Telemetry</h3>
+            <p class="card-desc">
+              Automated ADB detection of physical and emulated hardware. Retrieves battery percentage, charging state, thermal level, and display metrics.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 2 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </div>
+            <h3 class="card-title">Direct3D11 Screen Mirroring</h3>
+            <p class="card-desc">
+              Sub-second video mirror powered by bundled scrcpy 5.0.1. Low input latency, Direct3D11 rendering, and configurable bitrates.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 3 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+            </div>
+            <h3 class="card-title">Raw Screenshot Capture</h3>
+            <p class="card-desc">
+              Direct frame extraction producing valid PNG binaries with verified magic bytes (<span class="mono">89 50 4E 47</span>) without intermediate UI compression.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 4 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            </div>
+            <h3 class="card-title">Dual-Stream Logcat with Redaction</h3>
+            <p class="card-desc">
+              Live stdout/stderr device log inspection. Built-in regex filters redact API tokens, passwords, and private headers before rendering.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 5 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+            <h3 class="card-title">Tier 3 Controlled Input & HITL</h3>
+            <p class="card-desc">
+              Bounds-checked <span class="mono">tap</span>, <span class="mono">swipe</span>, <span class="mono">keyevent</span>, and <span class="mono">input_text</span> protected by human-approved session tokens and emergency revocation.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 6 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            </div>
+            <h3 class="card-title">Named Pipe Security IPC</h3>
+            <p class="card-desc">
+              Windows local named pipe at <span class="mono">\\.\pipe\androscrn-mcp-control</span> enforcing 64KB message caps, single client limits, and timeout controls.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 7 -->
+          <div class="card" style="border-color: var(--border-accent);">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </div>
+            <h3 class="card-title">Camera Studio MVP</h3>
+            <p class="card-desc">
+              Direct remote Android camera stream via scrcpy 5.0.1. Real-time zoom adjustment (1x-10x), torch illumination toggle, continuous PC-side MP4 recording, and multi-sensor discovery.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 8 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 0-7.07 17.07l1.41-1.41A8 8 0 1 1 12 20v2a10 10 0 0 0 0-20z"></path></svg>
+            </div>
+            <h3 class="card-title">Camera Companion APK & Studio</h3>
+            <p class="card-desc">
+              Optional lightweight Android companion APK leveraging CameraX for full-res photo capture, loopback port forwarding, 6-digit PIN authentication, and in-app MJPEG streaming.
+            </p>
+            <span class="status-badge badge-verified">Code Complete / Verified</span>
+          </div>
+
+          <!-- Feature 9 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path><line x1="8" y1="21" x2="8" y2="3"></line><line x1="16" y1="21" x2="16" y2="3"></line><line x1="2" y1="9" x2="22" y2="9"></line><line x1="2" y1="15" x2="22" y2="15"></line></svg>
+            </div>
+            <h3 class="card-title">Lab & Inspection Tools (Phase 7.1)</h3>
+            <p class="card-desc">
+              Non-destructive SVG overlays (rule of thirds, fine alignment grid, crosshair, optical reticle), golden sample dual-view comparison, and automated interval timelapse capture scheduler.
+            </p>
+            <span class="status-badge badge-verified">Implemented & Verified</span>
+          </div>
+
+          <!-- Feature 10 -->
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </div>
+            <h3 class="card-title">Local Vision & Document OCR</h3>
+            <p class="card-desc">
+              Future desktop pipeline for automated document boundary detection, perspective un-warping, Tesseract 5.3 OCR, and on-device QR/barcode recognition.
+            </p>
+            <span class="status-badge badge-planned">Planned Architecture</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+        <!-- Dual Track: Portable Distribution vs Development -->
+        <div style="margin-bottom: 48px;">
+          <div style="display: flex; gap: 16px; margin-bottom: 32px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+            <div style="font-weight: 700; font-size: 1.15rem; color: var(--accent-cyan); display: flex; align-items: center; gap: 8px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+              <span>Method 1: Portable No-Installer ZIP (Recommended for Users)</span>
+            </div>
+          </div>
+
+          <p style="color: var(--text-secondary); margin-bottom: 24px; font-size: 0.95rem; line-height: 1.6;">
+            Zero installation required. Does not require Node.js, npm, Python, Java, or Android Studio. Bundles all required Electron runtimes, ADB, and scrcpy binaries out-of-the-box.
+          </p>
+
+          <div class="grid-3" style="margin-bottom: 32px;">
+            <div class="card">
+              <div style="font-family: ui-monospace, monospace; font-size: 0.75rem; color: var(--accent-cyan); margin-bottom: 6px;">STEP 1</div>
+              <h4 class="card-title" style="font-size: 1rem;">Download & Extract</h4>
+              <p class="card-desc" style="font-size: 0.85rem;">
+                Download <span class="mono">AndroScrn-portable-win-x64.zip</span> from official GitHub Releases, or generate it locally in 10s with <span class="mono">npm run build:portable</span>. Extract to any folder (e.g. <span class="mono">C:\Tools\AndroScrn</span>).
+              </p>
+            </div>
+
+            <div class="card">
+              <div style="font-family: ui-monospace, monospace; font-size: 0.75rem; color: var(--accent-cyan); margin-bottom: 6px;">STEP 2</div>
+              <h4 class="card-title" style="font-size: 1rem;">Run Directly</h4>
+              <p class="card-desc" style="font-size: 0.85rem;">
+                Double-click <span class="mono">AndroScrn-gui.exe</span> to open the desktop workbench immediately, or open CMD / PowerShell in the folder and type <span class="mono">androscrn</span>.
+              </p>
+            </div>
+
+            <div class="card">
+              <div style="font-family: ui-monospace, monospace; font-size: 0.75rem; color: var(--accent-cyan); margin-bottom: 6px;">STEP 3 (OPTIONAL)</div>
+              <h4 class="card-title" style="font-size: 1rem;">Add to User PATH</h4>
+              <p class="card-desc" style="font-size: 0.85rem;">
+                Run <span class="mono">androscrn setup-path</span> to use the CLI from any terminal without administrator rights. Remove cleanly anytime with <span class="mono">androscrn remove-path</span>.
+              </p>
+            </div>
+          </div>
+
+          <!-- CLI Reference Table -->
+          <div class="card" style="margin-bottom: 40px; padding: 24px;">
+            <h4 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary); margin-bottom: 16px;">
+              CLI Command Reference
+            </h4>
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border-medium); color: var(--accent-cyan);">
+                    <th style="padding: 10px 14px;">Command</th>
+                    <th style="padding: 10px 14px;">Description</th>
+                    <th style="padding: 10px 14px;">Exit Code</th>
+                  </tr>
+                </thead>
+                <tbody style="color: var(--text-secondary); line-height: 1.6;">
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn</span></td>
+                    <td style="padding: 10px 14px;">Launches the desktop GUI application asynchronously without locking the terminal.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn --help</span></td>
+                    <td style="padding: 10px 14px;">Displays complete command options, usage guides, and online links.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn --version</span></td>
+                    <td style="padding: 10px 14px;">Displays version string, bundled scrcpy 5.0.1 engine, and ADB 1.0.41 versions.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn devices</span></td>
+                    <td style="padding: 10px 14px;">Lists connected devices with serial, authorization state (device/unauthorized/offline), and model.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn doctor</span></td>
+                    <td style="padding: 10px 14px;">Runs complete 6-point diagnostics: OS check, bundled ADB, scrcpy, device auth, IPC pipe, PATH.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0 / 1</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn docs</span></td>
+                    <td style="padding: 10px 14px;">Opens the official documentation website in your default web browser.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn setup-path</span></td>
+                    <td style="padding: 10px 14px;">Adds the portable folder to the current user's PATH (no admin rights needed; detects duplicates).</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0 / 1</span></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 14px;"><span class="mono" style="color: var(--text-primary); font-weight: 600;">androscrn remove-path</span></td>
+                    <td style="padding: 10px 14px;">Removes the portable folder from user PATH cleanly without modifying other system variables.</td>
+                    <td style="padding: 10px 14px;"><span class="mono">0</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+          <div style="font-weight: 700; font-size: 1.15rem; color: var(--accent-indigo); display: flex; align-items: center; gap: 8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            <span>Method 2: Run & Build from Source (For Developers)</span>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <!-- Left Column: Steps -->
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);">
+              1. Clone & Install Dependencies
+            </h3>
+            <div class="code-block">
+              <div class="code-header">
+                <span>PowerShell / Command Prompt</span>
+                <button class="copy-btn" aria-label="Copy code">Copy</button>
+              </div>
+              <div class="code-body">
+<code>git clone https://github.com/sukeshperiyasamy/Androscrn.git
+cd Androscrn
+npm install</code>
+              </div>
+            </div>
+
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-top: 20px; margin-bottom: 12px; color: var(--text-primary);">
+              2. Launch the Development Workbench
+            </h3>
+            <div class="code-block">
+              <div class="code-header">
+                <span>PowerShell / Command Prompt</span>
+                <button class="copy-btn" aria-label="Copy code">Copy</button>
+              </div>
+              <div class="code-body">
+<code># Concurrently boots Electron desktop UI + Vite development server
+npm run dev:all</code>
+              </div>
+            </div>
+
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-top: 20px; margin-bottom: 12px; color: var(--text-primary);">
+              3. Run the Verified Test Suite
+            </h3>
+            <div class="code-block">
+              <div class="code-header">
+                <span>PowerShell / Command Prompt</span>
+                <button class="copy-btn" aria-label="Copy code">Copy</button>
+              </div>
+              <div class="code-body">
+<code># Runs 403 unit, security regression, and named pipe IPC tests
+npm test</code>
+              </div>
+            </div>
+
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-top: 20px; margin-bottom: 12px; color: var(--text-primary);">
+              4. Build Standalone Portable Distribution
+            </h3>
+            <div class="code-block">
+              <div class="code-header">
+                <span>PowerShell / Command Prompt</span>
+                <button class="copy-btn" aria-label="Copy code">Copy</button>
+              </div>
+              <div class="code-body">
+<code># Compiles CLI launcher and packages portable ZIP + SHA256 checksums
+npm run build:portable</code>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Prerequisites & Device Setup -->
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div class="card" style="border-left: 3px solid var(--accent-cyan);">
+              <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">System Prerequisites</h4>
+              <ul style="padding-left: 20px; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7;">
+                <li><strong>OS:</strong> Windows 10 or 11 (x64)</li>
+                <li><strong>Node.js:</strong> v20.x or higher</li>
+                <li><strong>Android Device:</strong> Physical hardware or emulator (Android 8.0+ for screen mirroring, Android 12+ for native scrcpy camera mode)</li>
+                <li><strong>Bundled Binaries:</strong> scrcpy 5.0.1 and ADB are included in the repository</li>
+              </ul>
+            </div>
+
+            <div class="card" style="border-left: 3px solid var(--accent-amber);">
+              <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">Device Debugging Setup</h4>
+              <ol style="padding-left: 20px; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                <li>Open <strong>Settings &gt; About Phone</strong> and tap <em>Build Number</em> 7 times.</li>
+                <li>Navigate to <strong>Developer Options</strong> and toggle <strong>USB Debugging</strong> to ON.</li>
+                <li>Connect via USB cable and tap <strong>Always Allow</strong> on the RSA fingerprint dialog.</li>
+                <li><em>Xiaomi/Redmi/POCO Users:</em> Additionally enable <strong>USB debugging (Security settings)</strong> to permit simulated input injection.</li>
+              </ol>
+            </div>
+
+            <div class="card" style="border-left: 3px solid var(--accent-indigo);">
+              <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">Standalone MCP Client Setup</h4>
+              <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 8px;">
+                To connect Claude Desktop or Cursor to AndroScrn's stdio MCP server, register the command in your MCP configuration file:
+              </p>
+              <div class="code-block" style="margin-bottom: 0;">
+                <div class="code-body" style="font-size: 0.8rem; padding: 10px;">
+<code>"androscrn": {
+  "command": "node",
+  "args": ["packages/mcp-server/dist/index.js"]
+}</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section F: Camera Studio -->
+    <section id="camera-studio" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Feature Spotlight</span>
+          <h2 class="section-title">AndroScrn Camera Studio</h2>
+          <p class="section-subtitle">
+            Transform high-end mobile optics into a precision desktop inspection lab, document scanner, and live production camera.
+          </p>
+        </div>
+
+        <!-- Interactive Camera Console Concept Mockup -->
+        <div class="camera-console">
+          <div class="camera-preview-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="status-badge badge-active">Active Session</span>
+              <span style="font-weight: 600; color: var(--text-primary);">Camera Console (Concept Preview)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px; font-family: ui-monospace, monospace;">
+              <span>Resolution: <span style="color: var(--accent-cyan);">1080p @ 60fps</span></span>
+              <span>Torch: <span id="camera-torch-status" style="color: var(--text-secondary);">OFF</span></span>
+            </div>
+          </div>
+
+          <div class="camera-preview-stage">
+            <!-- HUD Elements -->
+            <div class="camera-hud-badge">
+              <span class="recording-dot"></span>
+              <span id="camera-hud-lens">Back Camera (Main 108MP)</span>
+            </div>
+
+            <!-- Focus Reticle -->
+            <div id="camera-preview-reticle" class="camera-reticle">
+              <span style="font-family: ui-monospace, monospace; font-size: 0.7rem; color: var(--accent-cyan); position: absolute; bottom: 8px;" id="camera-zoom-value">1.0x</span>
+            </div>
+
+            <!-- Subject Demonstration Grid -->
+            <svg width="400" height="260" viewBox="0 0 400 260" fill="none" style="opacity: 0.25;">
+              <rect x="50" y="40" width="300" height="180" rx="8" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 4"></rect>
+              <line x1="200" y1="20" x2="200" y2="240" stroke="#38bdf8" stroke-width="1"></line>
+              <line x1="30" y1="130" x2="370" y2="130" stroke="#38bdf8" stroke-width="1"></line>
+              <circle cx="200" cy="130" r="50" stroke="#38bdf8" stroke-width="1"></circle>
+            </svg>
+          </div>
+
+          <div class="camera-controls-bar">
+            <!-- Zoom Slider -->
+            <div class="control-group">
+              <div style="display: flex; justify-content: space-between;">
+                <label for="camera-zoom-slider" class="control-label">Digital Zoom (1x - 10x)</label>
+                <span style="font-family: ui-monospace, monospace; font-size: 0.75rem; color: var(--accent-cyan);">Hardware Scale</span>
+              </div>
+              <div class="slider-container">
+                <input type="range" id="camera-zoom-slider" class="custom-slider" min="1" max="10" step="0.1" value="1">
+              </div>
+            </div>
+
+            <!-- Lens Selection -->
+            <div class="control-group">
+              <label for="camera-lens-select" class="control-label">Active Sensor</label>
+              <select id="camera-lens-select" style="background: var(--bg-surface-3); color: var(--text-primary); border: 1px solid var(--border-medium); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+                <option value="Back Camera (Main 108MP)">Rear Sensor 0 (108MP Wide, f/1.9)</option>
+                <option value="Ultra-Wide Sensor (8MP)">Rear Sensor 1 (8MP Ultra-Wide, 118°)</option>
+                <option value="Macro Lens (2MP)">Rear Sensor 2 (2MP Macro, 4cm)</option>
+                <option value="Front Camera (16MP)">Front Sensor (16MP Selfie)</option>
+              </select>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="control-group">
+              <label class="control-label">Studio Actions</label>
+              <div style="display: flex; gap: 8px;">
+                <button id="camera-torch-toggle" class="btn btn-secondary btn-sm" style="flex: 1;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+                  <span>Torch</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" style="flex: 1;" aria-label="Take high-resolution photo">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+                  <span>Snapshot</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Architectural Paths Comparison -->
+        <div style="margin-top: 48px;">
+          <h3 style="font-size: 1.4rem; font-weight: 700; margin-bottom: 24px; text-align: center; color: var(--text-primary);">
+            Two Implementation Paths for Camera Control
+          </h3>
+
+          <div class="grid-2">
+            <div class="card" style="border-color: var(--border-accent);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                <h4 style="font-size: 1.15rem; font-weight: 700; color: var(--accent-cyan);">Path 1: App-Free Camera Mode</h4>
+                <span class="status-badge badge-active">scrcpy 5.0.1 Native</span>
+              </div>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+                Uses built-in scrcpy 5.0.1 camera mirroring (<span class="mono">--video-source=camera</span>) through standard ADB.
+              </p>
+              <ul style="padding-left: 20px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 16px;">
+                <li><strong style="color: var(--text-primary);">Zero Installation:</strong> No APK required on the phone.</li>
+                <li><strong style="color: var(--text-primary);">Controls Supported:</strong> Lens switching (<span class="mono">--camera-id</span>), zoom (<span class="mono">--camera-zoom</span>), and torch (<span class="mono">MOD+t</span>).</li>
+                <li><strong style="color: var(--accent-amber);">Requirement:</strong> Requires Android 12+ (API 31+) device support.</li>
+              </ul>
+              <div class="code-block" style="margin-top: auto; margin-bottom: 0;">
+                <div class="code-body" style="font-size: 0.78rem; padding: 10px;">
+<code>scrcpy --video-source=camera --camera-id=0 --camera-zoom=2.5</code>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="border-color: var(--border-indigo);">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                <h4 style="font-size: 1.15rem; font-weight: 700; color: var(--accent-indigo);">Path 2: Optional Camera Companion</h4>
+                <span class="status-badge badge-planned">Proposed Kotlin APK</span>
+              </div>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+                A proposed dedicated lightweight Android application built on CameraX and Camera2 APIs.
+              </p>
+              <ul style="padding-left: 20px; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 16px;">
+                <li><strong style="color: var(--text-primary);">Pro-Grade Optics:</strong> Manual focus distance, manual exposure compensation, and ISO selection.</li>
+                <li><strong style="color: var(--text-primary);">Broad Compatibility:</strong> Supports devices running Android 8.0+ through 14+.</li>
+                <li><strong style="color: var(--accent-indigo);">Transport:</strong> Low-latency socket or WebRTC stream paired via authenticated HMAC handshake.</li>
+              </ul>
+              <div class="code-block" style="margin-top: auto; margin-bottom: 0;">
+                <div class="code-body" style="font-size: 0.78rem; padding: 10px;">
+<code>// Proposed Companion Protocol
+{"action": "set_exposure", "iso": 400, "shutter_ms": 16.6}</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section G: Architecture -->
+    <section id="architecture" class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">System Design</span>
+          <h2 class="section-title">Engineered for Security & Performance</h2>
+          <p class="section-subtitle">
+            A modular dual-path architecture separating user-facing desktop interaction from supervised machine automation.
+          </p>
+        </div>
+
+        <div class="arch-diagram">
+          <!-- Layer 1: Client Applications -->
+          <div class="arch-layer">
+            <div class="arch-box highlight">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                <span>Electron 31 + React Desktop App</span>
+              </div>
+              <div class="arch-meta">
+                TypeScript frontend • Direct3D11 rendering viewport • Device manager • Telemetry inspector • Live action audit UI
+              </div>
+            </div>
+
+            <div class="arch-arrow">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </div>
+
+            <div class="arch-box security">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>External AI / MCP Client</span>
+              </div>
+              <div class="arch-meta">
+                Claude Desktop • Cursor • Custom LLM tools via Model Context Protocol stdio transport
+              </div>
+            </div>
+          </div>
+
+          <!-- Layer 2: IPC & Gatekeeper -->
+          <div class="arch-layer">
+            <div class="arch-box">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+                <span>Node.js 20 Device Runtime Services</span>
+              </div>
+              <div class="arch-meta">
+                ADB process management • Scrcpy child process coordinator • Logcat streaming • Telemetry poller
+              </div>
+            </div>
+
+            <div class="arch-arrow">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11V7a5 5 0 0 1 10 0v4"></path><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect></svg>
+            </div>
+
+            <div class="arch-box security">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <span>Windows Named Pipe & HITL Gatekeeper</span>
+              </div>
+              <div class="arch-meta">
+                <span class="mono">\\.\pipe\androscrn-mcp-control</span> • 5-min session tokens • Explicit operator approval for Tier 3 actions
+              </div>
+            </div>
+          </div>
+
+          <!-- Layer 3: Transport & Hardware -->
+          <div class="arch-layer">
+            <div class="arch-box" style="background: #05080f; border-color: var(--border-medium);">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line></svg>
+                <span>Bundled Engine: ADB & scrcpy 5.0.1</span>
+              </div>
+              <div class="arch-meta">
+                Low-latency video encoding via scrcpy-server • Direct ADB daemon communication • Direct3D11 hardware acceleration
+              </div>
+            </div>
+
+            <div class="arch-arrow">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+            </div>
+
+            <div class="arch-box" style="background: #05080f; border-color: var(--border-medium);">
+              <div class="arch-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                <span>Target Android Hardware (USB 3.0 / 5GHz Wi-Fi)</span>
+              </div>
+              <div class="arch-meta">
+                Android 8.0 - 14+ • Multi-sensor camera HAL • USB debugging interface • Hardware H.264/H.265 encoders
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section H: Security & Privacy -->
+    <section id="security" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Security & Privacy</span>
+          <h2 class="section-title">Safety-First Android Governance</h2>
+          <p class="section-subtitle">
+            Automation without oversight invites risk. AndroScrn implements bounded operations, operator consent, and automated redaction.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <h3 class="card-title">Human-in-the-Loop (HITL) Gatekeeper</h3>
+            <p class="card-desc">
+              High-impact Tier 3 input tools (<span class="mono">tap</span>, <span class="mono">swipe</span>, <span class="mono">keyevent</span>, <span class="mono">input_text</span>) require manual human approval in the desktop UI before execution.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            </div>
+            <h3 class="card-title">Time-Bound Sessions</h3>
+            <p class="card-desc">
+              Approved pairing sessions automatically expire after 5 minutes. Revocation occurs immediately upon inactivity, app exit, or manual cancellation.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </div>
+            <h3 class="card-title">Instant Emergency Revocation</h3>
+            <p class="card-desc">
+              A dedicated kill switch in the desktop UI and MCP toolset (<span class="mono">revoke_pairing</span>) invalidates all active tokens within 10 milliseconds.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><view><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect></view><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+            <h3 class="card-title">IPC Hardening</h3>
+            <p class="card-desc">
+              The named pipe (<span class="mono">\\.\pipe\androscrn-mcp-control</span>) restricts maximum message sizes to 64KB, rejects multi-client overlaps, and prevents buffer overflow attacks.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            </div>
+            <h3 class="card-title">Sensitive Data Redaction</h3>
+            <p class="card-desc">
+              Automated regex filters sanitize bearer tokens, Authorization headers, passwords, and sensitive device serials from Logcat and MCP tool responses.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            </div>
+            <h3 class="card-title">Transparent Threat Model</h3>
+            <p class="card-desc">
+              We document real limitations: USB debugging grants root-adjacent privilege. AndroScrn protects local IPC boundaries, but requires trusted host workstations.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section I: Practical Use Cases -->
+    <section id="use-cases" class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Applications</span>
+          <h2 class="section-title">Where AndroScrn Excels</h2>
+          <p class="section-subtitle">
+            From mobile QA test rigs to electronics lab benches, explore real-world and planned workflows.
+          </p>
+        </div>
+
+        <div class="grid-4">
+          <div class="card">
+            <h4 class="card-title">App QA & Mobile Testing</h4>
+            <p class="card-desc">
+              Stream live debug logs, capture uncompressed PNG screenshots during bug repros, and simulate user inputs directly from Windows.
+            </p>
+            <span class="status-badge badge-verified">Production Ready</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">Technical Support & Helpdesk</h4>
+            <p class="card-desc">
+              Assist remote Android users with zero device modifications. Inspect device state, verify battery health, and walk users through setup.
+            </p>
+            <span class="status-badge badge-verified">Production Ready</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">Electronics & PCB Inspection</h4>
+            <p class="card-desc">
+              Mount your phone over a soldering station. Utilize rear macro sensors and 10x digital zoom for crisp SMD component examination.
+            </p>
+            <span class="status-badge badge-in-dev">Camera Studio MVP</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">Document Capture & Scanning</h4>
+            <p class="card-desc">
+              Position high-resolution 108MP phone optics over documents or schematics with PC-side snapshot triggering and flat illumination.
+            </p>
+            <span class="status-badge badge-in-dev">Camera Studio MVP</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">Content Creation & Tutorials</h4>
+            <p class="card-desc">
+              Record mobile software walkthroughs directly to PC storage in crisp 60fps MP4 without consuming phone memory.
+            </p>
+            <span class="status-badge badge-verified">Implemented</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">OBS & Virtual Cam Streaming</h4>
+            <p class="card-desc">
+              Pipe high-fidelity mobile camera video into OBS Studio for webinar broadcasts, product demos, or overhead unboxing streams.
+            </p>
+            <span class="status-badge badge-planned">Roadmap Phase 3</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">AI-Assisted Device Automation</h4>
+            <p class="card-desc">
+              Empower AI agents to inspect mobile UI state, navigate complex multi-step flows, and verify Android application builds safely.
+            </p>
+            <span class="status-badge badge-verified">Verified (403 Tests)</span>
+          </div>
+
+          <div class="card">
+            <h4 class="card-title">Multi-Camera Synchronized Rigs</h4>
+            <p class="card-desc">
+              Future support for controlling multiple Android devices concurrently from a single desktop dashboard for multi-angle recording.
+            </p>
+            <span class="status-badge badge-planned">Roadmap Phase 5</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section J: Project Roadmap -->
+    <section id="roadmap" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Roadmap</span>
+          <h2 class="section-title">Development Phases & Milestones</h2>
+          <p class="section-subtitle">
+            An open, milestone-driven progression focusing on desktop stability, camera controls, and extensible automation.
+          </p>
+        </div>
+
+        <div style="max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+          <!-- Phase 1 -->
+          <div class="card" style="border-left: 4px solid var(--accent-emerald);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary);">Phase 1: Core Desktop Reliability & Security Hardening</h3>
+              <span class="status-badge badge-verified">Completed & Verified</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;">
+              Electron 31 migration, scrcpy 5.0.1 Direct3D11 streaming integration, 12 stdio MCP tools, Windows named-pipe IPC boundary, HITL pairing gatekeeper, and 403 automated regression tests.
+            </p>
+          </div>
+
+          <!-- Phase 2 -->
+          <div class="card" style="border-left: 4px solid var(--accent-cyan);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary);">Phase 2: Camera Studio MVP</h3>
+              <span class="status-badge badge-active">Active Milestone</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;">
+              Native scrcpy camera mode (<span class="mono">--video-source=camera</span>), smooth digital zoom (1x-10x), sensor ID selection, torch toggle, and high-resolution snapshot capture.
+            </p>
+          </div>
+
+          <!-- Phase 3 -->
+          <div class="card" style="border-left: 4px solid var(--accent-indigo);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary);">Phase 3: Recording, Streaming & Virtual Cam</h3>
+              <span class="status-badge badge-planned">Planned</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;">
+              PC-side direct MP4/MKV recording with audio capture, OBS Studio virtual webcam integration, and frame rate preset optimizations.
+            </p>
+          </div>
+
+          <!-- Phase 4 -->
+          <div class="card" style="border-left: 4px solid #64748b;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary);">Phase 4: Optional Android Camera Companion APK</h3>
+              <span class="status-badge badge-planned">Planned</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;">
+              Lightweight Kotlin companion application built with CameraX/Camera2 for manual exposure, ISO control, focus locking, and pre-Android 12 compatibility.
+            </p>
+          </div>
+
+          <!-- Phase 5 -->
+          <div class="card" style="border-left: 4px solid #475569;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary);">Phase 5: AI Vision & Specialized Inspection Tools</h3>
+              <span class="status-badge badge-planned">Future Research</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;">
+              Tesseract 5.3 OCR text parsing, on-device UI element detection via local vision models (Florence-2 / Ollama), and multi-camera synchronized capture.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section K: Frequently Asked Questions -->
+    <section id="faq" class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">FAQ</span>
+          <h2 class="section-title">Frequently Asked Questions</h2>
+          <p class="section-subtitle">
+            Common questions regarding hardware compatibility, debugging requirements, security, and setup.
+          </p>
+        </div>
+
+        <div class="faq-list">
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Which versions of Android and Windows are supported?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              AndroScrn is optimized for Windows 10 and 11 (64-bit). Android screen mirroring and ADB diagnostics support Android 8.0 (Oreo) and above. Native app-free camera streaming via scrcpy requires Android 12 (API 31) or newer due to Android camera HAL service requirements.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Do I need to install an APK on my phone to use AndroScrn?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              No. In its current implementation, AndroScrn is completely app-free on the phone. It utilizes the bundled scrcpy server executed dynamically over ADB. An optional Camera Companion APK is on the roadmap to enable manual exposure/ISO controls and support older Android versions, but it will remain entirely optional.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Why does input injection fail on Xiaomi, Redmi, or POCO devices?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              MIUI and HyperOS include an additional vendor security permission. To allow automated taps and swipes, you must enable both <strong>USB Debugging</strong> and <strong>USB Debugging (Security settings)</strong> in Developer Options. The latter requires an active SIM card and Xiaomi account authorization.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>How does the Model Context Protocol (MCP) server stay secure?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              AndroScrn isolates read-only tools (battery, screenshot, logcat) from high-impact input tools (tap, swipe, keyevent). All input tools require an approved pairing session token from the desktop UI. Sessions expire after 5 minutes and can be revoked instantaneously with a single click.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Does AndroScrn support wireless / Wi-Fi connections?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              Yes. You can connect devices wirelessly using standard ADB TCP/IP (<span class="mono">adb tcpip 5555</span> followed by <span class="mono">adb connect &lt;device-ip&gt;:5555</span>). For lowest latency and high-bitrate camera streaming, a USB 3.0 cable connection is recommended.
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Where are screenshots and recordings saved?</span>
+              <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              Screenshots and recordings triggered through the desktop UI are saved directly to your local user directory on Windows (<span class="mono">C:\Users\&lt;username&gt;\Videos\AndroScrn</span> or within the project capture folder), ensuring no files take up storage on the Android device.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Section L: Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <div class="nav-brand" style="margin-bottom: 12px;">
+            <div class="brand-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <rect x="4" y="2" width="16" height="20" rx="3"></rect>
+                <line x1="12" y1="18" x2="12.01" y2="18"></line>
+              </svg>
+            </div>
+            <span>AndroScrn</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; max-width: 320px;">
+            High-performance Android desktop workbench, scrcpy 5.0.1 Direct3D11 streaming, and supervised MCP control layer for Windows.
+          </p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Project</h4>
+          <ul class="footer-links">
+            <li><a href="#overview" class="footer-link">Overview</a></li>
+            <li><a href="#features" class="footer-link">Features</a></li>
+            <li><a href="#camera-studio" class="footer-link">Camera Studio</a></li>
+            <li><a href="#architecture" class="footer-link">Architecture</a></li>
+            <li><a href="#roadmap" class="footer-link">Roadmap</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Documentation</h4>
+          <ul class="footer-links">
+            <li><a href="#getting-started" class="footer-link">Getting Started</a></li>
+            <li><a href="#security" class="footer-link">Security Model</a></li>
+            <li><a href="#faq" class="footer-link">FAQ</a></li>
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/architecture.md" target="_blank" rel="noopener noreferrer" class="footer-link">Architecture Spec</a></li>
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/security.md" target="_blank" rel="noopener noreferrer" class="footer-link">Security Spec</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Community & Code</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub Repository</a></li>
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/issues" target="_blank" rel="noopener noreferrer" class="footer-link">Issues & Feature Requests</a></li>
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/releases" target="_blank" rel="noopener noreferrer" class="footer-link">Releases</a></li>
+            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="footer-link">MIT License</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          &copy; 2026 Sukesh Periyasamy & AndroScrn Contributors. Open source under the MIT License.
+        </div>
+        <div>
+          <a href="#hero" class="btn btn-ghost btn-sm" aria-label="Back to top">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            <span>Back to top</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="./site.js"></script>
+</body>
+</html>

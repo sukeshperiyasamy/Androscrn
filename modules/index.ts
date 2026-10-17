@@ -5,3 +5,7 @@ export * from './scrcpy_manager';
 export * from './diagnostics';
 export * from './workflow_engine';
 export * from './mcp';
+export * from './cli';
+export * from './camera_manager';
+export * from './companion_client';
+export * from './lab_inspection';

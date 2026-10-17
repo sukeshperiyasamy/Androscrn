@@ -113,11 +113,15 @@ export class DiagnosticsManager extends EventEmitter {
 
       const stats = fs.statSync(safePath);
       if (stats.size === 0) {
-        return { success: false, error: 'Screenshot file was written with zero bytes.' };
+        try { fs.unlinkSync(safePath); } catch {}
+        return { success: false, error: 'Screenshot file was written with zero bytes (cleaned up).' };
       }
 
       return { success: true, filePath: safePath, size: stats.size };
     } catch (err: any) {
+      if (fs.existsSync(safePath)) {
+        try { fs.unlinkSync(safePath); } catch {}
+      }
       return { success: false, error: err?.message || 'Screenshot write failed.' };
     }
   }

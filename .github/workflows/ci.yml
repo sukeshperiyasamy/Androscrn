@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -36,12 +36,15 @@ jobs:
       - name: Build Modules and Desktop UI
         run: npm run build
 
+      - name: Build Standalone Portable Distribution
+        run: npm run build:portable
+
       - name: Run Complete Test Suite
         run: npm test
 
       - name: Upload Test Logs on Failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ci-failure-diagnostics
           path: |

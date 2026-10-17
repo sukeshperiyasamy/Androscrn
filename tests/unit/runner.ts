@@ -4,6 +4,11 @@ import { ScrcpyManager } from '../../modules/scrcpy_manager';
 import { ConnectionManager } from '../../modules/connection_manager';
 import { runMcpTests } from './mcp.test';
 import { runSecurityRegressionTests } from './security-regression.test';
+import { runCliTests } from './cli.test';
+import { runCameraTests } from './camera.test';
+import { runCompanionTests } from './companion.test';
+import { runLabInspectionUnitTests } from './lab-inspection.test';
+import { runCompatibilityReliabilityTests } from './compatibility-reliability.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -204,6 +209,30 @@ OFFLINE_DEV_1          offline transport_id:4
 
   // 12. Security Regression Test Suite (Phase 3C)
   await runSecurityRegressionTests(assert, assertEqual);
+
+  // 13. CLI Launcher & Portable Packaging Test Suite
+  await runCliTests(assert, assertEqual);
+
+  // 14. Camera Studio MVP Test Suite (Phase 5)
+  const camRes = await runCameraTests();
+  totalTests += camRes.passed + camRes.failed;
+  passedTests += camRes.passed;
+  failedTests += camRes.failed;
+
+  // 15. Camera Companion Client & Protocol Test Suite (Phase 6)
+  const compRes = await runCompanionTests();
+  totalTests += compRes.passed + compRes.failed;
+  passedTests += compRes.passed;
+  failedTests += compRes.failed;
+
+  // 16. Lab & Inspection Engine Test Suite (Phase 7.1)
+  const labRes = await runLabInspectionUnitTests();
+  totalTests += labRes.passed + labRes.failed;
+  passedTests += labRes.passed;
+  failedTests += labRes.failed;
+
+  // 17. Compatibility & Reliability Test Suite (Phase 9)
+  await runCompatibilityReliabilityTests(assert, assertEqual);
 
   console.log('\n==================================================');
   console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);

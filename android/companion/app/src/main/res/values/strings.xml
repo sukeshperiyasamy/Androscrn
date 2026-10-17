@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">AndroScrn Camera Companion</string>
+    <string name="camera_permission_required">Camera permission is required to operate as a remote camera studio.</string>
+    <string name="grant_permission">Grant Camera Permission</string>
+    <string name="status_ready">Ready for AndroScrn Connection</string>
+    <string name="status_streaming">Live Streaming Active</string>
+    <string name="pairing_pin_title">Enter PIN on Desktop</string>
+</resources>

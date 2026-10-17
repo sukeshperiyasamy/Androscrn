@@ -1,9 +1,20 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
 import { SecurityValidator } from '../security';
 
 export interface AndroidDevice {
   serial: string;
-  state: 'device' | 'unauthorized' | 'offline' | 'connecting' | 'unknown';
+  state:
+    | 'device'
+    | 'unauthorized'
+    | 'offline'
+    | 'connecting'
+    | 'authorizing'
+    | 'no permissions'
+    | 'recovery'
+    | 'sideload'
+    | 'bootloader'
+    | 'unknown';
   model: string;
   product: string;
   device: string;
@@ -22,6 +33,16 @@ export function getDeviceStateGuidance(state: AndroidDevice['state']): string {
       return 'Device offline: Reconnect the USB cable or toggle Developer Options -> USB debugging.';
     case 'connecting':
       return 'Establishing ADB connection: Please wait a moment...';
+    case 'authorizing':
+      return 'Authorizing device: Please confirm the host key prompt on your phone screen.';
+    case 'no permissions':
+      return 'Permission denied: Install Windows OEM USB drivers or configure appropriate USB device permissions.';
+    case 'recovery':
+      return 'Device in Recovery mode: Reboot device into normal Android system for mirroring.';
+    case 'sideload':
+      return 'Device in Recovery Sideload mode: Reboot device into Android system.';
+    case 'bootloader':
+      return 'Device in Bootloader/Fastboot mode: Reboot device normally to connect.';
     case 'device':
       return 'Connected and authorized: Ready for screen mirroring and control.';
     default:
@@ -41,9 +62,16 @@ export class DeviceManager {
    * Returns the ADB binary version string
    */
   public async getAdbVersion(): Promise<string> {
+    if (!fs.existsSync(this.adbPath)) {
+      return `ADB binary not found at "${this.adbPath}"`;
+    }
     const res = await this.executeAdb(['version']);
     const match = res.stdout.match(/Android Debug Bridge version ([\d.]+)/i);
-    return match ? `ADB ${match[1]}` : (res.stdout.split('\n')[0] || 'Unknown ADB Version');
+    if (match) return `ADB ${match[1]}`;
+    if (res.code !== 0) {
+      return `ADB error: ${res.stderr.trim() || 'Command failed'}`;
+    }
+    return res.stdout.split('\n')[0] || 'Unknown ADB Version';
   }
 
   /**
@@ -51,6 +79,14 @@ export class DeviceManager {
    */
   public executeAdbBinary(args: string[], timeoutMs = 10000): Promise<{ buffer: Buffer; code: number; error?: string }> {
     return new Promise((resolve) => {
+      if (!fs.existsSync(this.adbPath)) {
+        return resolve({
+          buffer: Buffer.alloc(0),
+          code: -1,
+          error: `ADB binary not found at: ${this.adbPath}`
+        });
+      }
+
       const child = spawn(this.adbPath, args, {
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -95,6 +131,14 @@ export class DeviceManager {
    */
   public executeAdb(args: string[], timeoutMs = 10000): Promise<{ stdout: string; stderr: string; code: number }> {
     return new Promise((resolve) => {
+      if (!fs.existsSync(this.adbPath)) {
+        return resolve({
+          stdout: '',
+          stderr: `ADB binary not found at "${this.adbPath}". Ensure Android platform-tools or bundled binaries are installed.`,
+          code: -1
+        });
+      }
+
       const child = spawn(this.adbPath, args, {
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -151,7 +195,13 @@ export class DeviceManager {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('List of devices') || trimmed.startsWith('* daemon')) {
+      if (
+        !trimmed ||
+        trimmed.startsWith('List of devices') ||
+        trimmed.startsWith('* daemon') ||
+        trimmed.startsWith('adb server version') ||
+        trimmed.startsWith('cannot connect to daemon')
+      ) {
         continue;
       }
 
@@ -167,6 +217,11 @@ export class DeviceManager {
       else if (rawState === 'unauthorized') state = 'unauthorized';
       else if (rawState === 'offline') state = 'offline';
       else if (rawState === 'connecting') state = 'connecting';
+      else if (rawState === 'authorizing') state = 'authorizing';
+      else if (rawState === 'recovery') state = 'recovery';
+      else if (rawState === 'sideload') state = 'sideload';
+      else if (rawState === 'bootloader') state = 'bootloader';
+      else if (trimmed.includes('no permissions')) state = 'no permissions';
 
       // Determine transport type: if serial has IP:port format, it is Wi-Fi, otherwise USB
       const isWifi = serial.includes(':') || /^\d+\.\d+\.\d+\.\d+/.test(serial);
@@ -208,19 +263,21 @@ export class DeviceManager {
     const result = await this.executeAdb(['devices', '-l']);
     const devices = this.parseDevicesOutput(result.stdout);
 
-    // Optionally probe battery for authorized devices
-    for (const d of devices) {
-      if (d.state === 'device') {
-        try {
-          const battery = await this.getBatteryLevel(d.serial);
-          if (battery !== undefined) {
-            d.batteryLevel = battery;
+    // Concurrently probe battery for authorized devices with bounded timeout
+    await Promise.allSettled(
+      devices
+        .filter(d => d.state === 'device')
+        .map(async d => {
+          try {
+            const battery = await this.getBatteryLevel(d.serial);
+            if (battery !== undefined) {
+              d.batteryLevel = battery;
+            }
+          } catch {
+            // Ignore battery query failures
           }
-        } catch {
-          // Ignore battery query failures
-        }
-      }
-    }
+        })
+    );
 
     return devices;
   }

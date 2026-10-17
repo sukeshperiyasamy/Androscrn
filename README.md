@@ -11,7 +11,7 @@
 [![Engine: scrcpy v5.0.1](https://img.shields.io/badge/Engine-scrcpy%20v5.0.1-brightgreen)](https://github.com/Genymobile/scrcpy)
 [![Bridge: Google ADB 1.0.41](https://img.shields.io/badge/Bridge-Google%20ADB%201.0.41-orange)](https://developer.android.com/tools/adb)
 [![Protocol: Model Context Protocol](https://img.shields.io/badge/MCP-Official%20SDK%20v1.32-purple)](https://modelcontextprotocol.io)
-[![Local Automated Tests: 340 Passed](https://img.shields.io/badge/Local%20Tests-340%20Passed-brightgreen)](tests/)
+[![Local Automated Tests: 557 Passed](https://img.shields.io/badge/Local%20Tests-557%20Passed-brightgreen)](tests/)
 [![AndroScrn CI](https://github.com/sukeshperiyasamy/Androscrn/actions/workflows/ci.yml/badge.svg)](https://github.com/sukeshperiyasamy/Androscrn/actions/workflows/ci.yml)
 
 **"One workbench for Android debugging, device inspection and supervised AI automation."**
@@ -36,6 +36,7 @@ Built with **Electron, React and TypeScript**, AndroScrn consolidates fragmented
 - [Workbench Overview & UI Preview](#workbench-overview--ui-preview)
 - [System Architecture](#system-architecture)
 - [Requirements & Compatibility](#requirements--compatibility)
+- [Portable CLI & No-Installer Distribution](#portable-cli--no-installer-distribution)
 - [Quick Start](#quick-start)
 - [Model Context Protocol (MCP) Integration](#model-context-protocol-mcp-integration)
 - [Testing & Verification](#testing--verification)
@@ -86,6 +87,9 @@ In compliance with rigorous engineering standards, all capabilities are classifi
 | **Tier 3 Controlled Device Input** | Safe `adb shell input` vectors | Automated tests | `tap`, `swipe`, `keyevent`, and `input_text` with screen bounds validation, `%s` space encoding, and shell metacharacter defense. |
 | **Live AI Action Audit Log** | Electron IPC event dispatcher | Automated tests & UI verification | Real-time UI feed auditing external AI actions (`PENDING`, `SUCCESS`, `FAILED`, `REJECTED`) without logging sensitive text or session tokens. |
 | **Emergency Revocation Kill Switch** | In-memory token store | Automated tests & UI verification | Instantaneous one-click global session token invalidation across all running MCP instances. |
+| **Camera Studio MVP (Phase 5)** | Bundled scrcpy 5.0.1 camera mode | Automated tests & Physical hardware | Dedicated Camera Studio UI, physical camera sensor introspection (`0:back`, `1:front`, ultrawide, macro), Direct3D11 streaming, digital zoom controls (`1.0x - 10.0x`), live torch toggle, continuous PC-side MP4 recording (`--record=...`), and capability detection. |
+| **Camera Companion APK & Dual-Mode Studio (Phase 6)** | Kotlin + Jetpack CameraX & CompanionClient | Automated tests & UI verification | Optional lightweight Android companion APK (`android/companion`), USB loopback (`127.0.0.1:8080`) port-forwarding transport, 6-digit challenge PIN pairing, in-app low-latency MJPEG viewport, full-resolution 48MP/12MP still photo capture (`ImageCapture.takePicture`), dynamic optical lens flip, smooth digital zoom, torch toggle, and anti-covert recording watermark. |
+| **Lab & Inspection Tools Suite (Phase 7.1)** | `modules/lab_inspection` + SVG engine | Automated tests & UI verification | Non-destructive SVG overlays (rule of thirds, fine alignment grid, crosshair, optical reticle with relative tick marks, diagonal), configurable RGB color and opacity, dual-view reference comparison (side-by-side, split-screen, alpha blend), automated interval timelapse scheduler with hash/size manifest generation, non-destructive capture preservation, and explicit `[Relative Uncalibrated px]` dimension warnings. |
 
 *Hardware verification conducted on physical Xiaomi Redmi Note 11 Pro+ 5G (`21091116I`, Android 13).*
 
@@ -178,25 +182,129 @@ graph TD
 <a id="requirements--compatibility"></a>
 ## 💻 Requirements & Compatibility
 
+> [!NOTE]
+> For the complete evidence-based certification matrix, tested devices, and vendor ROM restrictions, see **[Device Compatibility Matrix](docs/compatibility.md)**.
+
 ### Host Workstation
 * **Operating System:** Windows 10 or Windows 11 (64-bit x64 architecture).
-* **Node.js Environment:** Node.js v20.x LTS or higher (tested on Node v20.20.1 and npm 10.8.2).
+* **Node.js Environment:** Node.js v20.x LTS or higher (tested on Node v20.20.1 and npm 10.8.2). Not required if running the standalone portable distribution.
 * **Display Scaling:** Fully responsive across 100%, 125%, 150%, and 200% Windows display scaling.
 
 ### Android Device Requirements
 * **OS Version:**
   * Android 5.0 (Lollipop) or higher for USB screen mirroring.
+  * Android 12.0 or higher for native scrcpy Camera Studio (`--video-source=camera`).
+  * Android 5.0 to 11.0 supported via lightweight Camera Companion APK mode.
   * Android 11.0 or higher for native wireless PIN pairing.
 * **USB Debugging:** Must be enabled under **Settings > Developer Options > USB Debugging**.
 * **RSA Authorization:** The host workstation's RSA key fingerprint must be accepted on the device screen ("Always allow from this computer").
 * **Vendor-Specific Requirements (MIUI / HyperOS):**
   * Devices running Xiaomi MIUI or HyperOS, Meizu Flyme, or certain custom ROMs block touch injection over ADB by default.
-  * To enable `tap`, `swipe`, and `input_text`, you must toggle **"USB debugging (Security Settings)"** under Developer Options (requires an active SIM card on Xiaomi devices).
+  * To enable `tap`, `swipe`, and `input_text`, you must toggle **"USB debugging (Security Settings)"** under Developer Options (requires an active SIM card on Xiaomi devices). Screen mirroring, camera preview, screenshots, and diagnostics work without this toggle.
+
+---
+
+<a id="portable-cli--no-installer-distribution"></a>
+## 📦 Portable CLI & No-Installer Distribution
+
+AndroScrn provides a completely standalone, portable Windows distribution (`AndroScrn-portable-win-x64.zip`). It requires **zero installation** and runs on any 64-bit Windows 10/11 system **without needing Node.js, npm, Python, Java, or Android Studio**.
+
+### Download & Extract
+1. Download `AndroScrn-portable-win-x64.zip` from [GitHub Releases](https://github.com/sukeshperiyasamy/Androscrn/releases).
+2. Extract the archive to any folder (e.g., `C:\Tools\AndroScrn` or folders containing spaces).
+3. The folder includes:
+   * `androscrn.exe` — Native Windows CUI console launcher (compiled C# binary).
+   * `AndroScrn-gui.exe` — Electron desktop application shell.
+   * `androscrn.cmd` — Windows Command Script wrapper (CMD fallback).
+   * `bin/scrcpy-win64/` — Bundled Google ADB 1.0.41, scrcpy 5.0.1, SDL3, FFmpeg DLLs.
+   * `setup-path.ps1` & `remove-path.ps1` — User-scoped PATH management scripts.
+
+### Launching the Application
+* **GUI Mode:** Double-click `androscrn.exe` or `AndroScrn-gui.exe` in File Explorer, or type `androscrn` in any terminal. Single-instance locking ensures subsequent launches focus the active window rather than creating duplicate processes.
+* **CLI Mode:** Run commands directly from PowerShell or Command Prompt (CMD).
+
+### ⌨️ CLI Command Reference
+
+| Command | Arguments / Flags | Description |
+| :--- | :--- | :--- |
+| `androscrn` | *(none)* | Launches the desktop workbench UI in the background and releases the console. |
+| `androscrn` | `--help`, `-h` | Displays the formatted CLI command reference and usage examples. |
+| `androscrn` | `--version`, `-v` | Prints AndroScrn version, bundled scrcpy (v5.0.1), and bundled ADB (v1.0.41). |
+| `androscrn devices` | *(none)* | Enumerates connected physical devices and emulators with authorization status. |
+| `androscrn doctor` | *(none)* | Runs a comprehensive 5-point diagnostic preflight check (OS, binaries, devices, IPC, PATH). |
+| `androscrn docs` | *(none)* | Opens the official documentation website in your default web browser. |
+| `androscrn setup-path`| *(none)* | Adds current directory to the **User PATH** environment variable (no admin required). |
+| `androscrn remove-path`| *(none)* | Safely removes the directory from the **User PATH** environment variable. |
+
+### Optional Global PATH Setup
+To run `androscrn` from any terminal directory without entering the full path:
+```powershell
+# Open terminal in the extracted folder and run:
+.\androscrn.exe setup-path
+
+# Or run the PowerShell script directly:
+powershell -ExecutionPolicy Bypass -File .\setup-path.ps1
+```
+* **No Administrator Privileges Required:** Writes strictly to `[EnvironmentVariableTarget]::User`.
+* **Safe & Non-Destructive:** Detects duplicate entries and preserves all existing system and user PATH values.
+* **Clean Uninstallation:** Run `.\androscrn.exe remove-path` or `.\remove-path.ps1` at any time to remove the entry.
+* **Direct Execution:** Direct invocation (`.\androscrn.exe`) is always supported without modifying PATH.
+
+> [!NOTE]
+> **Windows SmartScreen Prompt:** As with many open-source developer tools distributed without an expensive EV code-signing certificate, Windows SmartScreen may display *"Windows protected your PC"* on first launch. Click **More info** &rarr; **Run anyway** to proceed.
+
+---
+
+<a id="camera-studio-mvp"></a>
+## 🎥 Camera Studio MVP (Phase 5)
+
+AndroScrn includes a dedicated **Camera Studio** for streaming Android camera feeds directly to Windows with ultra-low latency Direct3D11 hardware acceleration, physical camera sensor selection, digital zoom controls, live LED torch toggling, and continuous PC-side MP4 recording.
+
+### Architecture & Supported Controls
+
+Camera Studio utilizes the bundled scrcpy 5.0.1 camera engine (`--video-source=camera`) communicating directly with Android's Camera2 NDK API (requires **Android 12+ / API 31+**):
+
+| Feature | Supported Transport | Control Mechanism | Lifecycle |
+| :--- | :--- | :--- | :--- |
+| **Camera Sensor Selection** | Native scrcpy `--camera-id=<id>` | UI dropdown: Back (0), Front (1), Ultrawide (2), Macro (3) | Stream startup |
+| **Stream Resolution & FPS** | Native scrcpy `--camera-size`, `--camera-fps` | UI dropdown: 1080p, 720p, 480p @ 15, 30, 60 FPS | Stream startup |
+| **High-Speed Mode** | Native scrcpy `--camera-high-speed` | UI toggle: 120 FPS high-speed streaming | Stream startup |
+| **Digital Zoom Control** | Native scrcpy `--camera-zoom=<val>` & Live shortcuts | UI slider & Zoom In / Zoom Out buttons (`1.0x - 10.0x`) | Startup & Live (`Alt+Up` / `Alt+Down`) |
+| **Torch / Flashlight** | Native scrcpy `--camera-torch` & Live shortcuts | UI toggle button | Startup & Live (`Alt+t` / `Alt+Shift+t`) |
+| **PC-Side MP4 Recording** | Native scrcpy `--record=<path>` | UI toggle: Records continuous MP4 video directly to PC `Captures/` | Stream startup |
+| **Direct Still Snapshots** | *Unsupported by scrcpy CLI* | Notified in UI; see Companion APK recommendation below | Planned Companion APK |
+
+### Live Keyboard Shortcut Reference (Preview Window Focused)
+When the scrcpy camera preview window is focused:
+* `Alt` + `Up Arrow` — **Zoom in** (live digital zoom increment)
+* `Alt` + `Down Arrow` — **Zoom out** (live digital zoom decrement)
+* `Alt` + `t` — **Turn on torch / flashlight**
+* `Alt` + `Shift` + `t` — **Turn off torch / flashlight**
+* `Ctrl` + `q` — **Close camera preview window**
+
+### Technical Assessment: scrcpy vs Dedicated Companion APK
+
+1. **What scrcpy Does Exceptionally Well:**
+   - **Ultra-low latency Direct3D11 streaming:** Scrcpy streams H.264/H.265 video directly from Camera2 to PC with sub-50ms latency over standard USB/ADB, without requiring any app to be installed on the phone.
+   - **High-speed video:** Up to 120 FPS high-speed video is supported natively on capable sensors.
+   - **Zero Phone Overhead:** No battery drain from background services; completely managed from PC.
+   - **PC-Side Recording:** Encodes directly into an MP4 container on the host computer without consuming device storage.
+
+2. **Current Limitations of scrcpy CLI Transport:**
+   - **Still Frame Capture (Snapshots):** Scrcpy operates as a continuous video stream encoder. It does not provide a CLI command to capture high-resolution RAW or JPEG still frames during live streaming without interrupting the stream.
+   - **Dynamic Reconfiguration:** Switching physical lenses (e.g. from back main to front selfie) or changing stream resolutions requires restarting the scrcpy child process.
+   - **Advanced Manual Controls:** ISO, shutter speed, manual focus, and exposure compensation are not exposed via scrcpy command-line options.
+
+3. **Future Milestone Architecture Recommendation (Companion APK):**
+   - For advanced studio workflows requiring full-fidelity 48MP/108MP RAW/JPEG photos, manual focus, exposure brackets, and seamless in-app WebRTC/WebSocket preview inside the Electron window, we recommend building a lightweight **AndroScrn Camera Companion APK**:
+     * **Camera Framework:** Android Jetpack CameraX / Camera2 NDK.
+     * **Streaming Protocol:** WebRTC (sub-100ms browser-native stream directly inside React UI) or WebSocket H.264 NAL units.
+     * **Security & Permissions:** Explicit runtime camera and storage permissions, mutual TLS / session token pairing over ADB port forwarding (`adb forward tcp:PORT`).
 
 ---
 
 <a id="quick-start"></a>
-## 🚀 Quick Start
+## 🚀 Quick Start (From Source)
 
 ### 1. Clone & Install Dependencies
 ```bash
@@ -356,7 +464,7 @@ npm run test:hardware
 ==================================================
         ANDROSCRN AUTOMATED TEST VERIFICATION
 ==================================================
-1. Unit Tests (tests/unit/runner.ts):              257 / 257 Passed (0 Failed)
+1. Unit Tests (tests/unit/runner.ts):              430 / 430 Passed (0 Failed)
    - Input sanitization & injection defenses:      31 Passed
    - Device parsing & alias management:            10 Passed
    - Scrcpy argument composition:                  9 Passed
@@ -367,6 +475,18 @@ npm run test:hardware
    - Captures folder scanner:                      1 Passed
    - MCP Server & HITL Handshake Security:         83 Passed
    - Tier 3 Controlled Device Input Tools:         42 Passed
+   - CLI Launcher, Flags & Packaging (Phase 4):    65 Passed
+   - Camera Studio Argument & Security (Phase 5):  50 Passed
+     * Safe parameter arrays & shell injection prevention
+     * Camera facing and ID mapping (--camera-facing, --camera-id)
+     * Resolution formatting, aspect ratios & FPS constraints
+     * High-speed 120 FPS validation
+     * Startup digital zoom clamping [1.0x - 10.0x]
+     * Startup torch flag (--camera-torch)
+     * Output recording path validation & path traversal defense
+     * Camera list & camera size parsing logic
+     * Capability detection model & transport boundary checks (Android 12+ API 31)
+     * Process lifecycle, duplicate prevention, and cleanup
    - Security Regression & IPC Suite (Phases 3C/3D): 62 Passed
      * Pairing TTL expiration & replay single-use rejection
      * Client identity binding & brute-force PIN lockout
@@ -382,6 +502,16 @@ npm run test:hardware
      * Race pairing deduplication & single-consumption enforcement
      * McpControlServer static bounding (10 clients, 25 requests, 50 audit logs)
      * Client disconnect and defunct pipe recovery
+   - Companion Client & Wire Protocol (Phase 6):   48 Passed
+     * Challenge PIN validation & single-use consumption
+     * Port forwarding and loopback socket routing (127.0.0.1:8080)
+     * Shutter photo trigger & path integrity
+   - Lab & Inspection Tools Subsystem (Phase 7.1):  15 Passed
+     * Non-destructive SVG overlay generation (grid, crosshair, reticle, diagonal)
+     * Overlay opacity, color sanitization & uncalibrated px badges
+     * Side-by-side & blend reference comparison modes
+     * Snapshot metadata creation with explicit calibration warnings
+     * Timelapse interval scheduler & manifest hash generation
 2. Integration Tests (tests/integration):         39 / 39 Passed (0 Failed)
    - Bundled ADB & scrcpy binary execution:        7 Passed
    - Socket probe, discovery & process safety:     6 Passed
@@ -396,22 +526,46 @@ npm run test:hardware
      * Desktop human denial flow & rejection
      * Multi-client connection & broadcast revokeAll delivery
      * Server retention of pending pairing requests during client disconnect
-3. Playwright UI Tests (tests/ui):                44 / 44 Passed (0 Failed)
+3. Playwright UI Tests (tests/ui):                88 / 88 Passed (0 Failed)
    - Zero-device empty state & guidance:           4 Passed
    - Multi-device dropdowns & status badges:       7 Passed
    - Mirroring controls, pulse & presets:          6 Passed
    - Screenshot capture & media gallery:           2 Passed
    - Diagnostics introspections & copy:            3 Passed
-   - Keyboard accessibility & tab navigation:      2 Passed
+   - Keyboard accessibility & tab navigation:      3 Passed
    - Viewport responsiveness (1024x768 / 1080p):   2 Passed
    - AI Agent Security Center & HITL UI:          12 Passed
    - Live AI Action Audit Log rendering:           6 Passed
+   - Camera Studio UI & Controls (Phase 5):       13 Passed
+     * Header & connected device selector
+     * Physical camera sensor & facing selector
+     * Video resolution & FPS selector
+     * High-speed 120 FPS & aspect ratio controls
+     * Continuous PC-side MP4 recording toggle
+     * Start/Stop preview toggle with live pulse
+     * Digital zoom slider & live badge
+     * Discrete Zoom In / Zoom Out buttons
+     * Live Torch toggle button
+     * Live shortcut cheat sheet (Alt+Up, Alt+Down, Alt+T)
+   - Camera Companion Mode Switcher & Live Feed (Phase 6): 16 Passed
+     * Companion mode switcher toggle & state persistence
+     * PIN challenge input and authorize trigger
+     * Live viewport image rendering
+     * Full-resolution photo shutter capture
+     * Lens flip & torch controls
+   - Lab & Inspection Tools Suite (Phase 7.1):     14 Passed
+     * Overlay dropdown switcher & viewport mounting
+     * Real-time SVG update on selector change
+     * RGB color and opacity slider dynamic styling
+     * Golden sample comparison toggle & blend controls
+     * Interval timelapse scheduler start/stop lifecycle
+     * Non-destructive raw capture guarantee & export annotated copy
 --------------------------------------------------
-TOTAL AUTOMATED TEST VERIFICATION:               340 / 340 Passed (100% Green)
+TOTAL AUTOMATED TEST VERIFICATION:               557 / 557 Passed (100% Green)
 ==================================================
 ```
 
-### Physical Hardware Validation (40 Checks Verified)
+### Physical Hardware Validation (59 Checks Verified)
 
 When a physical Android device is connected via USB, AndroScrn provides an isolated hardware validation suite (`npm run test:hardware`) designed to verify the real device pipeline safely:
 
@@ -440,8 +594,15 @@ Device Target: Xiaomi Redmi Note 11 Pro+ 5G (Android 13)
    - Emergency desktop kill switch & post-revocation command rejection
 5. Disconnection & Boundary Resilience:            2 / 2 Passed
    - Disconnected/non-existent serial rejection
+6. Camera Studio Hardware Pipeline (Phase 5):     19 / 19 Passed
+   - Transport check: Android 13 (API 33) >= Android 12 verified
+   - 5 physical camera sensors enumerated (0:back, 1:front, 2:back, 3:back, 4:back)
+   - Primary sensor max resolution (4000x3000), 30 FPS, hardware zoom range [1x, 10x]
+   - Live Zoom & Torch verified supported via native scrcpy shortcut
+   - Direct3D11 hardware camera streaming preview executed & cleanly terminated
+   - Continuous PC-side MP4 recording executed, non-zero file verified (1280 KB), cleaned up
 --------------------------------------------------
-TOTAL PHYSICAL HARDWARE CHECKS:                   40 / 40 Passed
+TOTAL PHYSICAL HARDWARE CHECKS:                   59 / 59 Passed
 ==================================================
 ```
 
@@ -514,31 +675,42 @@ AndroScrn is designed around the principle of **Defensive Execution & Local Sove
 <a id="troubleshooting--faq"></a>
 ## ❓ Troubleshooting & FAQ
 
-#### 1. Device is detected as `UNAUTHORIZED`
+> [!TIP]
+> Run `androscrn doctor` from PowerShell or Command Prompt for an immediate 6-point automated diagnosis of your workstation OS, ADB toolchain, scrcpy, hardware connectivity, IPC bridge, and PATH registration.
+>
+> For in-depth recovery steps, USB cable diagnostics, and vendor-specific ROM workarounds, see the **[Comprehensive Troubleshooting Guide](docs/troubleshooting.md)**.
+
+#### 1. Quick Diagnostic Preflight
+```powershell
+androscrn doctor
+androscrn devices
+```
+
+#### 2. Device is detected as `UNAUTHORIZED`
 * **Cause:** The phone has not accepted the computer's RSA debugging key fingerprint.
 * **Fix:** Unlock your phone screen. A prompt titled *"Allow USB debugging?"* will appear. Check *"Always allow from this computer"* and tap **Allow**. Then click **Refresh Devices** in AndroScrn.
 
-#### 2. Device does not appear in the dropdown
+#### 3. Device does not appear in the dropdown
 * **Cause:** Missing USB drivers or charge-only USB cable.
 * **Fix:** Ensure your USB cable supports data transfer. Verify device appears in Windows Device Manager under *Android Device* or *Universal Serial Bus devices*. Install official OEM USB drivers (Google USB Driver or manufacturer drivers).
 
-#### 3. Screen mirroring exits immediately or fails to launch
+#### 4. Screen mirroring exits immediately or fails to launch
 * **Cause:** Port collision, locked screen, or scrcpy server mismatch.
-* **Fix:** Ensure the device screen is unlocked. Check that no other scrcpy or screen mirroring instances are running in Windows Task Manager. In AndroScrn, switch to the **Balanced** or **Fast** preset.
+* **Fix:** Ensure the device screen is unlocked. Check that no other scrcpy or screen mirroring instances are running in Windows Task Manager. In AndroScrn, switch to the **Balanced** or **Battery Saver** preset.
 
-#### 4. Touch injection (`tap` / `swipe`) fails on Xiaomi, Redmi, or Poco devices
-* **Cause:** MIUI / HyperOS blocks touch events over standard ADB by default (`SecurityException: Permission Denial: injectInputEvent Requires INJECT_EVENTS permission`).
-* **Fix:** Navigate to **Settings > Additional Settings > Developer Options**. Scroll down and enable **"USB debugging (Security Settings)"**. (MIUI requires an active SIM card and Xiaomi account login to enable this).
+#### 5. Touch injection (`tap` / `swipe`) fails on Xiaomi, Redmi, or Poco devices
+* **Cause:** MIUI / HyperOS blocks touch events over standard ADB by default (`SecurityException: injectInputEvent Requires INJECT_EVENTS permission`).
+* **Fix:** Navigate to **Settings > Additional Settings > Developer Options**. Scroll down and enable **"USB debugging (Security Settings)"**. (Xiaomi requires an active SIM card and Xiaomi account login to enable this).
 
-#### 5. Text input (`input_text`) fails with a Unicode error
+#### 6. Text input (`input_text`) fails with a Unicode error
 * **Cause:** Android's native `/system/bin/input text` utility only supports ASCII characters (32–126).
 * **Fix:** Use ASCII printable characters. For Unicode characters, accented letters, or emojis, copy the text to the Android clipboard or use an IME.
 
-#### 6. MCP client cannot launch the server
+#### 7. MCP client cannot launch the server
 * **Cause:** Incorrect Node.js path or missing build artifacts.
 * **Fix:** Ensure Node.js v20+ is in your system `PATH`. Run `npm run build` in the repository root to ensure `dist/modules/mcp/cli.js` exists. In your MCP client configuration, point to `bin\androscrn-mcp.bat`.
 
-#### 7. How do I immediately revoke an AI agent's access?
+#### 8. How do I immediately revoke an AI agent's access?
 * **Fix:** Open the AndroScrn desktop workbench, switch to the **AI Agent & MCP Security Center** tab, and click the red **"Revoke All AI Sessions"** button. This instantly invalidates all active tokens across all running MCP instances.
 
 ---
@@ -548,7 +720,7 @@ AndroScrn is designed around the principle of **Defensive Execution & Local Sove
 
 Contributions are welcome! Please follow these guidelines:
 1. Ensure all code adheres to TypeScript strict mode.
-2. Run `npm test` and verify that all 340 automated tests pass before submitting a Pull Request.
+2. Run `npm test` and verify that all automated unit, integration, and UI tests pass before submitting a Pull Request.
 3. Preserve defensive process execution principles: never interpolate shell command strings.
 
 ### License
@@ -563,6 +735,8 @@ AndroScrn is open-source software licensed under the [MIT License](LICENSE).
 ---
 
 ### Additional Documentation Links
+* [Device Compatibility Matrix](docs/compatibility.md)
+* [Comprehensive Troubleshooting Guide](docs/troubleshooting.md)
 * [Architecture Design Document](docs/architecture.md)
 * [Security & Privacy Governance](docs/security.md)
 * [MCP Tool Reference Guide](docs/mcp-tool-reference.md)

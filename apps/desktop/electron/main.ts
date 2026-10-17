@@ -7,8 +7,12 @@ import { ScrcpyManager } from '../../../dist/modules/scrcpy_manager';
 import { DiagnosticsManager } from '../../../dist/modules/diagnostics';
 import { WorkflowEngine } from '../../../dist/modules/workflow_engine';
 import { McpControlServer } from '../../../dist/modules/mcp/control-bridge';
+import { CameraManager } from '../../../dist/modules/camera_manager';
+import { CompanionClient } from '../../../dist/modules/companion_client';
+import { generateSvgOverlay, TimelapseScheduler, createSnapshotMetadata } from '../../../dist/modules/lab_inspection';
 
 let mainWindow: BrowserWindow | null = null;
+const timelapseScheduler = new TimelapseScheduler();
 
 // Initialize file logger for portable runtime
 function getLogFilePath(): string {
@@ -88,6 +92,12 @@ const connectionManager = new ConnectionManager(deviceManager);
 const scrcpyManager = new ScrcpyManager(scrcpyPath);
 const diagnosticsManager = new DiagnosticsManager(deviceManager);
 const workflowEngine = new WorkflowEngine(deviceManager, diagnosticsManager);
+const cameraManager = new CameraManager(scrcpyPath, deviceManager);
+const companionClient = new CompanionClient(deviceManager);
+
+cameraManager.on('statusChanged', (status) => {
+  mainWindow?.webContents.send('camera-status-changed', status);
+});
 
 function getCapturesFolder(): string {
   const exeDir = path.dirname(process.execPath);
@@ -160,6 +170,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     try {
       scrcpyManager.stopMirroring();
+      cameraManager.stopCamera();
     } catch {
       // ignore on close
     }
@@ -213,6 +224,119 @@ ipcMain.handle('get-mirror-status', () => {
     return scrcpyManager.getStatus();
   } catch (err: any) {
     return { running: false, error: err?.message || 'Unknown status' };
+  }
+});
+
+// Scrcpy Screen Mirroring Event Listeners
+scrcpyManager.on('started', (data) => {
+  appLog('INFO', `Screen mirroring started [PID: ${data.pid}] for ${data.serial}`);
+  mainWindow?.webContents.send('mirror-status-changed', { running: true, pid: data.pid, serial: data.serial });
+});
+
+scrcpyManager.on('stopped', (data) => {
+  appLog('INFO', `Screen mirroring stopped [Code: ${data.code}] for ${data.serial}`);
+  mainWindow?.webContents.send('mirror-status-changed', {
+    running: false,
+    code: data.code,
+    serial: data.serial,
+    lastError: scrcpyManager.getStatus().lastError
+  });
+});
+
+scrcpyManager.on('disconnected', (data) => {
+  appLog('WARN', `Screen mirroring device disconnected: ${data.serial}`);
+  mainWindow?.webContents.send('mirror-status-changed', {
+    running: false,
+    code: 2,
+    serial: data.serial,
+    disconnected: true
+  });
+});
+
+// Camera Studio Event Listeners & IPC Handlers
+cameraManager.on('started', (data) => {
+  appLog('INFO', `Camera streaming started [PID: ${data.pid}] for ${data.serial}`);
+  mainWindow?.webContents.send('camera-status-changed', data);
+});
+
+cameraManager.on('stopped', (data) => {
+  appLog('INFO', `Camera streaming stopped [Code: ${data.code}] for ${data.serial}`);
+  mainWindow?.webContents.send('camera-status-changed', data);
+});
+
+cameraManager.on('disconnected', (data) => {
+  appLog('WARN', `Camera device disconnected: ${data.serial}`);
+  mainWindow?.webContents.send('camera-status-changed', data);
+});
+
+ipcMain.handle('query-camera-capabilities', async (_, { serial }) => {
+  try {
+    return await cameraManager.queryCapabilities(serial);
+  } catch (err: any) {
+    appLog('ERROR', 'Error querying camera capabilities', err?.message || err);
+    return {
+      transportSupported: false,
+      deviceSupported: false,
+      cameras: [],
+      liveZoomSupported: false,
+      liveTorchSupported: false,
+      recordingSupported: false,
+      snapshotsSupported: false,
+      notes: [`Capability query failed: ${err?.message || err}`]
+    };
+  }
+});
+
+ipcMain.handle('start-camera', (_, options) => {
+  try {
+    if (!fs.existsSync(scrcpyPath)) {
+      return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
+    }
+    // Auto-resolve recording folder if requested
+    if (options.record && !options.recordPath) {
+      const capturesFolder = getCapturesFolder();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      options.recordPath = path.join(capturesFolder, `camera_${options.serial || 'rec'}_${timestamp}.mp4`);
+    }
+    return cameraManager.startCamera(options);
+  } catch (err: any) {
+    appLog('ERROR', 'Error starting camera session', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to start camera session' };
+  }
+});
+
+ipcMain.handle('stop-camera', () => {
+  try {
+    return cameraManager.stopCamera();
+  } catch (err: any) {
+    appLog('ERROR', 'Error stopping camera session', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to stop camera session' };
+  }
+});
+
+ipcMain.handle('get-camera-status', () => {
+  try {
+    return cameraManager.getStatus();
+  } catch (err: any) {
+    return { running: false, error: err?.message || 'Unknown camera status' };
+  }
+});
+
+ipcMain.handle('send-camera-zoom', async (_, { direction }) => {
+  try {
+    return await cameraManager.sendLiveZoom(direction);
+  } catch (err: any) {
+    appLog('ERROR', 'Error dispatching camera zoom', err?.message || err);
+    return { success: false, message: err?.message || 'Zoom command failed' };
+  }
+});
+
+ipcMain.handle('send-camera-torch', async (_, { state }) => {
+  try {
+    return await cameraManager.sendLiveTorch(state);
+  } catch (err: any) {
+    appLog('ERROR', 'Error dispatching camera torch', err?.message || err);
+    return { success: false, message: err?.message || 'Torch command failed' };
   }
 });
 
@@ -471,18 +595,143 @@ ipcMain.handle('revoke-all-mcp-sessions', () => {
   }
 });
 
-app.whenReady().then(() => {
-  createWindow();
-  mcpControlServer.start().then(() => {
-    appLog('INFO', 'MCP Named Pipe Control Server listening on \\\\.\\pipe\\androscrn-mcp-control');
-  }).catch((err: any) => {
-    appLog('WARN', 'Failed to start MCP Named Pipe control server (standalone fallback active)', err?.message || err);
+// Camera Studio Companion App IPC Handlers
+ipcMain.handle('companion-get-status', async (_, { serial }) => {
+  try {
+    if (serial) {
+      await companionClient.setupPortForward(serial, 8080, 8080);
+    }
+    return await companionClient.getStatus();
+  } catch (err: any) {
+    return { status: 'offline', error: err?.message || 'Companion offline' };
+  }
+});
+
+ipcMain.handle('companion-request-pairing', async (_, { serial }) => {
+  try {
+    if (serial) {
+      await companionClient.setupPortForward(serial, 8080, 8080);
+    }
+    return await companionClient.requestPairingChallenge();
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Pairing request failed' };
+  }
+});
+
+ipcMain.handle('companion-submit-pin', async (_, { pin, serial }) => {
+  try {
+    if (serial) {
+      await companionClient.setupPortForward(serial, 8080, 8080);
+    }
+    return await companionClient.submitPairingPin(pin);
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'PIN validation failed' };
+  }
+});
+
+ipcMain.handle('companion-get-capabilities', async () => {
+  try {
+    return await companionClient.getCapabilities();
+  } catch (err: any) {
+    return { snapshotsSupported: false, inAppPreviewSupported: false, error: err?.message };
+  }
+});
+
+ipcMain.handle('companion-set-camera', async (_, { facing }) => {
+  return await companionClient.setCamera(facing);
+});
+
+ipcMain.handle('companion-set-zoom', async (_, { ratio }) => {
+  return await companionClient.setZoom(ratio);
+});
+
+ipcMain.handle('companion-set-torch', async (_, { enabled }) => {
+  return await companionClient.setTorch(enabled);
+});
+
+ipcMain.handle('companion-take-photo', async (_, { destinationDir }) => {
+  const saveDir = destinationDir || getCapturesFolder();
+  return await companionClient.takeAndSavePhoto(saveDir);
+});
+
+ipcMain.handle('companion-disconnect', async () => {
+  return await companionClient.disconnect();
+});
+
+ipcMain.handle('companion-get-stream-url', () => {
+  return companionClient.getStreamUrl();
+});
+
+// Lab & Inspection IPC Handlers (Phase 7.1)
+ipcMain.handle('lab-generate-overlay-svg', (_, { width, height, config, metadata }) => {
+  return generateSvgOverlay(width, height, config, metadata);
+});
+
+ipcMain.handle('lab-start-timelapse', async (_, config) => {
+  const saveDir = config.outputDir || path.join(getCapturesFolder(), `Timelapse_${Date.now()}`);
+  return await timelapseScheduler.start({ ...config, outputDir: saveDir }, async (frameNum) => {
+    const photoRes = await companionClient.takeAndSavePhoto(saveDir);
+    if (photoRes.success && photoRes.filePath) {
+      return photoRes.filePath;
+    }
+    throw new Error(photoRes.error || `Frame ${frameNum} capture failed`);
   });
 });
+
+ipcMain.handle('lab-stop-timelapse', () => {
+  return timelapseScheduler.stop();
+});
+
+ipcMain.handle('lab-get-timelapse-status', () => {
+  return timelapseScheduler.getStatus();
+});
+
+ipcMain.handle('lab-export-annotated-snapshot', async (_, { sourcePath, svgOverlay, metadata }) => {
+  try {
+    const ext = path.extname(sourcePath);
+    const base = path.basename(sourcePath, ext);
+    const dir = path.dirname(sourcePath);
+    const annotatedSvgPath = path.join(dir, `${base}_annotated.svg`);
+    const metaPath = path.join(dir, `${base}_metadata.json`);
+
+    fs.writeFileSync(annotatedSvgPath, svgOverlay, 'utf8');
+    fs.writeFileSync(metaPath, JSON.stringify(metadata || {}, null, 2), 'utf8');
+    return { success: true, annotatedSvgPath, metaPath };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Export failed' };
+  }
+});
+
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  appLog('INFO', 'Another instance of AndroScrn is already running. Focusing existing window and exiting.');
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    createWindow();
+    mcpControlServer.start().then(() => {
+      appLog('INFO', 'MCP Named Pipe Control Server listening on \\\\.\\pipe\\androscrn-mcp-control');
+    }).catch((err: any) => {
+      appLog('WARN', 'Failed to start MCP Named Pipe control server (standalone fallback active)', err?.message || err);
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   try {
     scrcpyManager.stopMirroring();
+    cameraManager.stopCamera();
+    companionClient.disconnect().catch(() => {});
+    timelapseScheduler.stop();
     mcpControlServer.stop().catch(() => {});
   } catch {
     // ignore

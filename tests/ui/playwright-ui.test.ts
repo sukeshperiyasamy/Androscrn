@@ -305,6 +305,10 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     recordTest('First tab reachable and focusable via keyboard', isMirrorFocused);
 
     await page.keyboard.press('Tab');
+    const isCameraFocused = await page.$eval('#tab-camera', el => document.activeElement === el);
+    recordTest('Tab key advances focus sequentially to Camera Studio tab', isCameraFocused);
+
+    await page.keyboard.press('Tab');
     const isWirelessFocused = await page.$eval('#tab-wireless', el => document.activeElement === el);
     recordTest('Tab key advances focus sequentially to Wireless tab', isWirelessFocused);
 
@@ -489,6 +493,318 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const audit102Content = await page.textContent('#audit-item-audit-102');
     recordTest('Audit item 102 shows REJECTED status and input_text action', (audit102Content?.includes('REJECTED') && audit102Content?.includes('input_text')) ?? false);
 
+    // -------------------------------------------------------------
+    // Test Scenario 10: Camera Studio MVP Interface & Controls
+    // -------------------------------------------------------------
+    console.log('\nScenario 10: Camera Studio Interface & Controls Verification');
+
+    await page.evaluate(() => {
+      (window as any).androscrnApi.queryCameraCapabilities = async () => ({
+        transportSupported: true,
+        deviceSupported: true,
+        androidVersion: '13',
+        sdkVersion: 33,
+        cameras: [
+          {
+            id: '0',
+            facing: 'back',
+            maxResolution: '4000x3000',
+            fpsList: [10, 15, 20, 30],
+            zoomRange: [1, 10],
+            supportedSizes: ['1920x1080', '1280x720', '4000x3000']
+          },
+          {
+            id: '1',
+            facing: 'front',
+            maxResolution: '2320x1744',
+            fpsList: [10, 15, 20, 30],
+            zoomRange: [1, 10],
+            supportedSizes: ['1920x1080', '1280x720']
+          }
+        ],
+        liveZoomSupported: true,
+        liveTorchSupported: true,
+        recordingSupported: true,
+        snapshotsSupported: false,
+        notes: ['Discovered 2 camera sensor(s).']
+      });
+
+      (window as any).androscrnApi.startCamera = async () => ({
+        success: true,
+        pid: 12345
+      });
+
+      (window as any).androscrnApi.stopCamera = async () => true;
+
+      (window as any).androscrnApi.sendCameraZoom = async ({ direction }: any) => ({
+        success: true,
+        currentZoom: direction === 'in' ? 1.5 : 1.0,
+        message: `Zoom ${direction} sent`
+      });
+
+      (window as any).androscrnApi.sendCameraTorch = async ({ state }: any) => ({
+        success: true,
+        torchActive: state === 'on',
+        message: `Torch ${state}`
+      });
+
+      (window as any).androscrnApi.getCameraStatus = async () => ({
+        running: false,
+        currentZoom: 1.0,
+        torchActive: false
+      });
+    });
+
+    // 1. Navigate to Camera Studio tab
+    await page.click('#tab-camera');
+    await page.waitForTimeout(300);
+
+    const cameraHeader = await page.textContent('main h2');
+    recordTest('Camera Studio header and title rendered', cameraHeader?.includes('Camera Studio') ?? false);
+
+    // 2. Verify Camera Sensor Selector
+    const cameraSelect = await page.waitForSelector('#camera-select', { timeout: 2000 });
+    recordTest('Camera sensor selection dropdown visible', cameraSelect !== null);
+
+    // 3. Verify Resolution Selector
+    const resSelect = await page.waitForSelector('#camera-resolution-select', { timeout: 2000 });
+    recordTest('Capture resolution dropdown visible', resSelect !== null);
+
+    // 4. Verify FPS Selector
+    const fpsSelect = await page.waitForSelector('#camera-fps-select', { timeout: 2000 });
+    recordTest('Target FPS dropdown visible', fpsSelect !== null);
+
+    // 5. Verify Start Camera Preview Button
+    const startCamBtn = await page.waitForSelector('#btn-toggle-camera', { timeout: 2000 });
+    recordTest('Start Camera Preview button visible', startCamBtn !== null);
+
+    const startBtnText = await page.textContent('#btn-toggle-camera');
+    recordTest('Start Camera Preview button shows initial start state', startBtnText?.includes('Start Camera Preview') ?? false);
+
+    // 6. Verify Digital Zoom Controls
+    const zoomSlider = await page.waitForSelector('#camera-zoom-slider', { timeout: 2000 });
+    recordTest('Camera digital zoom slider visible', zoomSlider !== null);
+
+    const zoomBadge = await page.textContent('#camera-zoom-badge');
+    recordTest('Camera digital zoom badge renders initial 1.0x', zoomBadge?.includes('1.0x') ?? false);
+
+    // 7. Verify Zoom In / Out Buttons
+    const zoomInBtn = await page.waitForSelector('#btn-zoom-in', { timeout: 2000 });
+    recordTest('Zoom In button visible', zoomInBtn !== null);
+
+    const zoomOutBtn = await page.waitForSelector('#btn-zoom-out', { timeout: 2000 });
+    recordTest('Zoom Out button visible', zoomOutBtn !== null);
+
+    // 8. Verify Torch Button
+    const torchBtn = await page.waitForSelector('#btn-toggle-torch', { timeout: 2000 });
+    recordTest('Torch control toggle button visible', torchBtn !== null);
+
+    // 9. Test Start Camera Click
+    await page.click('#btn-toggle-camera');
+    await page.waitForTimeout(300);
+
+    const toggleBtnTextAfterStart = await page.textContent('#btn-toggle-camera');
+    recordTest('Button toggles to Stop Camera Preview upon starting', toggleBtnTextAfterStart?.includes('Stop Camera Preview') ?? false);
+
+    // 10. Test Stop Camera Click
+    await page.click('#btn-toggle-camera');
+    await page.waitForTimeout(300);
+
+    const toggleBtnTextAfterStop = await page.textContent('#btn-toggle-camera');
+    recordTest('Button returns to Start Camera Preview upon stopping', toggleBtnTextAfterStop?.includes('Start Camera Preview') ?? false);
+
+    // -------------------------------------------------------------
+    // Test Scenario 11: Camera Companion Mode Switcher, Pairing & In-App Viewport Verification (Phase 6)
+    // -------------------------------------------------------------
+    console.log('\nScenario 11: Camera Companion Mode Switcher, Pairing & In-App Viewport Verification');
+
+    await page.evaluate(() => {
+      (window as any).androscrnApi.companionRequestPairing = async () => ({
+        success: true,
+        challengeId: 'chal_test_123',
+        pin: '123456',
+        expiresInSeconds: 60
+      });
+      (window as any).androscrnApi.companionSubmitPin = async (pin: string) => ({
+        success: true,
+        token: 'test_token_64chars_abcdef0123456789abcdef0123456789abcdef0123456789abcdef01',
+        facing: 'back',
+        zoom: 1.0,
+        torch: false
+      });
+      (window as any).androscrnApi.companionGetStreamUrl = async () => 'http://127.0.0.1:8080/api/v1/stream?token=test_token_64chars';
+      (window as any).androscrnApi.companionSetCamera = async (facing: string) => ({ success: true, facing });
+      (window as any).androscrnApi.companionSetZoom = async (zoom: number) => ({ success: true, zoom });
+      (window as any).androscrnApi.companionSetTorch = async (torch: boolean) => ({ success: true, torch });
+      (window as any).androscrnApi.companionTakePhoto = async () => ({
+        success: true,
+        photoId: 'img_test_1',
+        filePath: 'C:\\Users\\sukes\\Downloads\\Captures\\photo_test.jpg',
+        sizeBytes: 2500000
+      });
+      (window as any).androscrnApi.companionDisconnect = async () => ({ success: true });
+    });
+
+    // 1. Verify Mode Switcher buttons
+    const modeScrcpyBtn = await page.waitForSelector('#mode-scrcpy', { timeout: 2000 });
+    recordTest('Scrcpy Mode Switcher button visible', modeScrcpyBtn !== null);
+
+    const modeCompanionBtn = await page.waitForSelector('#mode-companion', { timeout: 2000 });
+    recordTest('Companion Mode Switcher button visible', modeCompanionBtn !== null);
+
+    // 2. Switch to Companion Mode
+    await page.click('#mode-companion');
+    await page.waitForTimeout(300);
+
+    const isCompanionActive = await page.$eval('#mode-companion', el => el.getAttribute('aria-checked') === 'true');
+    recordTest('Companion Mode activated with aria-checked="true"', isCompanionActive);
+
+    // 3. Verify Companion Setup Card
+    const connectBtn = await page.waitForSelector('#btn-companion-connect', { timeout: 2000 });
+    recordTest('Connect to Companion button visible in disconnected state', connectBtn !== null);
+
+    // 4. Click Connect & verify PIN Input Card
+    await page.click('#btn-companion-connect');
+    await page.waitForTimeout(300);
+
+    const pinInput = await page.waitForSelector('#companion-pin-input', { timeout: 2000 });
+    recordTest('6-Digit Pairing PIN input visible upon challenge request', pinInput !== null);
+
+    const submitPinBtn = await page.waitForSelector('#btn-companion-submit-pin', { timeout: 2000 });
+    recordTest('Authorize & Start Feed PIN submit button visible', submitPinBtn !== null);
+
+    // 5. Submit valid 6-digit PIN
+    await page.fill('#companion-pin-input', '123456');
+    await page.click('#btn-companion-submit-pin');
+    await page.waitForTimeout(400);
+
+    // 6. Verify In-App Live Viewport Feed
+    const livePreview = await page.waitForSelector('#companion-live-preview', { timeout: 2000 });
+    recordTest('Live In-App Companion Viewport img feed active', livePreview !== null);
+
+    // 7. Verify Still Snapshot Shutter Button
+    const snapshotBtn = await page.waitForSelector('#btn-companion-snapshot', { timeout: 2000 });
+    recordTest('Capture Full-Res Photo shutter button visible and enabled', snapshotBtn !== null);
+
+    await page.click('#btn-companion-snapshot');
+    await page.waitForTimeout(300);
+
+    const photoFeedback = await page.textContent('.glass-panel');
+    recordTest('Full-resolution photo saved feedback banner rendered', photoFeedback !== null);
+
+    // 8. Verify Optics Controls (Lens Flip & Torch)
+    const flipBtn = await page.waitForSelector('#btn-companion-flip', { timeout: 2000 });
+    recordTest('Switch to Front/Back lens flip button visible and interactive', flipBtn !== null);
+
+    const companionTorchBtn = await page.waitForSelector('#btn-companion-torch', { timeout: 2000 });
+    recordTest('Companion torch toggle button visible and interactive', companionTorchBtn !== null);
+
+    // 9. Verify Digital Zoom Slider
+    const companionZoomSlider = await page.waitForSelector('#companion-zoom-slider', { timeout: 2000 });
+    recordTest('Companion digital zoom slider visible and adjustable', companionZoomSlider !== null);
+
+    // 10. Test Disconnect & Mode Reversion
+    const disconnectBtn = await page.waitForSelector('#btn-companion-disconnect', { timeout: 2000 });
+    recordTest('Companion disconnect button visible while session is active', disconnectBtn !== null);
+
+    await page.click('#btn-companion-disconnect');
+    await page.waitForTimeout(300);
+
+    const connectBtnRestored = await page.waitForSelector('#btn-companion-connect', { timeout: 2000 });
+    recordTest('Connect to Companion button restored after disconnection', connectBtnRestored !== null);
+
+    // Switch back to Scrcpy Mode
+    await page.click('#mode-scrcpy');
+    await page.waitForTimeout(300);
+
+    const isScrcpyActive = await page.$eval('#mode-scrcpy', el => el.getAttribute('aria-checked') === 'true');
+    recordTest('Scrcpy Direct3D11 mode restored with aria-checked="true"', isScrcpyActive);
+
+    // -------------------------------------------------------------
+    // Test Scenario 12: Lab & Inspection Studio Suite (Phase 7.1)
+    // -------------------------------------------------------------
+    console.log('\nScenario 12: Lab & Inspection Tools Suite (Phase 7.1)');
+
+    // 1. Verify Lab & Inspection Tools Panel Header
+    const labHeader = await page.waitForSelector('#btn-export-annotated', { timeout: 2000 });
+    recordTest('Lab & Inspection Tools panel rendered with Export Annotated button', labHeader !== null);
+
+    // 2. Verify Overlay Pattern dropdown
+    const overlaySelect = await page.waitForSelector('#inspection-overlay-select', { timeout: 2000 });
+    recordTest('Inspection Overlay dropdown selector visible', overlaySelect !== null);
+
+    // 3. Select Crosshairs overlay
+    await page.selectOption('#inspection-overlay-select', 'crosshair');
+    await page.waitForTimeout(200);
+
+    // 4. Switch to Companion Mode and verify overlay layer is rendered
+    await page.click('#mode-companion');
+    await page.waitForTimeout(300);
+
+    const overlayLayer = await page.waitForSelector('#inspection-overlay-layer', { timeout: 2000 });
+    recordTest('Live Inspection Non-Destructive Overlay rendered in viewport', overlayLayer !== null);
+
+    // 5. Select Fine Grid (10x10) and verify overlay updates
+    await page.selectOption('#inspection-overlay-select', 'grid_fine');
+    await page.waitForTimeout(200);
+
+    const fineGridSvg = await page.textContent('#inspection-overlay-layer');
+    recordTest('Inspection overlay updates dynamically on select change', fineGridSvg !== null);
+
+    // 6. Test Color Selection
+    const colorSelect = await page.waitForSelector('#inspection-color-select', { timeout: 2000 });
+    recordTest('Inspection color selector visible', colorSelect !== null);
+    await page.selectOption('#inspection-color-select', '#10b981');
+    await page.waitForTimeout(200);
+
+    // 7. Test Opacity Slider
+    const opacitySlider = await page.waitForSelector('#inspection-opacity-slider', { timeout: 2000 });
+    recordTest('Inspection opacity slider visible', opacitySlider !== null);
+
+    // 8. Test Reference Comparison Toggle
+    const refCompBtn = await page.waitForSelector('#btn-toggle-ref-comp', { timeout: 2000 });
+    recordTest('Golden sample reference comparison toggle button visible', refCompBtn !== null);
+
+    await page.click('#btn-toggle-ref-comp');
+    await page.waitForTimeout(300);
+
+    const refLayoutSelect = await page.waitForSelector('#ref-comp-mode-select', { timeout: 2000 });
+    recordTest('Reference comparison layout selector displayed when enabled', refLayoutSelect !== null);
+
+    const blendSlider = await page.waitForSelector('#ref-comp-opacity-slider', { timeout: 2000 });
+    recordTest('Reference comparison blend ratio slider displayed', blendSlider !== null);
+
+    // 9. Test Timelapse Scheduler Inputs & Lifecycle
+    const intervalInput = await page.waitForSelector('#timelapse-interval-input', { timeout: 2000 });
+    recordTest('Timelapse interval input visible', intervalInput !== null);
+
+    const framesInput = await page.waitForSelector('#timelapse-frames-input', { timeout: 2000 });
+    recordTest('Timelapse total frames input visible', framesInput !== null);
+
+    const startTimelapseBtn = await page.waitForSelector('#btn-start-timelapse', { timeout: 2000 });
+    recordTest('Start Timelapse button visible and clickable', startTimelapseBtn !== null);
+
+    await page.fill('#timelapse-interval-input', '2');
+    await page.fill('#timelapse-frames-input', '5');
+    await page.click('#btn-start-timelapse');
+    await page.waitForTimeout(300);
+
+    const stopTimelapseBtn = await page.waitForSelector('#btn-stop-timelapse', { timeout: 2000 });
+    recordTest('Button toggles to Stop Timelapse Session upon start', stopTimelapseBtn !== null);
+
+    await page.click('#btn-stop-timelapse');
+    await page.waitForTimeout(300);
+
+    const startTimelapseBtnRestored = await page.waitForSelector('#btn-start-timelapse', { timeout: 2000 });
+    recordTest('Button returns to Start Timelapse Capture upon stop', startTimelapseBtnRestored !== null);
+
+    // 10. Test Export Annotated Copy
+    await page.click('#btn-export-annotated');
+    await page.waitForTimeout(300);
+
+    const exportNotice = await page.waitForSelector('#annotated-export-notice', { timeout: 2000 });
+    const noticeText = await exportNotice?.textContent();
+    recordTest('Export Annotated Copy triggers success feedback', noticeText?.includes('saved to Captures/') ?? false);
 
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);

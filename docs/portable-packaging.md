@@ -29,8 +29,12 @@ The portable package extracted from `AndroScrn-portable-win-x64.zip` adheres to 
 ```
 AndroScrn-portable-win-x64/
 │
-├── AndroScrn.exe                      # Standalone Electron 31 x64 application executable (172.5 MB)
-├── AndroScrn.bat                      # Standalone launcher batch script (no external Node/npm)
+├── androscrn.exe                      # Native CUI CLI launcher & GUI dispatcher (20 KB)
+├── AndroScrn-gui.exe                  # Standalone Electron 31 x64 GUI executable (172.5 MB)
+├── androscrn.cmd                      # Command-line batch script wrapper
+├── AndroScrn.bat                      # Desktop launcher batch script (no external Node/npm)
+├── setup-path.ps1                     # User-scoped PATH configuration helper
+├── remove-path.ps1                    # User-scoped PATH removal helper
 ├── LICENSE                            # AndroScrn MIT License
 ├── THIRD-PARTY-NOTICES.txt            # Full license attributions (scrcpy Apache 2.0, ADB, SDL3, FFmpeg, etc.)
 ├── README.md                          # Application readme and quick-start guide
