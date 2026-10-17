@@ -1,41 +1,41 @@
 /* ==========================================================================
    AndroScrn Design System & Documentation Stylesheet
-   Theme: Linear/Raycast Dark Navy Aesthetic with Cyan & Indigo Accents
+   Theme: Clean Light Aesthetic with Sky & Indigo Accents
    ========================================================================== */
 
 :root {
-  /* Surface Colors */
-  --bg-base: #07090e;
-  --bg-surface-1: #0d121d;
-  --bg-surface-2: #121929;
-  --bg-surface-3: #182238;
-  --bg-surface-elevated: #1e2942;
-  --bg-glass: rgba(13, 18, 29, 0.75);
+  /* Surface Colors (light) */
+  --bg-base: #f6f8fc;
+  --bg-surface-1: #ffffff;
+  --bg-surface-2: #f1f5f9;
+  --bg-surface-3: #e2e8f0;
+  --bg-surface-elevated: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.82);
 
   /* Border Tokens */
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-medium: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.2);
-  --border-accent: rgba(56, 189, 248, 0.35);
-  --border-indigo: rgba(99, 102, 241, 0.35);
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-medium: rgba(15, 23, 42, 0.14);
+  --border-strong: rgba(15, 23, 42, 0.24);
+  --border-accent: rgba(2, 132, 199, 0.35);
+  --border-indigo: rgba(79, 70, 229, 0.35);
 
   /* Typography Colors */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
   --text-muted: #64748b;
-  --text-inverse: #030712;
+  --text-inverse: #ffffff;
 
   /* Accent & State Colors */
-  --accent-cyan: #38bdf8;
-  --accent-cyan-glow: rgba(56, 189, 248, 0.15);
-  --accent-indigo: #818cf8;
-  --accent-indigo-glow: rgba(129, 140, 248, 0.15);
-  --accent-emerald: #34d399;
-  --accent-emerald-glow: rgba(52, 211, 153, 0.15);
-  --accent-amber: #fbbf24;
-  --accent-amber-glow: rgba(251, 191, 36, 0.15);
-  --accent-rose: #f87171;
-  --accent-rose-glow: rgba(248, 113, 113, 0.15);
+  --accent-cyan: #0284c7;
+  --accent-cyan-glow: rgba(2, 132, 199, 0.10);
+  --accent-indigo: #4f46e5;
+  --accent-indigo-glow: rgba(79, 70, 229, 0.10);
+  --accent-emerald: #059669;
+  --accent-emerald-glow: rgba(5, 150, 105, 0.10);
+  --accent-amber: #b45309;
+  --accent-amber-glow: rgba(180, 83, 9, 0.10);
+  --accent-rose: #e11d48;
+  --accent-rose-glow: rgba(225, 29, 72, 0.10);
 
   /* Radii */
   --radius-sm: 6px;
@@ -45,10 +45,10 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 40px rgba(56, 189, 248, 0.1);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --shadow-glow: 0 0 40px rgba(2, 132, 199, 0.08);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -107,7 +107,7 @@ body {
   transform: translateX(-50%);
   width: 1000px;
   height: 600px;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.07) 0%, rgba(99, 102, 241, 0.04) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, rgba(99, 102, 241, 0.10) 40%, transparent 70%);
   filter: blur(80px);
   pointer-events: none;
   z-index: 0;
@@ -131,7 +131,7 @@ body {
 }
 
 .section-alt {
-  background-color: rgba(13, 18, 29, 0.5);
+  background-color: rgba(226, 232, 240, 0.45);
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -257,7 +257,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #030712;
+  color: #ffffff;
   box-shadow: 0 0 16px var(--accent-cyan-glow);
 }
 
@@ -337,16 +337,16 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-cyan), #2563eb);
-  color: #030712;
+  background: linear-gradient(135deg, #0284c7, #4f46e5);
+  color: #ffffff;
   font-weight: 700;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 4px 16px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.25);
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(56, 189, 248, 0.35);
+  box-shadow: 0 6px 20px rgba(2, 132, 199, 0.35);
 }
 
 .btn-secondary {
@@ -418,7 +418,7 @@ body {
 }
 
 .hero-title .gradient-text {
-  background: linear-gradient(135deg, #ffffff 30%, var(--accent-cyan) 80%);
+  background: linear-gradient(135deg, #0f172a 20%, #0284c7 60%, #4f46e5 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -483,7 +483,7 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.15);
 }
 
 .mockup-dot.red { background: #f87171; }
@@ -493,7 +493,7 @@ body {
 .mockup-badge {
   font-family: ui-monospace, monospace;
   font-size: 0.7rem;
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--accent-cyan-glow);
   color: var(--accent-cyan);
   border: 1px solid var(--border-accent);
   padding: 2px 8px;
@@ -545,14 +545,14 @@ body {
 }
 
 .sidebar-item.active {
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--accent-cyan-glow);
   color: var(--accent-cyan);
   font-weight: 600;
 }
 
 /* Mockup Viewport */
 .mockup-viewport {
-  background: #04060a;
+  background: var(--bg-surface-2);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -575,7 +575,7 @@ body {
   justify-content: center;
   position: relative;
   padding: 20px;
-  background: radial-gradient(circle at center, #0f172a 0%, #030712 100%);
+  background: radial-gradient(circle at center, #e2e8f0 0%, #cbd5e1 100%);
 }
 
 .phone-wireframe {
@@ -585,7 +585,7 @@ body {
   border: 3px solid #334155;
   background: #020617;
   position: relative;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.8);
+  box-shadow: 0 8px 28px rgba(15,23,42,0.35);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -720,24 +720,24 @@ body {
 .badge-verified {
   background: var(--accent-emerald-glow);
   color: var(--accent-emerald);
-  border: 1px solid rgba(52, 211, 153, 0.3);
+  border: 1px solid rgba(5, 150, 105, 0.3);
 }
 
 .badge-active {
   background: var(--accent-cyan-glow);
   color: var(--accent-cyan);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(2, 132, 199, 0.3);
 }
 
 .badge-in-dev {
   background: var(--accent-amber-glow);
   color: var(--accent-amber);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  border: 1px solid rgba(180, 83, 9, 0.3);
 }
 
 .badge-planned {
   background: rgba(148, 163, 184, 0.1);
-  color: #94a3b8;
+  color: #475569;
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
@@ -749,7 +749,7 @@ body {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: var(--shadow-lg), 0 0 50px rgba(56, 189, 248, 0.08);
+  box-shadow: var(--shadow-lg), 0 0 50px rgba(2, 132, 199, 0.08);
 }
 
 .camera-preview-header {
@@ -763,6 +763,7 @@ body {
 }
 
 .camera-preview-stage {
+  --accent-cyan: #38bdf8;
   min-height: 380px;
   background: #020408;
   display: flex;
@@ -803,6 +804,7 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 0.75rem;
   background: rgba(0, 0, 0, 0.7);
+  color: #f8fafc;
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255,255,255,0.1);
@@ -935,7 +937,7 @@ body {
    Code Snippets & Copy Buttons
    ========================================================================== */
 .code-block {
-  background: #04060a;
+  background: #f8fafc;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -961,7 +963,8 @@ body {
   font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85rem;
   line-height: 1.6;
-  color: #e2e8f0;
+  color: var(--text-primary);
+  white-space: pre;
 }
 
 .copy-btn {
@@ -1045,7 +1048,7 @@ body {
    Footer
    ========================================================================== */
 .site-footer {
-  background: #030508;
+  background: #e9eef5;
   border-top: 1px solid var(--border-subtle);
   padding: 64px 0 32px;
   color: var(--text-muted);
@@ -1093,7 +1096,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 24px;
 }
 
