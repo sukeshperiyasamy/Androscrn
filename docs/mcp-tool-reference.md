@@ -163,7 +163,7 @@ Simulates a single touchscreen tap gesture at specific display coordinates `(x, 
   {
     "success": true,
     "action": "tap",
-    "serial": "kjizrsgekfsglvgi",
+    "serial": "EXAMPLE0SERIAL01",
     "x": 540,
     "y": 1200,
     "coordinates": { "x": 540, "y": 1200 },
@@ -196,7 +196,7 @@ Simulates a directional touchscreen drag/swipe gesture from `(x1, y1)` to `(x2, 
   {
     "success": true,
     "action": "swipe",
-    "serial": "kjizrsgekfsglvgi",
+    "serial": "EXAMPLE0SERIAL01",
     "from": { "x": 500, "y": 1600 },
     "to": { "x": 500, "y": 400 },
     "durationMs": 300,
@@ -229,7 +229,7 @@ Injects an Android hardware or navigation key event code into the target device.
   {
     "success": true,
     "action": "keyevent",
-    "serial": "kjizrsgekfsglvgi",
+    "serial": "EXAMPLE0SERIAL01",
     "keyCode": 4,
     "durationMs": 38,
     "status": "completed"
@@ -251,7 +251,7 @@ Injects alphanumeric text into the currently focused input field on the device.
   {
     "success": true,
     "action": "input_text",
-    "serial": "kjizrsgekfsglvgi",
+    "serial": "EXAMPLE0SERIAL01",
     "charactersInjected": 16,
     "length": 16,
     "durationMs": 52,

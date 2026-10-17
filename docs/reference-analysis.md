@@ -46,10 +46,10 @@ The reference concept ("Android Control Center") was conceived as a lightweight,
 
 ### Scenario C: Android 11+ Wi-Fi Pairing (Zero-Cable Setup)
 1. User opens *Developer Options -> Wireless Debugging -> Pair device with pairing code*.
-2. Phone displays IP, pairing port (e.g. `192.168.1.150:41235`), and a 6-digit PIN.
+2. Phone displays IP, pairing port (e.g. `<phone-ip>:41235`), and a 6-digit PIN.
 3. User enters PIN into AndroScrn.
-4. AndroScrn executes `adb pair 192.168.1.150:41235 <PIN>`.
-5. On success, user connects to the separate connect port shown on the phone screen: `adb connect 192.168.1.150:38291`.
+4. AndroScrn executes `adb pair <phone-ip>:41235 <PIN>`.
+5. On success, user connects to the separate connect port shown on the phone screen: `adb connect <phone-ip>:38291`.
 
 ---
 

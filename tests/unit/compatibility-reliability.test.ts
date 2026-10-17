@@ -24,7 +24,7 @@ export async function runCompatibilityReliabilityTests(
 * daemon not running; starting now at tcp:5037
 * daemon started successfully
 List of devices attached
-kjizrsgekfsglvgi       device product:pissarroin model:21091116I device:pissarro transport_id:1
+EXAMPLE0SERIAL01       device product:pissarroin model:21091116I device:pissarro transport_id:1
 192.168.1.150:5555     device product:starqlteue model:SM_G960U1 device:starqlte transport_id:2
 unauth_dev_1           unauthorized usb:1-1 transport_id:3
 offline_dev_2          offline usb:1-2 transport_id:4
@@ -37,7 +37,7 @@ boot_dev_7             bootloader usb:1-7 transport_id:8
 
   const parsed = dm.parseDevicesOutput(dirtyAdbOutput);
   assertEqual(parsed.length, 9, 'Parsed exactly 9 devices across all state categories');
-  assertEqual(parsed[0].serial, 'kjizrsgekfsglvgi', 'First device (physical reference) serial correctly extracted');
+  assertEqual(parsed[0].serial, 'EXAMPLE0SERIAL01', 'First device (physical reference) serial correctly extracted');
   assertEqual(parsed[0].state, 'device', 'First device state is authorized device');
   assertEqual(parsed[0].model, '21091116I', 'Model accurately extracted without underscores');
 
@@ -116,7 +116,7 @@ boot_dev_7             bootloader usb:1-7 transport_id:8
   }
 
   // Attempting screenshot with dummy/missing ADB fails and leaves no orphan files
-  const shotRes = await diagMgr.captureDeviceScreenshot('kjizrsgekfsglvgi', testCapturesDir);
+  const shotRes = await diagMgr.captureDeviceScreenshot('EXAMPLE0SERIAL01', testCapturesDir);
   assertEqual(shotRes.success, false, 'Screenshot fails when ADB binary is missing');
   
   const filesInTestDir = fs.readdirSync(testCapturesDir);

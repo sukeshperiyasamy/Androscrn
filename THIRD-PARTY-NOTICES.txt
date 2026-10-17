@@ -66,3 +66,27 @@ The corresponding licenses and copyright notices are reproduced below.
    Copyright (c) Lucide Contributors
    License: ISC License
    URL: https://lucide.dev/
+
+================================================================================
+8. tesseract.js and tesseract.js-core (local OCR engine)
+   Copyright (c) tesseract.js contributors
+   License: Apache License 2.0
+   URL: https://github.com/naptha/tesseract.js
+
+================================================================================
+9. Tesseract OCR English language data (tessdata_best, via @tesseract.js-data/eng)
+   Copyright (c) Tesseract OCR contributors
+   License: Apache License 2.0 (language data); packaging wrapper: MIT License
+   URL: https://github.com/tesseract-ocr/tessdata_best
+
+================================================================================
+10. pngjs
+    Copyright (c) pngjs contributors
+    License: MIT License
+    URL: https://github.com/pngjs/pngjs
+
+================================================================================
+11. jpeg-js
+    Copyright (c) Eugene Ware and contributors
+    License: BSD 3-Clause License
+    URL: https://github.com/jpeg-js/jpeg-js

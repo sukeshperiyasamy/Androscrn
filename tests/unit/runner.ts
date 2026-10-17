@@ -9,10 +9,24 @@ import { runCameraTests } from './camera.test';
 import { runCompanionTests } from './companion.test';
 import { runLabInspectionUnitTests } from './lab-inspection.test';
 import { runCompatibilityReliabilityTests } from './compatibility-reliability.test';
+import { runDiscoveryTests } from './discovery.test';
+import { runPathEnvironmentTests, snapshotRealUserPath, assertRealUserPathUnchanged } from './path-env.test';
+import { runNativeCliTests } from './native-cli.test';
+import { installLaunchGuard, assertNoBrowserLaunches } from './launch-guard';
+import { runWirelessValidationTests } from './wireless-validation.test';
+import { runDocumentTests } from './document.test';
 
 let totalTests = 0;
 let passedTests = 0;
 let failedTests = 0;
+let skippedTests = 0;
+const skippedNames: string[] = [];
+
+function skip(testName: string, reason: string) {
+  skippedTests++;
+  skippedNames.push(`${testName} (${reason})`);
+  console.log(`  - SKIP: ${testName} - ${reason}`);
+}
 
 function assert(condition: boolean, testName: string) {
   totalTests++;
@@ -30,6 +44,11 @@ function assertEqual<T>(actual: T, expected: T, testName: string) {
 }
 
 async function runUnitTests() {
+  // Block (and record) any browser/URL launch for the whole run; asserted at the end.
+  installLaunchGuard();
+  // Read-only snapshot used at the end to prove the suite never changed the real User PATH.
+  const realPathBefore = snapshotRealUserPath();
+
   console.log('==================================================');
   console.log('       ANDROSCRN UNIT TEST SUITE EXECUTION        ');
   console.log('==================================================\n');
@@ -211,7 +230,11 @@ OFFLINE_DEV_1          offline transport_id:4
   await runSecurityRegressionTests(assert, assertEqual);
 
   // 13. CLI Launcher & Portable Packaging Test Suite
-  await runCliTests(assert, assertEqual);
+  await runCliTests(assert, assertEqual, skip);
+
+  // Phase 10.1: isolated PATH logic and native launcher tests
+  await runPathEnvironmentTests(assert, assertEqual, skip);
+  await runNativeCliTests(assert, assertEqual, skip);
 
   // 14. Camera Studio MVP Test Suite (Phase 5)
   const camRes = await runCameraTests();
@@ -234,8 +257,19 @@ OFFLINE_DEV_1          offline transport_id:4
   // 17. Compatibility & Reliability Test Suite (Phase 9)
   await runCompatibilityReliabilityTests(assert, assertEqual);
 
+  // Phase 10: Smart discovery, OEM guidance, redaction
+  await runDiscoveryTests(assert, assertEqual);
+  await runWirelessValidationTests(assert, assertEqual);
+
+  // Phase 11: local document intelligence
+  await runDocumentTests(assert, assertEqual, skip);
+
+  assertRealUserPathUnchanged(realPathBefore, assert, skip);
+  assertNoBrowserLaunches(assert);
+
   console.log('\n==================================================');
-  console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);
+  console.log(`UNIT TEST RESULTS: ${passedTests}/${totalTests} Passed (${failedTests} Failed, ${skippedTests} Skipped)`);
+  for (const s of skippedNames) console.log(`  SKIPPED: ${s}`);
   console.log('==================================================');
 
   if (failedTests > 0) {

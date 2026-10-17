@@ -318,13 +318,13 @@ export async function runHardwareValidation() {
       recordTest({
         id: 'HW-INJ-01',
         category: 'PHYSICAL_INPUT_INJECTION',
-        requiredHardwareAndPermissions: 'Xiaomi Device + Developer Options + "USB debugging (Security Settings)" enabled via SIM',
+        requiredHardwareAndPermissions: 'Xiaomi Device + Developer Options + a "USB debugging (Security Settings)" switch, if the device offers one',
         operation: 'Physical touch injection via adb shell input tap',
         expected: 'Physical touch event injected into window manager',
         actual: 'Blocked by Xiaomi MIUI/HyperOS security subsystem (missing USB security settings permission)',
         status: 'BLOCKED',
         isSecurityNegative: false,
-        diagnostics: 'Xiaomi requires "USB debugging (Security Settings)" enabled with an active SIM card. Physical touch injection blocked by vendor policy; injection is NOT claimed as verified.'
+        diagnostics: 'Some Xiaomi/MIUI/HyperOS builds block simulated input unless a "USB debugging (Security Settings)" switch is enabled; prerequisites vary by version. Physical touch injection was blocked on this device; injection is NOT claimed as verified.'
       });
 
       recordTest({

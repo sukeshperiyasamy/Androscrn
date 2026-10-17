@@ -5,6 +5,11 @@
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
     "test:unit": "tsc -p tsconfig.json && node dist/tests/unit/runner.js",
+    "test:native-cli": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js native",
+    "test:path": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js path",
+    "test:document": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js document",
+    "docs:check": "node scripts/check-docs.js",
+    "test:discovery": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js discovery",
     "test:integration": "tsc -p tsconfig.json && node dist/tests/integration/integration.test.js",
     "test:ui": "tsc -p tsconfig.json && node dist/tests/ui/playwright-ui.test.js",
     "test:hardware": "tsc -p tsconfig.json && node dist/tests/hardware/hardware-validation.js",
@@ -28,11 +33,16 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "@types/pngjs": "^6.0.5",
     "playwright": "1.64.1",
     "typescript": "7.0.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
+    "tesseract.js": "^7.0.0",
     "zod": "^4.6.7"
   }
 }

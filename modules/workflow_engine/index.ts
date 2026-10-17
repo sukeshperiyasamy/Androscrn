@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { isInputInjectionBlocked } from '../oem_guidance';
 import { DeviceManager } from '../device_manager';
 import { DiagnosticsManager } from '../diagnostics';
 import { SecurityValidator } from '../security';
@@ -172,6 +173,7 @@ export class WorkflowEngine extends EventEmitter {
         const y = step.params.y ?? 500;
         const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()]);
         if (res.code !== 0) throw new Error(`Tap failed: ${res.stderr}`);
+        if (isInputInjectionBlocked(res)) throw new Error(`Tap blocked by device security settings: ${res.stderr.trim()}`);
         break;
       }
 
@@ -186,6 +188,7 @@ export class WorkflowEngine extends EventEmitter {
           x1.toString(), y1.toString(), x2.toString(), y2.toString(), duration.toString()
         ]);
         if (res.code !== 0) throw new Error(`Swipe failed: ${res.stderr}`);
+        if (isInputInjectionBlocked(res)) throw new Error(`Swipe blocked by device security settings: ${res.stderr.trim()}`);
         break;
       }
 
@@ -193,6 +196,7 @@ export class WorkflowEngine extends EventEmitter {
         const code = step.params.keycode ?? 3; // 3 = HOME
         const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'keyevent', code.toString()]);
         if (res.code !== 0) throw new Error(`Keyevent failed: ${res.stderr}`);
+        if (isInputInjectionBlocked(res)) throw new Error(`Keyevent blocked by device security settings: ${res.stderr.trim()}`);
         break;
       }
 
@@ -202,6 +206,7 @@ export class WorkflowEngine extends EventEmitter {
         const escaped = text.replace(/\s/g, '%s').replace(/[^a-zA-Z0-9%._-]/g, '');
         const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'text', escaped]);
         if (res.code !== 0) throw new Error(`Text input failed: ${res.stderr}`);
+        if (isInputInjectionBlocked(res)) throw new Error(`Text input blocked by device security settings: ${res.stderr.trim()}`);
         break;
       }
 

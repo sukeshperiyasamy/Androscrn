@@ -1,4 +1,5 @@
 import { chromium, Browser, Page } from 'playwright';
+import { buildDeviceHelp } from '../../modules/oem_guidance';
 import path from 'path';
 
 interface TestResult {
@@ -373,7 +374,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
           timestamp: Date.now() - 5000,
           action: 'tap',
           clientName: 'Active-Analysis-Bot',
-          serial: 'kjizrsgekfsglvgi',
+          serial: 'EXAMPLE0SERIAL01',
           status: 'SUCCESS',
           details: '(540, 1200)'
         },
@@ -382,7 +383,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
           timestamp: Date.now() - 2000,
           action: 'input_text',
           clientName: 'Active-Analysis-Bot',
-          serial: 'kjizrsgekfsglvgi',
+          serial: 'EXAMPLE0SERIAL01',
           status: 'REJECTED',
           details: 'Disallowed characters in input'
         }
@@ -485,7 +486,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
 
     const audit101Content = await page.textContent('#audit-item-audit-101');
     recordTest('Audit item 101 shows SUCCESS status and tap action', (audit101Content?.includes('SUCCESS') && audit101Content?.includes('tap')) ?? false);
-    recordTest('Audit item 101 shows client name and target device serial', (audit101Content?.includes('Active-Analysis-Bot') && audit101Content?.includes('kjizrsgekfsglvgi')) ?? false);
+    recordTest('Audit item 101 shows client name and target device serial', (audit101Content?.includes('Active-Analysis-Bot') && audit101Content?.includes('EXAMPLE0SERIAL01')) ?? false);
 
     const auditItem2 = await page.waitForSelector('#audit-item-audit-102', { timeout: 2000 });
     recordTest('Audit item 102 (input_text) rendered in audit list', auditItem2 !== null);
@@ -805,6 +806,314 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const exportNotice = await page.waitForSelector('#annotated-export-notice', { timeout: 2000 });
     const noticeText = await exportNotice?.textContent();
     recordTest('Export Annotated Copy triggers success feedback', noticeText?.includes('saved to Captures/') ?? false);
+
+    // -------------------------------------------------------------
+    // Test Scenario 13: Smart Discovery, Connection Help & OEM Guidance (Phase 10)
+    // -------------------------------------------------------------
+    console.log('\nScenario 13: Smart Discovery, Connection Help & OEM Guidance (Phase 10)');
+    const xiaomiDevice: any = {
+      serial: 'R58M123XYZ', state: 'device', model: 'Redmi Note 11 Pro+', product: 'lisa', device: 'lisa',
+      transportType: 'usb', connectionType: 'usb', manufacturer: 'Xiaomi', brand: 'Redmi', androidVersion: '13', apiLevel: 33,
+      batteryLevel: 80, guidance: 'Connected and authorized: Ready for screen mirroring and control.'
+    };
+    const unauthDevice: any = {
+      serial: '192.168.1.150:5555', state: 'unauthorized', model: 'Galaxy S23', product: 'dm3q', device: 's23',
+      transportType: 'wifi', connectionType: 'tcpip', guidance: 'Device unauthorized.'
+    };
+    const helpMap: Record<string, any> = {
+      [xiaomiDevice.serial]: buildDeviceHelp(xiaomiDevice),
+      [unauthDevice.serial]: buildDeviceHelp(unauthDevice)
+    };
+
+    await page.evaluate(({ devs, helps }) => {
+      const w = window as any;
+      w.__helpCalls = 0;
+      w.__calls = { connect: [] as string[], pair: [] as any[], cancel: 0, discover: 0 };
+      w.androscrnApi.getDevices = async () => devs;
+      w.androscrnApi.getDeviceHelp = async (serial: string) => {
+        w.__helpCalls++;
+        return helps[serial] || { key: 'none', connection: null, vendor: [] };
+      };
+      w.androscrnApi.connectDiscoveredDevice = async (id: string) => {
+        w.__calls.connect.push(id);
+        return { success: true, message: 'Connected to 192.168.1.77:41555' };
+      };
+      w.androscrnApi.pairDiscoveredDevice = async (id: string, pin: string) => {
+        w.__calls.pair.push({ id, pin });
+        return { success: true, message: 'Paired successfully. Run Discover again, then connect to the device endpoint.' };
+      };
+      w.androscrnApi.cancelWirelessDiscovery = async () => { w.__calls.cancel++; return true; };
+    }, { devs: [xiaomiDevice, unauthDevice], helps: helpMap });
+
+    await page.click('button[aria-label="Scan for connected Android devices via ADB"]');
+    await page.selectOption('#global-device-select', xiaomiDevice.serial);
+    await page.waitForSelector('[data-testid="connection-help"]', { timeout: 3000 });
+
+    const helpVisible = await page.isVisible('[data-testid="connection-help"]');
+    recordTest('Connection-help area appears for the selected Xiaomi device', helpVisible);
+
+    const collapsed = await page.getAttribute('[data-testid="connection-help"] button[aria-expanded]', 'aria-expanded');
+    recordTest('Connection help starts collapsed (compact)', collapsed === 'false');
+
+    // Keyboard: focus the toggle and press Enter
+    await page.focus('[data-testid="connection-help"] button[aria-expanded]');
+    await page.keyboard.press('Enter');
+    const expandedAfterKey = await page.getAttribute('[data-testid="connection-help"] button[aria-expanded]', 'aria-expanded');
+    recordTest('Connection help expands with the keyboard (Enter)', expandedAfterKey === 'true');
+
+    const oemText = await page.textContent('[data-testid="oem-guidance-xiaomi-input-injection"]');
+    recordTest('Xiaomi vendor-specific input guidance shown', oemText?.includes('simulated touch') ?? false);
+    recordTest('Vendor guidance shows its evidence level', oemText?.includes('Documented upstream') ?? false);
+    recordTest('Vendor guidance states its uncertainty instead of promising a fix', /cannot verify|vary/i.test(oemText ?? ''));
+    recordTest('Vendor guidance cites a documentation reference', oemText?.includes('https://github.com/Genymobile/scrcpy') ?? false);
+    const vendorLabel = await page.locator('[data-testid="connection-help"] >> text=Vendor-specific input restrictions').count();
+    recordTest('Ready device shows vendor guidance, not connection-problem guidance', vendorLabel >= 1 && (await page.locator('[data-testid="connection-help"] >> text=not authorized').count()) === 0);
+
+    // Repeated scans of the same device/state must not re-query or re-announce the same help
+    const callsBefore = await page.evaluate(() => (window as any).__helpCalls);
+    await page.click('button[aria-label="Scan for connected Android devices via ADB"]');
+    await page.waitForTimeout(300);
+    await page.click('button[aria-label="Scan for connected Android devices via ADB"]');
+    await page.waitForTimeout(300);
+    const callsAfter = await page.evaluate(() => (window as any).__helpCalls);
+    recordTest('Repeated refreshes of an unchanged device do not re-request or repeat guidance', callsAfter === callsBefore);
+    recordTest('Guidance stays expanded and is not duplicated across refreshes', (await page.locator('[data-testid="connection-help"]').count()) === 1);
+
+    // Retry action refreshes both device list and help
+    await page.click('button[aria-label="Retry device connection check"]');
+    await page.waitForTimeout(400);
+    const callsAfterRetry = await page.evaluate(() => (window as any).__helpCalls);
+    recordTest('Retry re-checks the device and its guidance', callsAfterRetry > callsAfter);
+
+    // Unauthorized device: connection guidance only
+    await page.selectOption('#global-device-select', unauthDevice.serial);
+    await page.waitForTimeout(400);
+    const unauthTitle = await page.textContent('[data-testid="connection-help"]');
+    recordTest('Unauthorized device explains the authorization problem', unauthTitle?.includes('not authorized') ?? false);
+    await page.click('[data-testid="connection-help"] button[aria-expanded]');
+    const unauthBody = await page.textContent('#connection-help-body');
+    recordTest('Unauthorized guidance includes the Allow USB debugging step', unauthBody?.includes('Allow USB debugging') ?? false);
+    recordTest('Unauthorized guidance is not mixed with vendor input restrictions', (await page.locator('[data-testid^="oem-guidance-"]').count()) === 0);
+
+    // Dismissal sticks for the same situation
+    await page.click('button[aria-label="Dismiss connection help"]');
+    await page.click('button[aria-label="Scan for connected Android devices via ADB"]');
+    await page.waitForTimeout(300);
+    recordTest('Dismissed guidance is not shown again for the same state', (await page.locator('[data-testid="connection-help"]').count()) === 0);
+
+    // Responsive layout at phone width
+    await page.selectOption('#global-device-select', xiaomiDevice.serial);
+    await page.waitForTimeout(300);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.waitForTimeout(200);
+    const noOverflow = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="connection-help"]') as HTMLElement | null;
+      return !el || el.getBoundingClientRect().right <= window.innerWidth + 1;
+    });
+    recordTest('Connection help fits within a 375px viewport', noOverflow);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Wireless discovery panel
+    await page.click('#tab-wireless');
+    await page.waitForSelector('[data-testid="wireless-discovery-panel"]', { timeout: 3000 });
+    const panelText = await page.textContent('[data-testid="wireless-discovery-panel"]');
+    recordTest('Discovery panel explains that nothing is enabled or scanned automatically', /never enables it for you/i.test(panelText ?? ''));
+    recordTest('Discovery does not start until the user presses the button', (await page.evaluate(() => (window as any).__calls.discover)) === 0);
+
+    const endpoints = [
+      { id: '0123456789abcdef', label: 'adb-AB********YZ-xYz9', serviceType: '_adb-tls-pairing._tcp', kind: 'pairing', ip: '192.168.1.77', port: 37123, status: 'pairing-required', note: 'Pairing code screen is open on the phone.' },
+      { id: 'fedcba9876543210', label: 'adb-AB********YZ-xYz9', serviceType: '_adb-tls-connect._tcp', kind: 'connect', ip: '192.168.1.77', port: 41555, status: 'connectable', note: 'If this computer has not been paired with the phone before, connecting will be refused. Pair first.' }
+    ];
+    await page.evaluate((eps) => {
+      const w = window as any;
+      w.androscrnApi.discoverWirelessDevices = async () => {
+        w.__calls.discover++;
+        return { success: true, supported: true, cancelled: false, timedOut: false, endpoints: eps, ignoredCount: 3, mdnsVersion: 'Openscreen', message: 'Found 2 wireless-debugging endpoints. Select one to pair or connect.', fallback: [] };
+      };
+    }, endpoints);
+
+    await page.click('button:has-text("Discover Wireless Devices")');
+    await page.waitForSelector('[data-testid="wireless-endpoint"]', { timeout: 3000 });
+    recordTest('Discovered endpoints are listed with IP and port', (await page.locator('[data-testid="wireless-endpoint"]').count()) === 2);
+    const epText = await page.textContent('[data-testid="wireless-discovery-panel"]');
+    recordTest('Endpoint labels show status and never the raw serial', /Pairing required/.test(epText ?? '') && !/ABCD1234EFGH/.test(epText ?? ''));
+    recordTest('Connectable endpoint tells the user to pair first', /Pair first/.test(epText ?? ''));
+    recordTest('Discovery alone does not connect or pair', (await page.evaluate(() => (window as any).__calls.connect.length + (window as any).__calls.pair.length)) === 0);
+
+    // Pairing code handling
+    const discoveryPinInput = page.locator('input[id^="pin-"]');
+    recordTest('Pairing code field is masked (password input)', (await discoveryPinInput.getAttribute('type')) === 'password');
+    await discoveryPinInput.fill('12ab');
+    recordTest('Pairing code field accepts digits only', (await discoveryPinInput.inputValue()) === '12');
+    await page.click('button:has-text("Pair…")');
+    recordTest('Short pairing code is rejected without calling the main process', (await page.evaluate(() => (window as any).__calls.pair.length)) === 0);
+    await discoveryPinInput.fill('123456');
+    await page.click('button:has-text("Pair…")');
+    await page.waitForTimeout(300);
+    const pairCalls = await page.evaluate(() => (window as any).__calls.pair);
+    recordTest('Pair sends only the endpoint handle and code to the main process', pairCalls.length === 1 && pairCalls[0].id === '0123456789abcdef' && pairCalls[0].pin === '123456');
+    recordTest('Pairing code is cleared after use', (await discoveryPinInput.inputValue()) === '');
+    recordTest('Pairing result does not echo the code', !((await page.textContent('[data-testid="wireless-discovery-panel"]')) ?? '').includes('123456'));
+
+    await page.click('button:has-text("Connect…")');
+    await page.waitForTimeout(300);
+    const connectCalls = await page.evaluate(() => (window as any).__calls.connect);
+    recordTest('Connect sends only the issued endpoint handle', connectCalls.length === 1 && connectCalls[0] === 'fedcba9876543210');
+
+    // Unsupported mDNS shows fallback guidance
+    await page.evaluate(() => {
+      (window as any).androscrnApi.discoverWirelessDevices = async () => ({
+        success: false, supported: false, cancelled: false, timedOut: false, endpoints: [], ignoredCount: 0,
+        message: 'The bundled ADB or this computer does not provide mDNS discovery (adb mdns check failed).',
+        fallback: ['USB: connect the phone with a data cable, enable USB debugging, and accept the prompt on the phone.', 'Manual wireless: on Android 11+ open Developer options > Wireless debugging > Pair device with pairing code, then use "Pair" with the IP, pairing port and 6-digit code shown on the phone.']
+      });
+    });
+    await page.click('button:has-text("Discover Wireless Devices")');
+    await page.waitForTimeout(300);
+    const fallbackText = await page.textContent('[data-testid="wireless-discovery-panel"]');
+    recordTest('Unsupported discovery explains the limitation', /does not provide mDNS/.test(fallbackText ?? ''));
+    recordTest('Unsupported discovery offers USB and manual fallbacks', /Wireless discovery is unavailable here/.test(fallbackText ?? '') && /USB: connect the phone/.test(fallbackText ?? ''));
+
+    // Cancellation
+    await page.evaluate(() => {
+      (window as any).androscrnApi.discoverWirelessDevices = () => new Promise(() => {});
+    });
+    await page.click('button:has-text("Discover Wireless Devices")');
+    await page.waitForSelector('button:has-text("Cancel")', { timeout: 2000 });
+    recordTest('Running discovery shows a Cancel button and Searching state', /Searching/.test((await page.textContent('[data-testid="wireless-discovery-panel"]')) ?? ''));
+    await page.click('button:has-text("Cancel")');
+    await page.waitForTimeout(300);
+    recordTest('Cancel stops the main-process scan and resets the UI', (await page.evaluate(() => (window as any).__calls.cancel)) === 1 && (await page.locator('button:has-text("Cancel")').count()) === 0);
+
+    // -------------------------------------------------------------
+    // Test Scenario 14: Documents & OCR (Phase 11) - mocked main-process API
+    // -------------------------------------------------------------
+    console.log('\nScenario 14: Documents & OCR panel (mocked IPC; no real recognition)');
+    const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await page.evaluate((img) => {
+      const w = window as any;
+      w.__doc = { import: 0, process: [] as any[], ocr: 0, cancel: 0, text: [] as string[], saved: 0, pdf: 0, released: 0, ocrMode: 'ok', progressCb: null as any };
+      const base = { id: '20261018120000-abc123', sourceName: 'invoice.jpg', format: 'jpeg', width: 1200, height: 900, hasProcessed: false, hasOcr: false };
+      w.androscrnApi.documentOcrStatus = async () => ({ available: true, reason: null });
+      w.androscrnApi.onDocumentOcrProgress = (cb: any) => { w.__doc.progressCb = cb; return () => {}; };
+      w.androscrnApi.documentImportDialog = async () => {
+        w.__doc.import++;
+        if (w.__doc.importMode === 'bad') return { ok: false, code: 'UNSUPPORTED_FORMAT', message: 'Unsupported image format. Use a PNG or JPEG image.' };
+        return { ok: true, document: base, preview: { dataUrl: img, width: 600, height: 450, scale: 0.5 }, corners: [{ x: 100, y: 80 }, { x: 1100, y: 120 }, { x: 1060, y: 820 }, { x: 60, y: 780 }], detectionReason: null, detectionConfidence: 0.93, skewDegrees: 2.5 };
+      };
+      w.androscrnApi.documentImportCapture = async () => ({ ok: true, document: base, preview: { dataUrl: img, width: 600, height: 450, scale: 0.5 }, corners: null, detectionReason: 'low-contrast', detectionConfidence: null, skewDegrees: 0 });
+      w.androscrnApi.documentProcess = async (o: any) => { w.__doc.process.push(o); return { ok: true, document: { ...base, hasProcessed: true }, preview: { dataUrl: img, width: 500, height: 640, scale: 1 } }; };
+      w.androscrnApi.documentOcr = (id: string) => new Promise((resolve) => {
+        w.__doc.ocr++;
+        w.__doc.progressCb?.({ id, stage: 'recognizing text', progress: 0.4 });
+        if (w.__doc.ocrMode === 'hang') { w.__doc.resolveOcr = resolve; return; }
+        if (w.__doc.ocrMode === 'fail') { resolve({ ok: false, code: 'OCR_FAILED', message: 'OCR failed: engine error' }); return; }
+        resolve({ ok: true, result: { text: 'INVOICE 2026\nTOTAL 450', rawText: 'INVOICE 2026\nTOTAL 450', meanConfidence: 71.5, wordCount: 4, lowConfidenceWords: 1, lowConfidenceSample: [{ text: 'T0TAL', confidence: 38 }], engine: 'tesseract.js', language: 'eng', durationMs: 1400 } });
+      });
+      w.androscrnApi.documentOcrCancel = async () => { w.__doc.cancel++; w.__doc.resolveOcr?.({ ok: false, code: 'CANCELLED', message: 'OCR was cancelled.' }); return true; };
+      w.androscrnApi.documentSetText = async (_id: string, t: string) => { w.__doc.text.push(t); return { ok: true }; };
+      w.androscrnApi.documentSave = async () => { w.__doc.saved++; return { ok: true, directory: 'Captures/documents/20261018120000-abc123' }; };
+      w.androscrnApi.documentExportPdf = async () => { w.__doc.pdf++; return { ok: true, path: 'Captures/documents/20261018120000-abc123/searchable.pdf', directory: 'Captures/documents/20261018120000-abc123' }; };
+      w.androscrnApi.documentRelease = async () => { w.__doc.released++; return true; };
+    }, tinyPng);
+
+    await page.click('#tab-documents');
+    await page.waitForSelector('[data-testid="document-panel"]', { timeout: 3000 });
+    recordTest('Documents & OCR tab opens the document panel', await page.isVisible('[data-testid="document-panel"]'));
+    recordTest('Panel states that nothing is uploaded and the original is never changed', /Nothing is uploaded/.test((await page.textContent('[data-testid="document-panel"]')) ?? '') && /never changed/.test((await page.textContent('[data-testid="document-panel"]')) ?? ''));
+    recordTest('Run OCR is not offered before an image is imported', (await page.locator('[data-testid="document-ocr-panel"]').count()) === 0);
+
+    // import failure shows a clear, actionable error
+    await page.evaluate(() => { (window as any).__doc.importMode = 'bad'; });
+    await page.click('button:has-text("Choose image")');
+    await page.waitForTimeout(200);
+    const badMsg = (await page.textContent('[data-testid="document-message"]')) ?? '';
+    recordTest('An unsupported image shows an error with guidance', /Unsupported image format/.test(badMsg) && /PNG or JPEG/.test(badMsg));
+    recordTest('The error message is announced through a status live region', (await page.getAttribute('[data-testid="document-message"]', 'aria-live')) === 'polite');
+
+    // successful import
+    await page.evaluate(() => { (window as any).__doc.importMode = 'ok'; });
+    await page.click('button:has-text("Choose image")');
+    await page.waitForSelector('[data-testid="document-preview-image"]', { timeout: 3000 });
+    recordTest('Importing shows a preview with alt text', (await page.getAttribute('[data-testid="document-preview-image"]', 'alt')) === 'Preview of invoice.jpg');
+    recordTest('Detected page outline is drawn over the preview', (await page.locator('[data-testid="document-preview-panel"] svg polygon').count()) === 1);
+    recordTest('Detection result is explained in text', /Page edges detected \(93% rectangular\)/.test((await page.textContent('[data-testid="document-detection-note"]')) ?? ''));
+    recordTest('A suggested straighten action is offered for a skewed page', await page.isVisible('button:has-text("Suggested straighten")'));
+    recordTest('Import tells the user the original is not modified', /original file is never modified/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
+    recordTest('Run OCR is offered once a document is imported', await page.isVisible('[data-testid="document-ocr-panel"] button:has-text("Run OCR")'));
+
+    // adjustments
+    await page.click('button[aria-label="Rotate right 90 degrees"]');
+    await page.$eval('input[aria-label="Fine rotation in degrees"]', (el: any) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(el, '1.5');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('button:has-text("Apply adjustments")');
+    await page.waitForTimeout(250);
+    const processCalls = await page.evaluate(() => (window as any).__doc.process);
+    recordTest('Adjustments send crop, rotation and enhancement choices to the main process', processCalls.length === 1 && processCalls[0].rotationQuarterTurns === 1 && processCalls[0].rotationDegrees === 1.5 && processCalls[0].enhance === true && Array.isArray(processCalls[0].corners) && processCalls[0].corners.length === 4);
+    recordTest('After processing the outline is removed (the image is already cropped)', (await page.locator('[data-testid="document-preview-panel"] svg polygon').count()) === 0);
+
+    // OCR with progress and cancel
+    await page.evaluate(() => { (window as any).__doc.ocrMode = 'hang'; });
+    await page.click('button:has-text("Run OCR")');
+    await page.waitForSelector('[role="progressbar"]', { timeout: 3000 });
+    recordTest('OCR shows an accessible progress bar with a value', (await page.getAttribute('[role="progressbar"]', 'aria-valuenow')) === '40');
+    recordTest('OCR progress describes the current stage', /recognizing text/.test((await page.textContent('[data-testid="ocr-progress"]')) ?? ''));
+    recordTest('A Cancel button is available while OCR runs', await page.isVisible('[data-testid="document-ocr-panel"] button:has-text("Cancel")'));
+    await page.click('[data-testid="document-ocr-panel"] button:has-text("Cancel")');
+    await page.waitForTimeout(250);
+    recordTest('Cancelling stops OCR in the main process and reports it', (await page.evaluate(() => (window as any).__doc.cancel)) === 1 && /Cancelled/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
+    recordTest('The UI returns to an idle state after cancelling', (await page.locator('[role="progressbar"]').count()) === 0);
+
+    // OCR failure
+    await page.evaluate(() => { (window as any).__doc.ocrMode = 'fail'; });
+    await page.click('button:has-text("Run OCR")');
+    await page.waitForTimeout(250);
+    recordTest('An OCR failure is shown with a hint and does not break the panel', /OCR failed/.test((await page.textContent('[data-testid="document-message"]')) ?? '') && (await page.locator('[data-testid="document-ocr-panel"]').count()) === 1);
+
+    // OCR success, review, edit, save, export
+    await page.evaluate(() => { (window as any).__doc.ocrMode = 'ok'; });
+    await page.click('button:has-text("Run OCR")');
+    await page.waitForSelector('#document-text', { timeout: 3000 });
+    recordTest('Recognized text appears in an editable, labelled text area', (await page.inputValue('#document-text')) === 'INVOICE 2026\nTOTAL 450' && (await page.locator('label[for="document-text"]').count()) === 1);
+    recordTest('Confidence is shown with word counts', /Confidence: 71.5%/.test((await page.textContent('[data-testid="ocr-summary"]')) ?? '') && /1 low-confidence/.test((await page.textContent('[data-testid="ocr-summary"]')) ?? ''));
+    recordTest('Low-confidence words are listed for review', /T0TAL \(38%\)/.test((await page.textContent('[data-testid="low-confidence"]')) ?? ''));
+    await page.fill('#document-text', 'INVOICE 2026\nTOTAL 450.00');
+    await page.click('button:has-text("Save to Captures/documents")');
+    await page.waitForTimeout(250);
+    const savedText = await page.evaluate(() => (window as any).__doc.text);
+    recordTest('Saving first sends the user-edited text to the main process', savedText[savedText.length - 1] === 'INVOICE 2026\nTOTAL 450.00');
+    recordTest('Save reports the output folder', /Saved original copy, processed image, text and manifest/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
+    await page.click('button:has-text("Export searchable PDF")');
+    await page.waitForTimeout(250);
+    recordTest('Export searchable PDF reports the file path', /Searchable PDF saved: .*searchable\.pdf/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
+    recordTest('The PDF limitation (edits are not re-embedded) is stated', /not re-embedded in the PDF/.test((await page.textContent('[data-testid="document-ocr-panel"]')) ?? ''));
+
+    // keyboard operation
+    await page.focus('button:has-text("Run OCR")');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(250);
+    recordTest('OCR can be started from the keyboard', (await page.evaluate(() => (window as any).__doc.ocr)) >= 4);
+
+    // engine unavailable
+    await page.evaluate(() => { (window as any).androscrnApi.documentOcrStatus = async () => ({ available: false, reason: 'The OCR engine (tesseract.js) is not installed. Reinstall AndroScrn or run `npm install`.' }); });
+    await page.click('#tab-media');
+    await page.click('#tab-documents');
+    await page.waitForSelector('[data-testid="ocr-unavailable"]', { timeout: 3000 });
+    recordTest('A missing OCR engine shows an alert with a reason', /not installed/.test((await page.textContent('[data-testid="ocr-unavailable"]')) ?? '') && (await page.getAttribute('[data-testid="ocr-unavailable"]', 'role')) === 'alert');
+    await page.evaluate(() => { (window as any).__doc.importMode = 'ok'; });
+    await page.click('button:has-text("Choose image")');
+    await page.waitForSelector('[data-testid="document-ocr-panel"]', { timeout: 3000 });
+    recordTest('With OCR unavailable the Run OCR button is disabled but cropping stays available', (await page.isDisabled('button:has-text("Run OCR")')) && (await page.isEnabled('button:has-text("Apply adjustments")')));
+
+    // responsive
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.waitForTimeout(200);
+    const docFits = await page.evaluate(() => { const el = document.querySelector('[data-testid="document-panel"]') as HTMLElement | null; return !el || el.getBoundingClientRect().right <= window.innerWidth + 24; });
+    recordTest('The document panel stays within a 375px viewport', docFits);
+    await page.setViewportSize({ width: 1280, height: 800 });
 
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);

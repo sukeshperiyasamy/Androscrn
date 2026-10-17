@@ -55,6 +55,59 @@ export class SecurityValidator {
   }
 
   /**
+   * Masks a device serial for logs and exported reports. IPv4:port serials keep only the network
+   * prefix; other serials keep two leading and two trailing characters.
+   */
+  static redactSerial(serial: string): string {
+    if (typeof serial !== 'string' || serial.length === 0) return '';
+    const ip = serial.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}(:\d+)?$/);
+    if (ip) return `${ip[1]}.${ip[2]}.*.*${ip[3] ?? ''}`;
+    if (serial.length <= 6) return '****';
+    return `${serial.slice(0, 2)}${'*'.repeat(Math.min(serial.length - 4, 8))}${serial.slice(-2)}`;
+  }
+
+  /**
+   * Replaces every occurrence of the given serials inside free text with their redacted form.
+   */
+  static redactSerialsInText(text: string, serials: string[]): string {
+    let out = text;
+    for (const serial of [...serials].filter(Boolean).sort((a, b) => b.length - a.length)) {
+      out = out.split(serial).join(SecurityValidator.redactSerial(serial));
+    }
+    return out;
+  }
+
+  /**
+   * Masks IPv4 addresses (keeping the first two octets), MAC addresses and Wi-Fi network names (SSID/BSSID
+   * values) in free text. Used for diagnostic exports so network identifiers embedded in system properties or
+   * logcat do not leak. A real-device capture showed logcat lines containing the connected Wi-Fi SSID.
+   */
+  static redactNetworkIdentifiers(text: string): string {
+    return text
+      .replace(/\b(B?SSID)(\s*[:=]\s*)("[^"]*"|<[^>]*>|[^\s,\]]+)/gi, '$1$2[REDACTED_SSID]')
+      .replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, (m, a, b, c, d) =>
+        [a, b, c, d].every(o => parseInt(o, 10) <= 255) ? `${a}.${b}.*.*` : m
+      )
+      .replace(/\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b/g, '**:**:**:**:**:**');
+  }
+
+  /**
+   * True for RFC 1918 private ranges and 169.254.0.0/16 link-local ranges only.
+   */
+  static isLocalNetworkIPv4(ip: string): boolean {
+    if (!SecurityValidator.isValidIPv4(ip)) return false;
+    const [a, b] = ip.trim().split('.').map(n => parseInt(n, 10));
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+
+  /**
+   * Validates an opaque discovery endpoint handle issued by the main process.
+   */
+  static isValidEndpointId(id: unknown): id is string {
+    return typeof id === 'string' && /^[a-f0-9]{16}$/.test(id);
+  }
+
+  /**
    * Validates coordinate values (integer, non-negative, and strictly within optional screen bounds)
    */
   static isValidCoordinate(val: number, max?: number): boolean {

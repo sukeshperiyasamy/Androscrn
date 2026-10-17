@@ -20,7 +20,10 @@ AndroScrn bundles or interfaces with multiple battle-tested open-source componen
 | **Electron** | Modern LTS | OpenJS Foundation | MIT License | Runtime framework | Retain MIT copyright notice. |
 | **React** | 18.x / 19.x | Meta Platforms | MIT License | Bundled frontend | Retain MIT copyright notice. |
 | **Lucide Icons** | Latest | Lucide Project | ISC License | Bundled UI assets | Permissive ISC license. |
-| **Tesseract OCR** | 5.3.x | Google / Tesseract | Apache License 2.0 | External / Optional | Retain Apache 2.0 notice. |
+| **tesseract.js** (+ `tesseract.js-core` WebAssembly) | 7.0.0 | tesseract.js contributors | Apache License 2.0 | Bundled (Phase 11 local OCR) | Retain Apache 2.0 notice. Loaded from disk; no network access. |
+| **Tesseract English language data** (`@tesseract.js-data/eng`, `tessdata_best`) | 1.0.0 | Tesseract OCR project | Apache License 2.0 (data); wrapper package MIT | Bundled data file (about 3 MB) | Retain Apache 2.0 notice. |
+| **pngjs** | 7.0.0 | pngjs contributors | MIT License | Bundled | Retain MIT notice. |
+| **jpeg-js** | 0.4.4 | Eugene Ware and contributors | BSD-3-Clause | Bundled | Retain BSD notice. |
 | **Ollama** | 0.34.4 | Ollama Inc. | MIT License | External / Optional | Retain MIT notice. |
 
 ---

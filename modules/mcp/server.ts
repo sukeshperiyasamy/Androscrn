@@ -124,7 +124,7 @@ export class AndroScrnMcpServer {
       'get_device_info',
       'Retrieve detailed hardware, battery, and connection status for a specified Android device.',
       {
-        serial: z.string().describe('Target device serial identifier (e.g. kjizrsgekfsglvgi or 192.168.1.100:5555)')
+        serial: z.string().describe('Target device serial identifier (e.g. EXAMPLE0SERIAL01 or 192.168.1.100:5555)')
       },
       async ({ serial }) => {
         if (!SecurityValidator.isValidSerial(serial)) {

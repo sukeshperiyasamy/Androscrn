@@ -4,6 +4,28 @@ import os from 'os';
 import { spawn } from 'child_process';
 import { DeviceManager } from '../device_manager';
 import { SecurityValidator } from '../security';
+import { UserPathStore, PowerShellUserPathStore, addPathEntry, removePathEntry, parsePathList, pathListContains } from './path-utils';
+
+export * from './path-utils';
+
+/**
+ * Opens an http(s) URL in the user's default browser. Only called when the user explicitly runs
+ * `androscrn docs`. The spawn function is injectable so tests can verify the launch without opening a browser.
+ */
+export function openInDefaultBrowser(
+  url: string,
+  platform: NodeJS.Platform = os.platform(),
+  spawnFn: (cmd: string, args: string[], opts: any) => { unref(): void } = spawn as any
+): void {
+  if (!/^https?:\/\/[^\s"&|<>^]+$/i.test(url)) {
+    throw new Error(`Refusing to open a non-http(s) or unsafe URL: ${url}`);
+  }
+  if (platform === 'win32') {
+    spawnFn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    spawnFn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+  }
+}
 
 export interface CliCommandResult {
   exitCode: number;
@@ -17,6 +39,10 @@ export interface CliEnvironment {
   appDir?: string;
   docsUrl?: string;
   isPackaged?: boolean;
+  /** Launches a URL in the default browser. Defaults to the real launcher; tests inject a recorder. */
+  openUrl?: (url: string) => void;
+  /** Persistence for the User PATH. Defaults to the real Windows User PATH; tests inject an in-memory store. */
+  pathStore?: UserPathStore;
 }
 
 export class AndroScrnCli {
@@ -25,8 +51,12 @@ export class AndroScrnCli {
   private appDir: string;
   private docsUrl: string;
   private deviceManager: DeviceManager;
+  private pathStore: UserPathStore;
+  private openUrl: (url: string) => void;
 
   constructor(env: CliEnvironment = {}) {
+    this.openUrl = env.openUrl || ((url: string) => openInDefaultBrowser(url));
+    this.pathStore = env.pathStore || new PowerShellUserPathStore();
     this.appDir = env.appDir || path.resolve(__dirname, '../../..');
     this.adbPath = env.adbPath || this.resolveBinaryPath('adb.exe');
     this.scrcpyPath = env.scrcpyPath || this.resolveBinaryPath('scrcpy.exe');
@@ -376,16 +406,9 @@ DOCUMENTATION:
    */
   public async handleDocs(): Promise<CliCommandResult> {
     const url = this.docsUrl;
-    let localDocsFallback = path.join(this.appDir, 'docs', 'index.html');
-
-    const targetUrl = fs.existsSync(localDocsFallback) ? localDocsFallback : url;
 
     try {
-      if (os.platform() === 'win32') {
-        spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
-      } else {
-        spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
-      }
+      this.openUrl(url);
 
       return {
         exitCode: 0,
@@ -402,7 +425,9 @@ DOCUMENTATION:
   }
 
   /**
-   * Adds the target directory to the current User's PATH environment variable
+   * Adds the target directory to the current User's PATH environment variable.
+   * The read happens first and any read failure aborts without writing, so a failed read can never
+   * overwrite the existing PATH.
    */
   public handleSetupPath(args: string[]): CliCommandResult {
     const targetDir = args[0] ? path.resolve(args[0]) : this.appDir;
@@ -424,22 +449,10 @@ DOCUMENTATION:
     }
 
     try {
-      const psCommand = `
-        $target = '${targetDir.replace(/'/g, "''")}';
-        $currentPath = [Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::User);
-        $paths = ($currentPath -split ';') | Where-Object { $_ -ne '' };
-        if ($paths -contains $target) {
-          Write-Output 'ALREADY_EXISTS';
-        } else {
-          $newPath = ($paths + $target) -join ';';
-          [Environment]::SetEnvironmentVariable('Path', $newPath, [EnvironmentVariableTarget]::User);
-          Write-Output 'SUCCESS';
-        }
-      `.trim();
+      const current = this.pathStore.read();
+      const change = addPathEntry(current, targetDir);
 
-      const res = this.executePowershellSync(psCommand);
-
-      if (res.includes('ALREADY_EXISTS')) {
+      if (!change.changed) {
         return {
           exitCode: 0,
           stdout: `Directory is already present in User PATH:\n  ${targetDir}\nNo changes were made.\n`,
@@ -447,30 +460,23 @@ DOCUMENTATION:
         };
       }
 
-      if (res.includes('SUCCESS')) {
-        return {
-          exitCode: 0,
-          stdout: `Successfully added to User PATH:\n  ${targetDir}\n\nPlease open a new CMD or PowerShell window for changes to take effect.\nYou can then type 'androscrn' from any directory.\n`,
-          stderr: ''
-        };
-      }
-
+      this.pathStore.write(change.value);
       return {
-        exitCode: 1,
-        stdout: '',
-        stderr: `Failed to update User PATH: ${res}\n`
+        exitCode: 0,
+        stdout: `Successfully added to User PATH:\n  ${targetDir}\n\nPlease open a new CMD or PowerShell window for changes to take effect.\nYou can then type 'androscrn' from any directory.\n`,
+        stderr: ''
       };
     } catch (err: any) {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Error updating User PATH: ${err.message}\n`
+        stderr: `Failed to update User PATH: ${err.message}\n`
       };
     }
   }
 
   /**
-   * Removes the target directory from the current User's PATH environment variable
+   * Removes the target directory (and any duplicates of it) from the current User's PATH.
    */
   public handleRemovePath(args: string[]): CliCommandResult {
     const targetDir = args[0] ? path.resolve(args[0]) : this.appDir;
@@ -484,23 +490,10 @@ DOCUMENTATION:
     }
 
     try {
-      const psCommand = `
-        $target = '${targetDir.replace(/'/g, "''")}';
-        $currentPath = [Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::User);
-        $paths = ($currentPath -split ';') | Where-Object { $_ -ne '' };
-        if (-not ($paths -contains $target)) {
-          Write-Output 'NOT_FOUND';
-        } else {
-          $newPaths = $paths | Where-Object { $_ -ne $target };
-          $newPath = $newPaths -join ';';
-          [Environment]::SetEnvironmentVariable('Path', $newPath, [EnvironmentVariableTarget]::User);
-          Write-Output 'SUCCESS';
-        }
-      `.trim();
+      const current = this.pathStore.read();
+      const change = removePathEntry(current, targetDir);
 
-      const res = this.executePowershellSync(psCommand);
-
-      if (res.includes('NOT_FOUND')) {
+      if (!change.changed) {
         return {
           exitCode: 0,
           stdout: `Directory was not found in User PATH:\n  ${targetDir}\nNo changes needed.\n`,
@@ -508,24 +501,17 @@ DOCUMENTATION:
         };
       }
 
-      if (res.includes('SUCCESS')) {
-        return {
-          exitCode: 0,
-          stdout: `Successfully removed from User PATH:\n  ${targetDir}\n\nPlease open a new CMD or PowerShell window for changes to take effect.\n`,
-          stderr: ''
-        };
-      }
-
+      this.pathStore.write(change.value);
       return {
-        exitCode: 1,
-        stdout: '',
-        stderr: `Failed to remove from User PATH: ${res}\n`
+        exitCode: 0,
+        stdout: `Successfully removed from User PATH:\n  ${targetDir}\n\nPlease open a new CMD or PowerShell window for changes to take effect.\n`,
+        stderr: ''
       };
     } catch (err: any) {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `Error updating User PATH: ${err.message}\n`
+        stderr: `Failed to remove from User PATH: ${err.message}\n`
       };
     }
   }
@@ -533,33 +519,9 @@ DOCUMENTATION:
   private checkIfDirectoryInPath(targetDir: string): boolean {
     if (os.platform() !== 'win32') return false;
     try {
-      const userPath = this.executePowershellSync(`[Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::User)`);
-      const paths = userPath.split(';').map(p => p.trim().toLowerCase());
-      return paths.includes(targetDir.trim().toLowerCase());
+      return pathListContains(parsePathList(this.pathStore.read()), targetDir);
     } catch {
       return false;
     }
   }
-
-  private executePowershellSync(script: string): string {
-    const { execSync } = require('child_process');
-    try {
-      return execSync(`powershell.exe -NoProfile -NonInteractive -Command "${script.replace(/\r?\n/g, ' ')}"`, {
-        encoding: 'utf8',
-        timeout: 8000
-      }).trim();
-    } catch (err: any) {
-      return err.stdout ? err.stdout.toString() : err.message;
-    }
-  }
-}
-
-// Direct executable invocation if run as main
-if (require.main === module) {
-  const cli = new AndroScrnCli();
-  cli.run(process.argv.slice(2)).then(res => {
-    if (res.stdout) process.stdout.write(res.stdout);
-    if (res.stderr) process.stderr.write(res.stderr);
-    process.exit(res.exitCode);
-  });
 }

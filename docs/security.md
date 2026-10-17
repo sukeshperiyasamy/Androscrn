@@ -180,3 +180,24 @@ The named pipe endpoint `\\.\pipe\androscrn-mcp-control` connects the trusted El
 
 * **Critical Distinction:** The Android Debug Bridge daemon (`adbd` on device and local `adb.exe` server) listens locally on TCP loopback `127.0.0.1:5037`. By Google's Android SDK platform architecture, the local ADB server has no built-in client authentication mechanism for local processes running under the same user.
 * **Scope Boundary:** Securing the MCP named pipe (`\\.\pipe\androscrn-mcp-control`) controls the communication bridge between external AI agents and AndroScrn's input execution engine. It does not replace Google's local ADB loopback socket. Physical device access additionally depends on the user physically accepting the RSA host key fingerprint on the physical phone screen.
+
+---
+
+## 6. Wireless Discovery, Pairing and Diagnostic Privacy (Phase 10)
+
+- **Discovery is read-only and explicit.** It runs only when the user presses *Discover Wireless Devices*, reads ADB's mDNS
+  service list, and accepts only private (RFC 1918) and link-local IPv4 endpoints. It never connects, pairs or enables
+  anything on the phone.
+- **Connecting and pairing need a recent endpoint handle and a native confirmation dialog** owned by the Electron main
+  process. Handles are opaque, expire after two minutes, are invalidated by later discovery runs that no longer see the
+  endpoint, and cannot be replayed for the other action. A crashing or declined dialog never results in a connection.
+- **Pairing codes** are validated as six digits, passed to ADB as a discrete argument, never logged, and removed from any
+  message returned to the UI.
+- **Device pairing and MCP client pairing are separate.** Nothing in discovery grants an MCP permission, and the MCP
+  server has no access to the discovery modules. Session expiry, client binding, permission tiers and emergency revocation
+  are unchanged.
+- **Diagnostic exports redact by default:** device serials, IPv4 and MAC addresses, Wi-Fi network names (SSID/BSSID),
+  email addresses, bearer tokens and pairing codes. Exported report file names use a short hash instead of the serial.
+  Application log lines redact serials as well.
+- **Vendor guidance is advisory.** AndroScrn never changes phone settings, and blocked input is always reported as a
+  failure rather than a success.

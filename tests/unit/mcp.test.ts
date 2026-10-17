@@ -29,7 +29,7 @@ export async function runMcpTests(
   // Mock getDevices
   deviceManager.getDevices = async () => [
     {
-      serial: 'kjizrsgekfsglvgi',
+      serial: 'EXAMPLE0SERIAL01',
       state: 'device',
       model: '21091116I',
       product: 'pissarroin',
@@ -94,7 +94,7 @@ export async function runMcpTests(
   };
 
   deviceManager.getScreenSize = async (serial: string) => {
-    if (serial === 'kjizrsgekfsglvgi') {
+    if (serial === 'EXAMPLE0SERIAL01') {
       return { width: 1080, height: 2400 };
     }
     return null;
@@ -150,12 +150,12 @@ export async function runMcpTests(
   assert(!devRes.isError, 'list_devices executed without error');
   const parsedDevices = JSON.parse(devRes.content[0].text);
   assertEqual(parsedDevices.length, 2, 'list_devices returned expected mock device count');
-  assertEqual(parsedDevices[0].serial, 'kjizrsgekfsglvgi', 'list_devices first serial matches');
+  assertEqual(parsedDevices[0].serial, 'EXAMPLE0SERIAL01', 'list_devices first serial matches');
 
   // Test 3: get_device_info with valid serial
   const infoRes: any = await client.callTool({
     name: 'get_device_info',
-    arguments: { serial: 'kjizrsgekfsglvgi' }
+    arguments: { serial: 'EXAMPLE0SERIAL01' }
   });
   assert(!infoRes.isError, 'get_device_info executed successfully for valid serial');
   const infoJson = JSON.parse(infoRes.content[0].text);
@@ -181,7 +181,7 @@ export async function runMcpTests(
   // Test 6: get_logcat with sensitive data redaction
   const logcatRes: any = await client.callTool({
     name: 'get_logcat',
-    arguments: { serial: 'kjizrsgekfsglvgi', lines: 10 }
+    arguments: { serial: 'EXAMPLE0SERIAL01', lines: 10 }
   });
   assert(!logcatRes.isError, 'get_logcat executed successfully');
   const logcatText = logcatRes.content[0].text;
@@ -195,7 +195,7 @@ export async function runMcpTests(
   // Test 7: get_logcat level filtering
   const errLogRes: any = await client.callTool({
     name: 'get_logcat',
-    arguments: { serial: 'kjizrsgekfsglvgi', lines: 10, filterLevel: 'E' }
+    arguments: { serial: 'EXAMPLE0SERIAL01', lines: 10, filterLevel: 'E' }
   });
   const errLogs = JSON.parse(errLogRes.content[0].text);
   assertEqual(errLogs.length, 1, 'get_logcat filtered to 1 Error log');
@@ -222,7 +222,7 @@ export async function runMcpTests(
   // Test 10: capture_screenshot verified PNG content block
   const snapRes: any = await client.callTool({
     name: 'capture_screenshot',
-    arguments: { serial: 'kjizrsgekfsglvgi', format: 'base64' }
+    arguments: { serial: 'EXAMPLE0SERIAL01', format: 'base64' }
   });
   assert(!snapRes.isError, 'capture_screenshot executed successfully');
   assertEqual(snapRes.content[0].type, 'image', 'capture_screenshot returned image content block');
@@ -458,7 +458,7 @@ export async function runMcpTests(
   capturedAudits.length = 0;
   const tapRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 540, y: 1200, token: tier3Token }
   });
   assert(!tapRes.isError, 'tap executed successfully with Tier 3 token');
   const tapJson = JSON.parse(tapRes.content[0].text);
@@ -473,20 +473,20 @@ export async function runMcpTests(
   // Test 24: tap rejects missing, invalid, and insufficient permission tokens
   const tapNoTokRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: '' }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 540, y: 1200, token: '' }
   });
   assert(tapNoTokRes.isError, 'tap rejected empty token');
   assert(tapNoTokRes.content[0].text.includes('Tier 3'), 'Requires Tier 3 permission');
 
   const tapBadTokRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: 'fake-token-12345' }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 540, y: 1200, token: 'fake-token-12345' }
   });
   assert(tapBadTokRes.isError, 'tap rejected invalid token');
 
   const tapTier2Res: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 540, y: 1200, token: tier2Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 540, y: 1200, token: tier2Token }
   });
   assert(tapTier2Res.isError, 'tap rejected Tier 2 token (insufficient privileges)');
 
@@ -506,7 +506,7 @@ export async function runMcpTests(
   // Test 26: tap rejects out-of-bounds coordinates
   const tapOutOfBoundsRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 1500, y: 3000, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 1500, y: 3000, token: tier3Token }
   });
   assert(tapOutOfBoundsRes.isError, 'tap rejected out-of-bounds coordinates (1500, 3000)');
   assert(
@@ -517,7 +517,7 @@ export async function runMcpTests(
   // Test 27: tap handles execution timeout
   const tapTimeoutRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 9999, y: 9999, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 9999, y: 9999, token: tier3Token }
   });
   assert(tapTimeoutRes.isError, 'tap handles command timeout safely');
 
@@ -525,7 +525,7 @@ export async function runMcpTests(
   executedAdbArgs.length = 0;
   const swipeRes: any = await client.callTool({
     name: 'swipe',
-    arguments: { serial: 'kjizrsgekfsglvgi', x1: 500, y1: 1500, x2: 500, y2: 300, durationMs: 400, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x1: 500, y1: 1500, x2: 500, y2: 300, durationMs: 400, token: tier3Token }
   });
   assert(!swipeRes.isError, 'swipe executed successfully');
   const swipeJson = JSON.parse(swipeRes.content[0].text);
@@ -538,13 +538,13 @@ export async function runMcpTests(
   // Test 29: swipe rejects invalid duration and out-of-bounds coordinates
   const swipeFastRes: any = await client.callTool({
     name: 'swipe',
-    arguments: { serial: 'kjizrsgekfsglvgi', x1: 100, y1: 100, x2: 200, y2: 200, durationMs: 20, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x1: 100, y1: 100, x2: 200, y2: 200, durationMs: 20, token: tier3Token }
   });
   assert(swipeFastRes.isError, 'swipe rejected duration under 50ms');
 
   const swipeBadEndRes: any = await client.callTool({
     name: 'swipe',
-    arguments: { serial: 'kjizrsgekfsglvgi', x1: 100, y1: 100, x2: 2000, y2: 5000, durationMs: 300, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x1: 100, y1: 100, x2: 2000, y2: 5000, durationMs: 300, token: tier3Token }
   });
   assert(swipeBadEndRes.isError, 'swipe rejected out-of-bounds endpoint coordinates');
 
@@ -552,7 +552,7 @@ export async function runMcpTests(
   executedAdbArgs.length = 0;
   const keyRes: any = await client.callTool({
     name: 'keyevent',
-    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 4, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', keyCode: 4, token: tier3Token }
   });
   assert(!keyRes.isError, 'keyevent executed successfully for keyCode 4');
   assert(
@@ -563,19 +563,19 @@ export async function runMcpTests(
   // Test 31: keyevent rejects invalid keycode and handles vendor ROM permissions
   const keyNegativeRes: any = await client.callTool({
     name: 'keyevent',
-    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: -5, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', keyCode: -5, token: tier3Token }
   });
   assert(keyNegativeRes.isError, 'keyevent rejected negative keycode');
 
   const keyHugeRes: any = await client.callTool({
     name: 'keyevent',
-    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 9999, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', keyCode: 9999, token: tier3Token }
   });
   assert(keyHugeRes.isError, 'keyevent rejected keycode > 300');
 
   const keyMiuiRes: any = await client.callTool({
     name: 'keyevent',
-    arguments: { serial: 'kjizrsgekfsglvgi', keyCode: 82, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', keyCode: 82, token: tier3Token }
   });
   assert(keyMiuiRes.isError, 'keyevent handles vendor ROM injection permission denial');
   assert(
@@ -587,7 +587,7 @@ export async function runMcpTests(
   executedAdbArgs.length = 0;
   const textRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Hello World 2026', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'Hello World 2026', token: tier3Token }
   });
   assert(!textRes.isError, 'input_text executed successfully');
   const textJson = JSON.parse(textRes.content[0].text);
@@ -601,26 +601,26 @@ export async function runMcpTests(
   // Test 33: input_text rejects shell injection attempts
   const textSemicolonRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'test; rm -rf /', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'test; rm -rf /', token: tier3Token }
   });
   assert(textSemicolonRes.isError, 'input_text rejected semicolon injection');
 
   const textPipeRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'test | whoami', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'test | whoami', token: tier3Token }
   });
   assert(textPipeRes.isError, 'input_text rejected pipe injection');
 
   const textDollarRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'hello $(calc.exe)', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'hello $(calc.exe)', token: tier3Token }
   });
   assert(textDollarRes.isError, 'input_text rejected command substitution injection');
 
   // Test 34: input_text rejects Unicode / non-ASCII gracefully
   const textUnicodeRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Café au lait', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'Café au lait', token: tier3Token }
   });
   assert(textUnicodeRes.isError, 'input_text rejected Unicode text');
   assert(
@@ -630,7 +630,7 @@ export async function runMcpTests(
 
   const textEmojiRes: any = await client.callTool({
     name: 'input_text',
-    arguments: { serial: 'kjizrsgekfsglvgi', text: 'Hello 😊', token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', text: 'Hello 😊', token: tier3Token }
   });
   assert(textEmojiRes.isError, 'input_text rejected emoji input');
 
@@ -652,7 +652,7 @@ export async function runMcpTests(
   pairingManager.revokeSession(tier3Token);
   const revokedTapRes: any = await client.callTool({
     name: 'tap',
-    arguments: { serial: 'kjizrsgekfsglvgi', x: 500, y: 500, token: tier3Token }
+    arguments: { serial: 'EXAMPLE0SERIAL01', x: 500, y: 500, token: tier3Token }
   });
   assert(revokedTapRes.isError, 'tap rejected after session token was revoked');
 

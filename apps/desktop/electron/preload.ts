@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   disconnectDevice: (serial: string) => ipcRenderer.invoke('disconnect-device', { serial }),
   pairWireless: (data: any) => ipcRenderer.invoke('pair-wireless', data),
   detectHotspot: () => ipcRenderer.invoke('detect-hotspot'),
+  discoverWirelessDevices: () => ipcRenderer.invoke('discover-wireless-devices'),
+  cancelWirelessDiscovery: () => ipcRenderer.invoke('cancel-wireless-discovery'),
+  connectDiscoveredDevice: (endpointId: string) => ipcRenderer.invoke('connect-discovered-device', { endpointId }),
+  pairDiscoveredDevice: (endpointId: string, pin: string) => ipcRenderer.invoke('pair-discovered-device', { endpointId, pin }),
+  getDeviceHelp: (serial: string) => ipcRenderer.invoke('get-device-help', { serial }),
   captureScreenshot: (serial: string) => ipcRenderer.invoke('capture-screenshot', { serial }),
   getCaptures: () => ipcRenderer.invoke('get-captures'),
   openPath: (targetPath: string) => ipcRenderer.invoke('open-path', targetPath),
@@ -47,6 +52,21 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   companionTakePhoto: (destinationDir?: string) => ipcRenderer.invoke('companion-take-photo', { destinationDir }),
   companionDisconnect: () => ipcRenderer.invoke('companion-disconnect'),
   companionGetStreamUrl: () => ipcRenderer.invoke('companion-get-stream-url'),
+  documentOcrStatus: () => ipcRenderer.invoke('document-ocr-status'),
+  documentImportDialog: () => ipcRenderer.invoke('document-import-dialog'),
+  documentImportCapture: (fileName: string) => ipcRenderer.invoke('document-import-capture', { fileName }),
+  documentProcess: (options: any) => ipcRenderer.invoke('document-process', options),
+  documentOcr: (id: string) => ipcRenderer.invoke('document-ocr', { id }),
+  documentOcrCancel: (id: string) => ipcRenderer.invoke('document-ocr-cancel', { id }),
+  documentSetText: (id: string, text: string) => ipcRenderer.invoke('document-set-text', { id, text }),
+  documentSave: (id: string) => ipcRenderer.invoke('document-save', { id }),
+  documentExportPdf: (id: string) => ipcRenderer.invoke('document-export-pdf', { id }),
+  documentRelease: (id: string) => ipcRenderer.invoke('document-release', { id }),
+  onDocumentOcrProgress: (cb: (p: { id: string; stage: string; progress: number }) => void) => {
+    const handler = (_: any, p: any) => cb(p);
+    ipcRenderer.on('document-ocr-progress', handler);
+    return () => { ipcRenderer.removeListener('document-ocr-progress', handler); };
+  },
   labGenerateOverlaySvg: (width: number, height: number, config: any, metadata?: any) => ipcRenderer.invoke('lab-generate-overlay-svg', { width, height, config, metadata }),
   labStartTimelapse: (config: any) => ipcRenderer.invoke('lab-start-timelapse', config),
   labStopTimelapse: () => ipcRenderer.invoke('lab-stop-timelapse'),

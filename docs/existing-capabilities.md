@@ -18,7 +18,7 @@
 ## 2. Verified Local Tooling & Execution Environment
 
 ### A. Official Android Debug Bridge (ADB)
-* **Location:** `C:\Users\sukes\AppData\Local\Android\Sdk\platform-tools\adb.exe`
+* **Location:** `<USER_PROFILE>\AppData\Local\Android\Sdk\platform-tools\adb.exe`
 * **Version:** 1.0.41 (Version 37.0.0-14910828)
 * **Status:** Verified active and listening on `tcp:5037`.
 * **Associated Libraries:** `AdbWinApi.dll`, `AdbWinUsbApi.dll`
@@ -27,7 +27,7 @@
 * **Release:** v5.0.1 (win64)
 * **Source:** Official GitHub Release Asset `scrcpy-win64-v5.0.1.zip`
 * **Integrity:** SHA-256 Checksum `b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5` (Verified matching official `SHA256SUMS.txt`).
-* **Binary Location:** `C:\Users\sukes\Downloads\scrcpy-bin-v5.0.1\extracted\scrcpy-win64-v5.0.1\`
+* **Binary Location:** `<USER_PROFILE>\Downloads\scrcpy-bin-v5.0.1\extracted\scrcpy-win64-v5.0.1\`
 * **Component Inventory:**
   * `scrcpy.exe` (v5.0.1 executable, SDL 3.4.18, libavcodec 63.1.102, libavformat 63.1.102, libavutil 61.1.102, libusb 1.0.30)
   * `scrcpy-server` (Official Android JAR binary, 733,930 bytes)
@@ -45,7 +45,7 @@
 * **Capability:** Local character recognition from captured screenshots without external APIs or cloud charges.
 
 ### E. Local AI Inference Runtime
-* **Ollama:** Installed and verified at `C:\Users\sukes\AppData\Local\Programs\Ollama\ollama.exe` (Version 0.34.4).
+* **Ollama:** Installed and verified at `<USER_PROFILE>\AppData\Local\Programs\Ollama\ollama.exe` (Version 0.34.4).
 * **Capability:** Local LLM inference (e.g. `llama3.2`, `qwen2.5-coder`, `mistral`) via standard local HTTP REST API (`http://localhost:11434/api/generate`) with zero cloud cost and full privacy.
 
 ---

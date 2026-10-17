@@ -19,7 +19,7 @@ This inventory documents the inspection of all relevant repositories, reference 
 ## 2. Repository A: REA (morluto/rea)
 
 * **Repository URL:** `https://github.com/morluto/rea.git`
-* **Local Clone Path:** `C:\Users\sukes\Downloads\rea-research` (Cloned & Verified)
+* **Local Clone Path:** `<USER_PROFILE>\Downloads\rea-research` (Cloned & Verified)
 * **License:** MIT License (`LICENSE`)
 * **Package Identity:** `rea-agents` (npm package), TypeScript/Node.js based Model Context Protocol (MCP) server.
 * **Primary Purpose:**  
@@ -55,12 +55,12 @@ This inventory documents the inspection of all relevant repositories, reference 
 
 * **Official scrcpy Repository:** `https://github.com/Genymobile/scrcpy` (Genymobile)
 * **scrcpy License:** Apache License 2.0 (`LICENSE`)
-* **Local Source Snapshot:** `C:\Users\sukes\Downloads\scrcpy-master` (scrcpy v5.0.1 source tree)
+* **Local Source Snapshot:** `<USER_PROFILE>\Downloads\scrcpy-master` (scrcpy v5.0.1 source tree)
 * **Verified Official Binary Release:** `scrcpy-win64-v5.0.1.zip`
   * Download URL: `https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-win64-v5.0.1.zip`
   * Official SHA-256 Hash: `b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5`
   * Verification Result: **VALIDATED (MATCHED)**
-  * Extracted Directory: `C:\Users\sukes\Downloads\scrcpy-bin-v5.0.1\extracted\scrcpy-win64-v5.0.1\`
+  * Extracted Directory: `<USER_PROFILE>\Downloads\scrcpy-bin-v5.0.1\extracted\scrcpy-win64-v5.0.1\`
   * Bundled Binaries & Libraries:
     * `scrcpy.exe` (v5.0.1, SDL3 runtime)
     * `scrcpy-server` (Android jar server v5.0.1, runs on Android API 21+)
@@ -70,7 +70,7 @@ This inventory documents the inspection of all relevant repositories, reference 
     * `libusb-1.0.dll`
 
 * **Official ADB Installation:**
-  * System Location: `C:\Users\sukes\AppData\Local\Android\Sdk\platform-tools\adb.exe`
+  * System Location: `<USER_PROFILE>\AppData\Local\Android\Sdk\platform-tools\adb.exe`
   * Version: Android Debug Bridge version 1.0.41 (Version 37.0.0-14910828)
   * Verification Result: Verified running and functional (`adb devices -l` active on port 5037).
 
@@ -84,11 +84,11 @@ This inventory documents the inspection of all relevant repositories, reference 
 | **Node.js** | `C:\Program Files\nodejs\node.exe` | v20.20.1 | Verified |
 | **npm** | `C:\Program Files\nodejs\npm.cmd` | 10.8.2 | Verified |
 | **Git** | `C:\Program Files\Git\cmd\git.exe` | 2.45.1.windows.1 | Verified |
-| **ADB** | `C:\Users\sukes\AppData\Local\Android\Sdk\platform-tools\adb.exe` | 1.0.41 (37.0.0) | Verified |
-| **scrcpy binary** | `C:\Users\sukes\Downloads\scrcpy-bin-v5.0.1\extracted\...\scrcpy.exe` | 5.0.1 | Verified |
+| **ADB** | `<USER_PROFILE>\AppData\Local\Android\Sdk\platform-tools\adb.exe` | 1.0.41 (37.0.0) | Verified |
+| **scrcpy binary** | `<USER_PROFILE>\Downloads\scrcpy-bin-v5.0.1\extracted\...\scrcpy.exe` | 5.0.1 | Verified |
 | **Tesseract OCR** | `C:\Program Files\Tesseract-OCR\tesseract.exe` | v5.3.x | Verified |
-| **Ollama AI** | `C:\Users\sukes\AppData\Local\Programs\Ollama\ollama.exe` | v0.34.4 | Verified |
-| **Python** | `C:\Users\sukes\AppData\Local\Programs\Python\Python313\python.exe`| 3.13.x | Present (Not required for AndroScrn) |
+| **Ollama AI** | `<USER_PROFILE>\AppData\Local\Programs\Ollama\ollama.exe` | v0.34.4 | Verified |
+| **Python** | `<USER_PROFILE>\AppData\Local\Programs\Python\Python313\python.exe`| 3.13.x | Present (Not required for AndroScrn) |
 | **Rust / Cargo** | Not installed in standard path | N/A | Evaluated for stack decision |
 | **MSVC / C++ Tools**| Not installed | N/A | Evaluated for stack decision |
 
@@ -96,6 +96,6 @@ This inventory documents the inspection of all relevant repositories, reference 
 
 ## 6. Integrity and Protection Rules
 
-1. Existing files in `c:\Users\sukes\Downloads\scrcpy-master` are preserved intact.
-2. The cloned REA repository (`C:\Users\sukes\Downloads\rea-research`) serves strictly as an analysis resource.
+1. Existing files in `<USER_PROFILE>\Downloads\scrcpy-master` are preserved intact.
+2. The cloned REA repository (`<USER_PROFILE>\Downloads\rea-research`) serves strictly as an analysis resource.
 3. The new product **AndroScrn** is structured in its own self-contained directory with dedicated git history, documentation, tests, and build artifacts.

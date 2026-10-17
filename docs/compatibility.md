@@ -23,7 +23,7 @@ In accordance with Phase 9 certification criteria, compatibility is tracked stri
 | :--- | :--- | :--- | :--- | :--- |
 | **Windows 11 (22H2–24H2)** | `x64` (AMD64) | **Verified** | ADB 1.0.41, scrcpy 5.0.1 (x64) | Primary host platform. Full Direct3D11 streaming, Named Pipe IPC (`\\.\pipe\androscrn-mcp-control`), Native C# CLI runner, zero external runtime dependency. |
 | **Windows 10 (21H2–22H2)** | `x64` (AMD64) | **Verified** | ADB 1.0.41, scrcpy 5.0.1 (x64) | Tested on standard Windows 10 x64. Direct3D11 hardware decoding active; Win32 Named Pipes compatible. Requires standard Windows USB drivers (WinUSB / Google USB Driver). |
-| **Windows 11 on ARM** | `arm64` | **Partially verified** | x64 binaries via Prism/WOW64 | Executes via Windows 11 x64 emulation. Performance overhead in software video decoders; native arm64 toolchain binaries not yet bundled. |
+| **Windows 11 on ARM** | `arm64` | **Untested** | x64 binaries (no ARM64 build) | No ARM64 machine was available, so neither native nor emulated operation has been run. Electron and scrcpy publish ARM64 builds, but ADB's architecture is unconfirmed. See [platform-support.md](platform-support.md). |
 | **Windows 10 on ARM** | `arm64` | **Unsupported** | N/A | Windows 10 ARM x64 emulation is incomplete or unavailable on older builds. |
 | **Windows 7 / 8 / 8.1** | `x86` / `x64` | **Unsupported** | N/A | Deprecated by Microsoft and Electron 23+. Named Pipe security APIs and modern WinUSB drivers unsupported. |
 | **Linux (Ubuntu/Debian)** | `x64` | **Not tested** | External system binaries | Core TypeScript/Node backend modules are POSIX-compatible, but Windows Named Pipe IPC and native `.exe` CLI wrapper are Windows-specific. |
@@ -37,7 +37,7 @@ AndroScrn supports both out-of-the-box bundled binaries and external Android SDK
 
 | Distribution Channel | Version Detected | Status | Operational Characteristics |
 | :--- | :--- | :--- | :--- |
-| **Bundled Portable Distribution** (`bin/scrcpy-win64/adb.exe`) | Android Debug Bridge version `1.0.41` (Version 35.0.1-11580242) | **Verified** | Self-contained, zero-install. Pre-packaged alongside `AdbWinApi.dll` and `AdbWinUsbApi.dll`. Immune to system PATH corruption. Recommended default. |
+| **Bundled Portable Distribution** (`bin/scrcpy-win64/adb.exe`) | Android Debug Bridge version `1.0.41` (Version 37.0.1-15733141) | **Verified** | Self-contained, zero-install. Pre-packaged alongside `AdbWinApi.dll` and `AdbWinUsbApi.dll`. Immune to system PATH corruption. Recommended default. |
 | **External Android SDK / Platform-Tools** (`%ANDROID_HOME%/platform-tools/adb.exe`) | ADB `1.0.40` to `1.0.41+` | **Verified** | Automatically resolved if `bin/` is absent or via system PATH. Must support `devices -l`, `exec-out`, and server port `5037`. |
 | **Legacy ADB (< 1.0.39)** | ADB `<= 1.0.36` | **Unsupported** | Lacks modern socket multiplexing and `exec-out` binary piping required for clean PNG frame extraction. Causes corrupted screenshots. |
 
@@ -49,7 +49,7 @@ AndroScrn supports both out-of-the-box bundled binaries and external Android SDK
 | :--- | :--- | :--- | :--- | :--- |
 | **Direct USB Cable (USB 2.0 / 3.0 / Type-C)** | Developer options -> USB debugging toggled ON. RSA key accepted on device. | **Verified** | High-throughput (30–60 FPS @ 1080p, <= 35ms latency). Reliable logcat streaming, instant device connect/disconnect event detection. | Cable quality, loose ports, or power-saving USB hubs may cause unexpected resets. |
 | **Wireless ADB (Static IP / `tcpip 5555`)** | Initial USB connection required to execute `adb tcpip 5555`, followed by `adb connect <ip>:5555`. | **Verified** | Cable-free workbench inspection. Operates on standard Wi-Fi LAN. Auto-detected as `transportType: 'wifi'`. | Variable Wi-Fi jitter, packet loss during high-bitrate video; IP address changes on DHCP renewal. |
-| **Android 11+ Wireless Pairing (mDNS / QR Code)** | 6-digit Wi-Fi pairing code and dynamic pairing port (e.g. `adb pair <ip>:<pair-port>`). | **Partially verified** | Supported via underlying ADB CLI commands, but automated desktop pairing wizard is currently planned for Phase 10. | Pairing port changes on every reconnection; requires manual CLI execution. |
+| **Android 11+ Wireless Debugging (mDNS discovery + pairing code)** | 6-digit Wi-Fi pairing code and dynamic pairing port. Discovery via `adb mdns services`; pairing via `adb pair <ip>:<pair-port> <code>`. | **Implemented (Phase 10) - not yet verified with a physical wireless device** | Explicit **Discover Wireless Devices** action lists local endpoints; the user selects one and confirms before AndroScrn pairs or connects. See section 10. | Pairing port changes each time the pairing dialog opens. Requires ADB's mDNS support (present in the bundled ADB: `adb mdns check` succeeds). QR-code pairing is **not** implemented. |
 
 ---
 
@@ -103,8 +103,8 @@ Different Android manufacturers implement proprietary security layers on top of 
 - **Resolution / Requirement:**
   1. Open Android **Settings** -> **Additional Settings** -> **Developer options**.
   2. Scroll down to **USB debugging (Security settings)**.
-  3. Toggle it ON. (Xiaomi requires an active SIM card and a Mi Account sign-in to toggle this setting).
-  4. Once enabled, touch and text injection work without limitation.
+  3. Toggle it ON. Some MIUI/HyperOS versions have been reported to show extra prompts or requirements before this switch can be enabled; this varies by version and region and AndroScrn does not claim any single requirement applies to every device.
+  4. Once enabled, touch and text injection worked on the reference device. Other Xiaomi/Redmi/POCO models and software versions have not been tested.
   5. *Note:* Screen mirroring, camera streaming, screenshots, and diagnostics do **not** require this toggle.
 
 ### 2. Samsung (One UI / Knox)
@@ -158,3 +158,45 @@ To certify a new Android device with AndroScrn:
    - Input Security: Authorization rejection, coordinate bounds validation, vendor ROM security detection.
    - Camera Pipeline: Sensor enumeration, Direct3D11 camera stream, PC-side MP4 recording.
 5. **Record Evidence:** Append device entry to this document with specific hardware model, build numbers, pass/fail metrics, and any vendor limitations. Never modify tests to pass artificially.
+
+---
+
+## 10. Smart Device Discovery & Wireless Debugging (Phase 10)
+
+### What is implemented
+
+| Capability | Behavior |
+| :--- | :--- |
+| **USB / ADB enumeration** | Reads `adb devices -l`. Recognized states: `device`, `unauthorized`, `offline`, `connecting`, `authorizing`, `no permissions`, `recovery`, `sideload`, `bootloader`; anything else is shown as `unknown` with the raw token kept. Authorized devices additionally report manufacturer, Android version and API level from an allow-list of `getprop` keys (no IMEI, accounts or other personal data). Missing properties never remove a device. |
+| **Link type** | USB, classic `tcpip` (`IP:port`), Android 11+ wireless debugging (`adb-<serial>-<suffix>._adb-tls-connect._tcp` serials) and emulators are distinguished. |
+| **Multiple devices** | Operations require an explicit serial when more than one authorized device is attached; an unknown or non-ready serial is refused with guidance. |
+| **Wireless discovery** | The **Discover Wireless Devices** button runs `adb mdns check` then `adb mdns services` with bounded timeouts and cancellation. Only `_adb-tls-connect._tcp` and `_adb-tls-pairing._tcp` records with private/link-local IPv4 endpoints are shown; everything else is counted as ignored. |
+| **Pair / connect** | The user selects an endpoint, then confirms in a native dialog owned by the Electron main process. Pairing needs the 6-digit code typed from the phone. The code is never logged or echoed. |
+| **Connection help** | A compact panel for the selected device explains `unauthorized` / `offline` / other states separately from vendor-specific input restrictions, with a Retry action. |
+| **Diagnostics** | Serial numbers and device IPs are redacted from reports by default and are not part of exported file names. |
+
+### Safety boundaries
+
+- Discovery is read-only and never starts on its own. It does not scan ranges, probe hosts or connect.
+- AndroScrn never enables Wireless debugging, USB debugging or any phone setting.
+- Connect/pair accept only an opaque endpoint handle issued by a discovery run in the last two minutes, so a script cannot supply an arbitrary host.
+- Device pairing and MCP client pairing are unrelated. Discovery grants no MCP permission, and the MCP server has no access to these modules. MCP session expiry, client binding, tier checks and emergency revocation are unchanged.
+
+### Verification status (be precise)
+
+| Claim | Status |
+| :--- | :--- |
+| USB enumeration, properties, guidance, diagnostics redaction | **Verified on hardware (Phase 10.1)** over USB: Xiaomi `21091116I` (Redmi Note 11 Pro+), Android 13 / API 33, system skin reported as `HyperOS OS1.0`; host Windows 11 build 10.0.26200; bundled ADB 1.0.41 (Version 37.0.1-15733141). Manufacturer, Android version, API level and link type were read correctly; Xiaomi guidance was produced; the generated diagnostic report contained no full serial, no raw IPv4 address and no Wi-Fi network name. Recorded ADB output is also used in automated tests. |
+| Hardware validation suite | `npm run test:hardware` on the same phone passed except one operation reported as **blocked**: touch injection (`adb shell input tap`) was refused by the device, and AndroScrn reported it as blocked rather than as success. |
+| Bundled ADB supports mDNS | **Verified on the development host**: `adb mdns check` succeeds. With the phone attached over USB and Wireless debugging **off**, `adb mdns services` returned no endpoints. |
+| Wireless endpoint parsing, status classification, pairing/connect gating, cancellation | **Mock-based automated tests only**, plus one live run against the bundled ADB that returned zero endpoints. |
+| Wireless discovery returning an endpoint, pairing, connecting and disconnecting a real phone over Wi-Fi | **Not tested.** The phone's Wireless debugging was not enabled (AndroScrn never enables it, and the test run did not either). A reproducible manual procedure is in [testing.md](testing.md#5-manual-wireless-debugging-test-plan-hardware). |
+| Xiaomi/Redmi/POCO input guidance | Based on upstream scrcpy documentation and earlier reference-device observations; not re-verified in Phase 10. Other manufacturers have **no** vendor-specific guidance (a generic, clearly labelled fallback is shown). |
+| Windows ARM64 | **Untested.** See [platform-support.md](platform-support.md). |
+
+### Known limitations
+
+- ADB's mDNS support depends on the host. If `adb mdns check` fails, AndroScrn says so and offers USB and manual-wireless fallbacks instead of guessing.
+- Firewalls, VPNs and Wi-Fi client isolation can hide devices that are actually advertising.
+- QR-code pairing is not implemented.
+- The phone's pairing-code dialog must stay open while pairing; the pairing port changes each time it is reopened.

@@ -1,7 +1,7 @@
 # AndroScrn — Implementation Audit and Architecture Reconciliation
 
 **Date:** 2026-10-16  
-**Repository Path:** `C:\Users\sukes\Downloads\scrcpy-master\AndroScrn`  
+**Repository Path:** `<USER_PROFILE>\Downloads\scrcpy-master\AndroScrn`  
 **Current Git Commit:** `c13d291` (`feat(core): initial release of AndroScrn v1.0.0-alpha.1`)  
 **Lead Auditor:** Senior Software Architect & Technical Lead  
 **Audit Status:** Complete & Verified  
@@ -10,7 +10,7 @@
 
 ## 1. Repository and Commit Status
 
-* **Git Repository:** Independent repository initialized in `C:\Users\sukes\Downloads\scrcpy-master\AndroScrn`.
+* **Git Repository:** Independent repository initialized in `<USER_PROFILE>\Downloads\scrcpy-master\AndroScrn`.
 * **Working Tree:** Clean (no untracked or modified files pending commit).
 * **Commit History:**
   * Commit `c13d291`: Initial release containing 58 files, 6,912 insertions.
@@ -42,7 +42,7 @@
   * npm: `10.8.2` (`C:\Program Files\nodejs\npm.cmd`)
   * Git: `2.45.1.windows.1` (`C:\Program Files\Git\cmd\git.exe`)
   * Tesseract OCR: `5.3.x` (`C:\Program Files\Tesseract-OCR\tesseract.exe`)
-  * Ollama: `0.34.4` (`C:\Users\sukes\AppData\Local\Programs\Ollama\ollama.exe`)
+  * Ollama: `0.34.4` (`<USER_PROFILE>\AppData\Local\Programs\Ollama\ollama.exe`)
 * **Not Installed on Host Machine:**
   * Rust compiler: `rustc`, `cargo`, `rustup` (`INFO: Could not find files`)
   * C++ Build Tools: `cl.exe` / MSVC, Visual Studio C++ Build Tools (`INFO: Could not find files`)
@@ -189,7 +189,7 @@ Following the identification of the `npx` dependency flaw in prototype archive `
 
 ### B. Isolated Environment Verification (Actual Test Results)
 
-Verification was conducted in an isolated temporary directory outside the workspace (`C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test`) with `$env:PATH` restricted strictly to Windows core system paths (`C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem`).
+Verification was conducted in an isolated temporary directory outside the workspace (`<USER_PROFILE>\AppData\Local\Temp\androscrn-isolated-test`) with `$env:PATH` restricted strictly to Windows core system paths (`C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem`).
 
 ```powershell
 === TEST 1: Restricted PATH Check ===
@@ -199,7 +199,7 @@ NPM command available:  False
 === TEST 2: Bundled ADB Execution in Isolated Environment ===
 Android Debug Bridge version 1.0.41
 Version 37.0.1-15733141
-Installed as C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe
+Installed as <USER_PROFILE>\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe
 Running on Windows 10.0.26200
 
 === TEST 3: Bundled scrcpy Execution in Isolated Environment ===
@@ -217,12 +217,12 @@ Dependencies (compiled / linked):
 === TEST 5: Inspecting Isolated Runtime Application Log ===
 [2026-10-16T13:13:14.246Z] [INFO] AndroScrn starting up (Provisional Electron Distribution) {
   "isPackaged": true,
-  "execPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\AndroScrn.exe",
-  "appPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources\\app",
-  "resourcesPath": "C:\\Users\\sukes\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources"
+  "execPath": "<USER_PROFILE>\\AppData\\Local\\Temp\\androscrn-isolated-test\\AndroScrn.exe",
+  "appPath": "<USER_PROFILE>\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources\\app",
+  "resourcesPath": "<USER_PROFILE>\\AppData\\Local\\Temp\\androscrn-isolated-test\\resources"
 }
-[2026-10-16T13:13:14.251Z] [INFO] Resolved adb.exe at: C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe 
-[2026-10-16T13:13:14.252Z] [INFO] Resolved scrcpy.exe at: C:\Users\sukes\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\scrcpy.exe 
+[2026-10-16T13:13:14.251Z] [INFO] Resolved adb.exe at: <USER_PROFILE>\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\adb.exe 
+[2026-10-16T13:13:14.252Z] [INFO] Resolved scrcpy.exe at: <USER_PROFILE>\AppData\Local\Temp\androscrn-isolated-test\bin\scrcpy-win64\scrcpy.exe 
 
 === TEST 6: Launching via AndroScrn.bat ===
 [PASS] Launcher started AndroScrn successfully! Found 4 process(es).

@@ -54,7 +54,7 @@ The `androscrn doctor` command systematically evaluates:
 ### Symptom: Device Shows as "Unauthorized"
 
 ```text
-kjizrsgekfsglvgi       unauthorized usb:1-1
+EXAMPLE0SERIAL01       unauthorized usb:1-1
 ```
 
 **Cause:** The phone has not accepted the RSA host authentication key from this Windows computer.
@@ -73,7 +73,7 @@ kjizrsgekfsglvgi       unauthorized usb:1-1
 ### Symptom: Device Shows as "Offline"
 
 ```text
-kjizrsgekfsglvgi       offline usb:1-1
+EXAMPLE0SERIAL01       offline usb:1-1
 ```
 
 **Cause:** The USB connection experienced a hardware reset, sleep-mode sleep state, or a loose USB port/cable.
@@ -125,7 +125,7 @@ Windows Device Manager may show the device under **Other devices** as `Android` 
 2. In the AndroScrn desktop GUI, select the target device from the top-left dropdown selector.
 3. For hardware testing scripts, specify the serial explicitly:
    ```powershell
-   $env:TEST_DEVICE_SERIAL = "kjizrsgekfsglvgi"
+   $env:TEST_DEVICE_SERIAL = "EXAMPLE0SERIAL01"
    npm run test:hardware
    ```
 
@@ -161,15 +161,15 @@ If running inside a virtual machine or over Remote Desktop (RDP) without hardwar
 java.lang.SecurityException: Injecting to another application requires INJECT_EVENTS permission
 ```
 
-**Root Cause:** Xiaomi firmware blocks simulated touch and key input injection unless a special carrier-authenticated developer option is toggled on.
+**Root Cause:** Some MIUI and HyperOS configurations block simulated touch and key input unless an additional developer option is enabled. The exact option and its prerequisites vary by model, region and software version.
 
-**Resolution:**
-1. Ensure the phone has an active SIM card inserted (required by Xiaomi security verification).
-2. Ensure you are signed into your Xiaomi Mi Account.
-3. Open Android **Settings** -> **Additional Settings** -> **Developer options**.
-4. Locate **USB debugging (Security settings)** (Allow granting permissions and simulating input via USB debugging).
-5. Toggle this option ON. Accept the three 5-second countdown warnings.
-6. Input injection will now function without limitations.
+**Things to check (do these yourself; AndroScrn never changes phone settings):**
+1. Open Android **Settings** -> **Additional Settings** -> **Developer options**.
+2. Confirm **USB debugging** is on.
+3. Look for a separate **USB debugging (Security settings)** option and enable it if present. Read any prompt before accepting; some versions have been reported to ask for extra steps such as signing in to a Mi Account. These are not verified to apply to every phone.
+4. Reconnect the device and press **Retry** in the connection-help panel.
+
+AndroScrn reports a blocked tap/swipe/keyevent/text as a **failure**, never as a success. Screen mirroring, screenshots and diagnostics do not need this switch.
 
 ---
 
@@ -239,3 +239,60 @@ If the desktop workbench is launched as standard user, but the AI agent or Power
 **Resolution:**
 - For **Android 12 & 13+**: Camera Studio Direct3D11 streaming is fully supported.
 - For **Android 5.0 through 11**: Use the **Companion App Mode** in Camera Studio, which connects to the lightweight Android CameraX companion APK over loopback port `127.0.0.1:8080`.
+
+---
+
+## 11. Smart Discovery & Wireless Debugging
+
+### Symptom: "Discover Wireless Devices" finds nothing
+
+1. On the phone, turn on **Developer options -> Wireless debugging** yourself. AndroScrn never enables it.
+2. Make sure the phone and PC are on the same Wi-Fi network. Guest networks, VPNs and "client isolation" often hide mDNS services.
+3. Allow the bundled `adb.exe` through Windows Firewall on private networks.
+4. Check that ADB's mDNS is available: `bin\scrcpy-win64\adb.exe mdns check` should print a daemon version.
+5. Use the fallbacks shown by the app: connect once over USB, or pair manually with the IP, pairing port and 6-digit code shown on the phone.
+
+### Symptom: "Wireless discovery is unavailable here"
+
+`adb mdns check` failed. This is a host or ADB limitation, not a phone problem. Use USB, **Enable Wireless Mode (Port 5555)** after a USB connection, or manual pairing.
+
+### Symptom: A "Pairing service" endpoint appears but connecting is refused
+
+Pairing and connecting use **different ports**. Pair using the pairing endpoint and the 6-digit code, then press **Discover Wireless Devices** again and connect to the *connection* endpoint. The pairing dialog must remain open on the phone while you pair.
+
+### Symptom: Device shows `unauthorized` after wireless pairing
+
+Pairing authorizes this PC's key, but the phone may still show a prompt. Unlock the phone and accept it, then press **Retry**. If it persists, remove the PC under **Wireless debugging -> Paired devices** and pair again.
+
+### Symptom: Connection-help says guidance is "general advice"
+
+AndroScrn only has vendor-specific guidance for Xiaomi/Redmi/POCO. For other manufacturers it shows a clearly labelled generic checklist instead of guessing.
+
+### Privacy notes
+
+Serial numbers and device IPs are redacted from diagnostic reports by default, and exported report file names contain a short hash instead of the serial. Pairing codes are never written to logs.
+
+---
+
+## 12. Other Common Questions
+
+### Text input fails with a Unicode error
+
+Android's `input text` accepts only printable ASCII (32-126). Use ASCII text, or copy the text to the phone's clipboard or
+use an input method for accented letters and emoji.
+
+### An MCP client cannot start the server
+
+Make sure Node.js 20+ is on your `PATH` and run `npm run build` so `dist\modules\mcp\cli.js` exists. Point the client at
+`bin\androscrn-mcp.bat` or at `node <folder>\dist\modules\mcp\cli.js` (see [usage.md](usage.md#ai-agents-model-context-protocol)).
+
+### How do I immediately revoke an AI agent's access?
+
+Open the **AI Agent & MCP Security Center** tab and press **Revoke All AI Sessions**. Every issued token stops working at
+once, across all running MCP instances.
+
+### The browser or an HTML page keeps opening while I run tests
+
+The test suites must never launch a browser. The unit suite installs a guard that blocks and reports any browser, URL or
+HTML launch, and `androscrn docs` is the only command that opens a browser, once per explicit request. See
+[testing.md](testing.md#6-browser-launch-guard).

@@ -2,7 +2,7 @@
 
 **Sprint:** Phase 1 — Device & Mirroring Reliability + Installed Skill Integration Addendum  
 **Date:** 2026-10-16  
-**Repository:** `C:\Users\sukes\Downloads\scrcpy-master\AndroScrn`  
+**Repository:** `<USER_PROFILE>\Downloads\scrcpy-master\AndroScrn`  
 **GitHub:** `https://github.com/sukeshperiyasamy/Androscrn`  
 **Branch:** `main`  
 **Base Commit Reference:** `40fcd45` (`build(portable): produce standalone Windows distribution with bundled Electron runtime, ADB, and scrcpy`)  
@@ -17,8 +17,8 @@ In accordance with Rule 1 item 9:
 > *"If the Supercomputer skill is missing or inaccessible, report that honestly. Do not pretend to have used it. Continue only with an explicit description of the limitation and the best available workflow."*
 
 1. **Search Locations Checked:**
-   - Primary requested path: `C:\Users\sukes\.gemini\antigravity\skills` (Directory does not exist on host file system).
-   - Global customizations root: `C:\Users\sukes\.gemini\config\skills` (186 skills discovered).
+   - Primary requested path: `<USER_PROFILE>\.gemini\antigravity\skills` (Directory does not exist on host file system).
+   - Global customizations root: `<USER_PROFILE>\.gemini\config\skills` (186 skills discovered).
    - Workspace customization roots: `.agents/skills` and plugins directories (`android-cli-plugin`, `chrome-devtools-plugin`, `firebase`, `modern-web-guidance-plugin`).
 2. **Finding:** A skill named `Supercomputer` was **NOT found** anywhere in the user's filesystem or installed configuration.
 3. **Workflow Used Instead:** Disciplined multi-skill orchestration leveraging our verified installed skills:
@@ -37,28 +37,28 @@ In accordance with Rule 1 item 9:
 | Skill / Tool | Type | Path / Source | Instructions Read? | Work Where Applied |
 | :--- | :---: | :--- | :---: | :--- |
 | **Supercomputer** | Skill | Requested by user | **No** (Missing / Not installed on host) | Reported honestly per Rule 1.9. Orchestration executed via multi-skill workflow. |
-| **using-superpowers** | Skill | `C:\Users\sukes\.gemini\config\skills\using-superpowers\SKILL.md` | Yes | Governed pre-edit discovery, defensive development, and verification checkpoints. |
-| **superpowers-lab** | Skill | `C:\Users\sukes\.gemini\config\skills\superpowers-lab\SKILL.md` | Yes | Reviewed experimental lab workflow; maintained isolated validation. |
-| **concise-planning** | Skill | `C:\Users\sukes\.gemini\config\skills\concise-planning\SKILL.md` | Yes | Decomposed sprint into 6 structured workstreams (A–F). |
-| **Graphify** | CLI Tool | `C:\Users\sukes\.local\bin\graphify.exe` | Executed (`failed: uv trampoline`) | Tool discovered; failed on Windows due to uninitialized uv trampoline. Architecture call graph constructed manually below. |
-| **frontend-design** | Skill | `C:\Users\sukes\.gemini\config\skills\frontend-design\SKILL.md` | Yes | Applied Industrial Utilitarian stance: high information density, dark cyber-workbench palette, clear visual hierarchy. |
-| **ui-ux-pro-max** | Skill | `C:\Users\sukes\.gemini\config\skills\ui-ux-pro-max\SKILL.md` | Yes | Applied touch targets (min 40–44px), focus rings (`focus-visible:ring-2`), SVG icons from `lucide-react`, and responsive layouts. |
-| **web-design-guidelines** | Skill | `C:\Users\sukes\.gemini\config\skills\web-design-guidelines\SKILL.md` | Yes | Enforced semantic landmarks (`header`, `nav`, `main`), accessible form labels (`<label htmlFor>`), and contrast compliance. |
-| **magic-ui-generator** | Skill | `C:\Users\sukes\.gemini\config\skills\magic-ui-generator\SKILL.md` | Yes | Evaluated for component variations; preserved desktop-tool identity without distracting decorative animations. |
-| **WCAG audit** (`wcag-audit-patterns`) | Skill | `C:\Users\sukes\.gemini\config\skills\wcag-audit-patterns\SKILL.md` | Yes | Audited UI against WCAG 2.2 Level AA criteria (contrast, keyboard nav, focus visibility, ARIA roles, status announcements). |
-| **Context7** (`context7-auto-research`) | Skill | `C:\Users\sukes\.gemini\config\skills\context7-auto-research\SKILL.md` | Yes | Evaluated documentation pipeline; verified installed toolchain versions directly from package manifests and binaries. |
-| **simplify-code** | Skill | `C:\Users\sukes\.gemini\config\skills\simplify-code\SKILL.md` | Yes | Audited diffs for code reuse, quality, and efficiency; diagnosed and eliminated React stale closure in `setSelectedSerial`. |
+| **using-superpowers** | Skill | `<USER_PROFILE>\.gemini\config\skills\using-superpowers\SKILL.md` | Yes | Governed pre-edit discovery, defensive development, and verification checkpoints. |
+| **superpowers-lab** | Skill | `<USER_PROFILE>\.gemini\config\skills\superpowers-lab\SKILL.md` | Yes | Reviewed experimental lab workflow; maintained isolated validation. |
+| **concise-planning** | Skill | `<USER_PROFILE>\.gemini\config\skills\concise-planning\SKILL.md` | Yes | Decomposed sprint into 6 structured workstreams (A–F). |
+| **Graphify** | CLI Tool | `<USER_PROFILE>\.local\bin\graphify.exe` | Executed (`failed: uv trampoline`) | Tool discovered; failed on Windows due to uninitialized uv trampoline. Architecture call graph constructed manually below. |
+| **frontend-design** | Skill | `<USER_PROFILE>\.gemini\config\skills\frontend-design\SKILL.md` | Yes | Applied Industrial Utilitarian stance: high information density, dark cyber-workbench palette, clear visual hierarchy. |
+| **ui-ux-pro-max** | Skill | `<USER_PROFILE>\.gemini\config\skills\ui-ux-pro-max\SKILL.md` | Yes | Applied touch targets (min 40–44px), focus rings (`focus-visible:ring-2`), SVG icons from `lucide-react`, and responsive layouts. |
+| **web-design-guidelines** | Skill | `<USER_PROFILE>\.gemini\config\skills\web-design-guidelines\SKILL.md` | Yes | Enforced semantic landmarks (`header`, `nav`, `main`), accessible form labels (`<label htmlFor>`), and contrast compliance. |
+| **magic-ui-generator** | Skill | `<USER_PROFILE>\.gemini\config\skills\magic-ui-generator\SKILL.md` | Yes | Evaluated for component variations; preserved desktop-tool identity without distracting decorative animations. |
+| **WCAG audit** (`wcag-audit-patterns`) | Skill | `<USER_PROFILE>\.gemini\config\skills\wcag-audit-patterns\SKILL.md` | Yes | Audited UI against WCAG 2.2 Level AA criteria (contrast, keyboard nav, focus visibility, ARIA roles, status announcements). |
+| **Context7** (`context7-auto-research`) | Skill | `<USER_PROFILE>\.gemini\config\skills\context7-auto-research\SKILL.md` | Yes | Evaluated documentation pipeline; verified installed toolchain versions directly from package manifests and binaries. |
+| **simplify-code** | Skill | `<USER_PROFILE>\.gemini\config\skills\simplify-code\SKILL.md` | Yes | Audited diffs for code reuse, quality, and efficiency; diagnosed and eliminated React stale closure in `setSelectedSerial`. |
 | **browser_subagent** | Antigravity Tool | Built-in agent declaration | Yes | Available for browser automation; leveraged native Playwright for headless testing with system Chrome. |
-| **Playwright** (`playwright-skill`) | Skill & NPM package | `C:\Users\sukes\.gemini\config\skills\playwright-skill\SKILL.md` | Yes | Built and executed automated UI test suite (`tests/ui/playwright-ui.test.ts`) covering 26 behavioral scenarios with 100% pass rate. |
-| **windows-shell-reliability** | Skill | `C:\Users\sukes\.gemini\config\skills\windows-shell-reliability\SKILL.md` | Yes | Safe Windows process spawning (`shell: false`, `windowsHide: true`), binary buffer streaming, and clean process teardown. |
-| **security-auditor** | Skill | `C:\Users\sukes\.gemini\config\skills\security-auditor\SKILL.md` | Yes | Audited IPC surface (`open-path` directory traversal defense, sensitive credential regex redaction). |
+| **Playwright** (`playwright-skill`) | Skill & NPM package | `<USER_PROFILE>\.gemini\config\skills\playwright-skill\SKILL.md` | Yes | Built and executed automated UI test suite (`tests/ui/playwright-ui.test.ts`) covering 26 behavioral scenarios with 100% pass rate. |
+| **windows-shell-reliability** | Skill | `<USER_PROFILE>\.gemini\config\skills\windows-shell-reliability\SKILL.md` | Yes | Safe Windows process spawning (`shell: false`, `windowsHide: true`), binary buffer streaming, and clean process teardown. |
+| **security-auditor** | Skill | `<USER_PROFILE>\.gemini\config\skills\security-auditor\SKILL.md` | Yes | Audited IPC surface (`open-path` directory traversal defense, sensitive credential regex redaction). |
 
 ---
 
 ## 2. Workstream A — Codebase Call Graph & Architecture Map
 
 ### A. Graphify Execution Status
-Execution of `C:\Users\sukes\.local\bin\graphify.exe --help` returned:
+Execution of `<USER_PROFILE>\.local\bin\graphify.exe --help` returned:
 ```
 error: uv trampoline failed to canonicalize script path
 ```
@@ -197,7 +197,7 @@ Using `context7-auto-research` principles, versions were introspected directly a
 | **Bundled ADB Engine** | `ADB 1.0.41` (Platform Tools 37.0.1) | `bin/scrcpy-win64/adb.exe` |
 | **Bundled scrcpy Engine**| `scrcpy 5.0.1` (SDL 3.4.18, libavcodec 63.1.102) | `bin/scrcpy-win64/scrcpy.exe` |
 | **Host Tesseract OCR** | `v5.3.x` (Preview / Host Service) | `C:\Program Files\Tesseract-OCR\tesseract.exe` |
-| **Host Ollama Engine** | `v0.34.4` (Preview / Host Service) | `C:\Users\sukes\AppData\Local\Programs\Ollama\ollama.exe` |
+| **Host Ollama Engine** | `v0.34.4` (Preview / Host Service) | `<USER_PROFILE>\AppData\Local\Programs\Ollama\ollama.exe` |
 
 ---
 
@@ -331,7 +331,7 @@ During this sprint, physical Android hardware was attached and verified via USB 
 
 - **Device Hardware:** Xiaomi Redmi Note 11 Pro+ 5G (Model: `21091116I`, Codename: `pissarroin`)
 - **Android Version:** Android 13 (MIUI / HyperOS)
-- **Serial Identifier:** `kjizrsgekfsglvgi`
+- **Serial Identifier:** `EXAMPLE0SERIAL01`
 - **Transport Type:** Direct USB (`transport_id: 1`)
 - **Device Authorization State:** `device` (Authorized via RSA handshake)
 - **Battery Query:** 88% reported via `dumpsys battery` parser.
@@ -344,7 +344,7 @@ During this sprint, physical Android hardware was attached and verified via USB 
 
 ## 9. Architecture Decision Record & MCP Integration
 
-- **ADR-001 Approved:** Documented in [docs/adr/001-architecture-reconciliation-and-mcp.md](file:///c:/Users/sukes/Downloads/scrcpy-master/AndroScrn/docs/adr/001-architecture-reconciliation-and-mcp.md).
+- **ADR-001 Approved:** Documented in [docs/adr/001-architecture-reconciliation-and-mcp.md](adr/001-architecture-reconciliation-and-mcp.md).
 - **Model Context Protocol (MCP) Server Implemented:**
   - Standardized JSON-RPC 2.0 interface built with official `@modelcontextprotocol/sdk`.
   - Standalone executable CLI (`bin/androscrn-mcp.bat` / `modules/mcp/cli.ts`).

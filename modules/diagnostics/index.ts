@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -170,9 +171,21 @@ export class DiagnosticsManager extends EventEmitter {
   /**
    * Generates a copyable, sanitized diagnostic report string
    */
-  public async generateDiagnosticBundle(serial?: string, scrcpyStatus?: any): Promise<string> {
+  public async generateDiagnosticBundle(
+    serial?: string,
+    scrcpyStatus?: any,
+    options: { includeSerials?: boolean } = {}
+  ): Promise<string> {
+    const includeSerials = options.includeSerials === true;
     const adbVer = await this.deviceManager.getAdbVersion();
-    const devices = await this.deviceManager.getDevices();
+    const devices = await this.deviceManager.getDevicesDetailed();
+    const knownSerials = [
+      ...devices.map(d => d.serial),
+      ...(serial ? [serial] : []),
+      ...(scrcpyStatus?.targetSerial ? [scrcpyStatus.targetSerial] : [])
+    ];
+    // Serial numbers are redacted from the whole report by default (see finalize() below).
+    const showSerial = (s: string) => (includeSerials ? s : SecurityValidator.redactSerial(s));
 
     let targetDeviceSection = 'No active device selected.';
     let propsSection = 'N/A';
@@ -183,11 +196,13 @@ export class DiagnosticsManager extends EventEmitter {
       const d = devices.find(x => x.serial === serial);
       if (d) {
         targetDeviceSection = [
-          `Serial: ${SecurityValidator.redactSensitiveText(d.serial)}`,
+          `Serial: ${showSerial(d.serial)}`,
           `Model: ${d.model}`,
+          `Manufacturer: ${d.manufacturer || 'Unknown'}`,
+          `Android: ${d.androidVersion || 'Unknown'}${d.apiLevel !== undefined ? ` (API ${d.apiLevel})` : ''}`,
           `Product: ${d.product}`,
           `Device State: ${d.state}`,
-          `Transport: ${d.transportType.toUpperCase()}`,
+          `Transport: ${d.transportType.toUpperCase()}${d.connectionType ? ` (${d.connectionType})` : ''}`,
           `Battery: ${d.batteryLevel !== undefined ? `${d.batteryLevel}%` : 'Unknown'}`,
           `Guidance: ${d.guidance || 'None'}`
         ].join('\n');
@@ -219,7 +234,7 @@ export class DiagnosticsManager extends EventEmitter {
       '',
       '--- SCREEN MIRRORING SESSION ---',
       `Running: ${scrcpyStatus?.running ? 'YES' : 'NO'}`,
-      `Target Serial: ${scrcpyStatus?.targetSerial ? SecurityValidator.redactSensitiveText(scrcpyStatus.targetSerial) : 'None'}`,
+      `Target Serial: ${scrcpyStatus?.targetSerial ? showSerial(scrcpyStatus.targetSerial) : 'None'}`,
       `Process PID: ${scrcpyStatus?.pid || 'None'}`,
       `Last Exit Code: ${scrcpyStatus?.exitCode ?? 'None'}`,
       `Last Error: ${scrcpyStatus?.lastError || 'None'}`,
@@ -227,7 +242,7 @@ export class DiagnosticsManager extends EventEmitter {
       `--- CONNECTED DEVICES (${devices.length}) ---`,
       devices.length === 0
         ? 'No Android devices detected via ADB.'
-        : devices.map(d => `• ${d.model} (${SecurityValidator.redactSensitiveText(d.serial)}) - State: ${d.state} [${d.transportType.toUpperCase()}]`).join('\n'),
+        : devices.map(d => `• ${d.model} (${showSerial(d.serial)}) - State: ${d.state} [${d.transportType.toUpperCase()}]`).join('\n'),
       '',
       '--- TARGET DEVICE DETAILS ---',
       targetDeviceSection,
@@ -243,7 +258,10 @@ export class DiagnosticsManager extends EventEmitter {
       '================================================================'
     ];
 
-    return lines.join('\n');
+    const report = lines.join('\n');
+    return includeSerials
+      ? report
+      : SecurityValidator.redactNetworkIdentifiers(SecurityValidator.redactSerialsInText(report, knownSerials));
   }
 
   /**
@@ -256,7 +274,9 @@ export class DiagnosticsManager extends EventEmitter {
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `androscrn_report_${serial ? serial.replace(/[:.]/g, '_') : 'system'}_${timestamp}.txt`;
+      // The file name never contains the device serial; a short hash keeps reports from different devices apart.
+      const deviceTag = serial ? crypto.createHash('sha256').update(serial).digest('hex').slice(0, 8) : 'system';
+      const filename = `androscrn_report_${deviceTag}_${timestamp}.txt`;
       const reportPath = path.join(outputDir, filename);
 
       const reportContent = await this.generateDiagnosticBundle(serial, scrcpyStatus);

@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { DeviceManager } from '../../../dist/modules/device_manager';
+import { SecurityValidator } from '../../../dist/modules/security';
 import { ConnectionManager } from '../../../dist/modules/connection_manager';
 import { ScrcpyManager } from '../../../dist/modules/scrcpy_manager';
 import { DiagnosticsManager } from '../../../dist/modules/diagnostics';
@@ -9,6 +10,10 @@ import { WorkflowEngine } from '../../../dist/modules/workflow_engine';
 import { McpControlServer } from '../../../dist/modules/mcp/control-bridge';
 import { CameraManager } from '../../../dist/modules/camera_manager';
 import { CompanionClient } from '../../../dist/modules/companion_client';
+import { WirelessDiscovery, parseConnectRequest, parsePairRequest, parseDeviceHelpRequest } from '../../../dist/modules/wireless_discovery';
+import { buildDeviceHelp } from '../../../dist/modules/oem_guidance';
+import { DocumentWorkflow, TesseractOcrEngine, DocumentSession, DocumentError } from '../../../dist/modules/document_intelligence';
+import { parseSessionRequest, parseProcessRequest, parseTextRequest, parseCaptureName, toErrorPayload } from '../../../dist/modules/document_intelligence/ipc';
 import { generateSvgOverlay, TimelapseScheduler, createSnapshotMetadata } from '../../../dist/modules/lab_inspection';
 
 let mainWindow: BrowserWindow | null = null;
@@ -181,7 +186,7 @@ function createWindow() {
 // IPC Handlers with defensive error handling and logging
 ipcMain.handle('get-devices', async () => {
   try {
-    return await deviceManager.getDevices();
+    return await deviceManager.getDevicesDetailed();
   } catch (err: any) {
     appLog('ERROR', 'Error fetching devices', err?.message || err);
     return [];
@@ -229,12 +234,12 @@ ipcMain.handle('get-mirror-status', () => {
 
 // Scrcpy Screen Mirroring Event Listeners
 scrcpyManager.on('started', (data) => {
-  appLog('INFO', `Screen mirroring started [PID: ${data.pid}] for ${data.serial}`);
+  appLog('INFO', `Screen mirroring started [PID: ${data.pid}] for ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('mirror-status-changed', { running: true, pid: data.pid, serial: data.serial });
 });
 
 scrcpyManager.on('stopped', (data) => {
-  appLog('INFO', `Screen mirroring stopped [Code: ${data.code}] for ${data.serial}`);
+  appLog('INFO', `Screen mirroring stopped [Code: ${data.code}] for ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('mirror-status-changed', {
     running: false,
     code: data.code,
@@ -244,7 +249,7 @@ scrcpyManager.on('stopped', (data) => {
 });
 
 scrcpyManager.on('disconnected', (data) => {
-  appLog('WARN', `Screen mirroring device disconnected: ${data.serial}`);
+  appLog('WARN', `Screen mirroring device disconnected: ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('mirror-status-changed', {
     running: false,
     code: 2,
@@ -255,17 +260,17 @@ scrcpyManager.on('disconnected', (data) => {
 
 // Camera Studio Event Listeners & IPC Handlers
 cameraManager.on('started', (data) => {
-  appLog('INFO', `Camera streaming started [PID: ${data.pid}] for ${data.serial}`);
+  appLog('INFO', `Camera streaming started [PID: ${data.pid}] for ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('camera-status-changed', data);
 });
 
 cameraManager.on('stopped', (data) => {
-  appLog('INFO', `Camera streaming stopped [Code: ${data.code}] for ${data.serial}`);
+  appLog('INFO', `Camera streaming stopped [Code: ${data.code}] for ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('camera-status-changed', data);
 });
 
 cameraManager.on('disconnected', (data) => {
-  appLog('WARN', `Camera device disconnected: ${data.serial}`);
+  appLog('WARN', `Camera device disconnected: ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('camera-status-changed', data);
 });
 
@@ -376,6 +381,87 @@ ipcMain.handle('pair-wireless', async (_, { ip, pairPort, pin, connectPort }) =>
   }
 });
 
+// Smart discovery & connection help ---------------------------------------------------------------
+// Discovery is read-only. Connect/pair require an endpoint handle from a recent discovery plus a native
+// confirmation dialog owned by the main process, so a compromised renderer cannot connect on its own.
+// None of these channels touch MCP sessions or permissions.
+let wirelessDiscovery: WirelessDiscovery | null = null;
+function getWirelessDiscovery(): WirelessDiscovery {
+  if (!wirelessDiscovery) wirelessDiscovery = new WirelessDiscovery(deviceManager, connectionManager);
+  return wirelessDiscovery;
+}
+
+async function confirmWirelessAction(details: { action: 'connect' | 'pair'; label: string; ip: string; port: number }): Promise<boolean> {
+  const verb = details.action === 'pair' ? 'Pair with' : 'Connect to';
+  const options = {
+    type: 'question' as const,
+    buttons: ['Cancel', verb],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Confirm wireless debugging action',
+    message: `${verb} ${details.ip}:${details.port}?`,
+    detail: `Device: ${details.label}\nOnly continue if this is your own phone on your local network.`
+  };
+  const res = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  return res.response === 1;
+}
+
+ipcMain.handle('discover-wireless-devices', async () => {
+  try {
+    const result = await getWirelessDiscovery().discover();
+    appLog('INFO', 'Wireless discovery finished', { supported: result.supported, endpoints: result.endpoints.length, timedOut: result.timedOut, cancelled: result.cancelled });
+    return result;
+  } catch (err: any) {
+    appLog('ERROR', 'Wireless discovery failed', err?.message || err);
+    return { success: false, supported: false, cancelled: false, timedOut: false, endpoints: [], ignoredCount: 0, message: 'Wireless discovery failed unexpectedly.', fallback: [] };
+  }
+});
+
+ipcMain.handle('cancel-wireless-discovery', () => {
+  getWirelessDiscovery().cancel();
+  return true;
+});
+
+ipcMain.handle('connect-discovered-device', async (_, payload) => {
+  const parsed = parseConnectRequest(payload);
+  if (!parsed.ok) return { success: false, message: parsed.message };
+  try {
+    const res = await getWirelessDiscovery().connect(parsed.endpointId, confirmWirelessAction);
+    appLog('INFO', 'Discovered-device connect attempt', { success: res.success, cancelled: !!res.cancelled });
+    return res;
+  } catch (err: any) {
+    appLog('ERROR', 'Discovered-device connect failed', err?.message || err);
+    return { success: false, message: 'Connection failed unexpectedly.' };
+  }
+});
+
+ipcMain.handle('pair-discovered-device', async (_, payload) => {
+  const parsed = parsePairRequest(payload);
+  if (!parsed.ok) return { success: false, message: parsed.message };
+  try {
+    // The pairing code is deliberately excluded from every log line.
+    const res = await getWirelessDiscovery().pair(parsed.endpointId, parsed.pin, confirmWirelessAction);
+    appLog('INFO', 'Discovered-device pairing attempt', { success: res.success, cancelled: !!res.cancelled });
+    return res;
+  } catch (err: any) {
+    appLog('ERROR', 'Discovered-device pairing failed', err?.message || err);
+    return { success: false, message: 'Pairing failed unexpectedly.' };
+  }
+});
+
+ipcMain.handle('get-device-help', async (_, payload) => {
+  const parsed = parseDeviceHelpRequest(payload);
+  if (!parsed.ok) return { key: 'invalid', connection: null, vendor: [], error: parsed.message };
+  try {
+    const devices = await deviceManager.getDevicesDetailed();
+    const device = devices.find(d => d.serial === parsed.serial);
+    return buildDeviceHelp(device);
+  } catch (err: any) {
+    appLog('ERROR', 'Error building device help', err?.message || err);
+    return { key: 'error', connection: null, vendor: [] };
+  }
+});
+
 ipcMain.handle('detect-hotspot', () => {
   try {
     return connectionManager.detectHotspotGateway();
@@ -403,6 +489,193 @@ ipcMain.handle('get-captures', () => {
     appLog('ERROR', 'Error retrieving captures list', err?.message || err);
     return [];
   }
+});
+
+// Local document intelligence (Phase 11) -------------------------------------------------------------
+// Images are chosen through a native dialog or from the captures folder; the renderer only ever holds an opaque
+// session id. OCR runs in a worker thread inside tesseract.js, entirely offline. Originals are never modified.
+const documentWorkflow = new DocumentWorkflow(new TesseractOcrEngine());
+const documentSessions = new Map<string, { session: DocumentSession; abort: AbortController | null }>();
+const MAX_DOCUMENT_SESSIONS = 4;
+
+function registerDocumentSession(session: DocumentSession) {
+  documentSessions.set(session.id, { session, abort: null });
+  while (documentSessions.size > MAX_DOCUMENT_SESSIONS) {
+    const oldest = documentSessions.keys().next().value as string;
+    documentSessions.get(oldest)?.abort?.abort();
+    documentSessions.delete(oldest);
+  }
+}
+
+function summarizeDocument(session: DocumentSession) {
+  return {
+    id: session.id,
+    sourceName: session.sourceName,
+    format: session.format,
+    width: session.original.width,
+    height: session.original.height,
+    hasProcessed: !!session.processed,
+    hasOcr: !!session.ocr
+  };
+}
+
+function documentsFolder(): string {
+  return path.join(getCapturesFolder(), 'documents');
+}
+
+function describeOcr(session: DocumentSession) {
+  const o = session.ocr;
+  return o
+    ? {
+        text: documentWorkflow.getText(session),
+        rawText: o.text,
+        meanConfidence: o.meanConfidence,
+        wordCount: o.words.length,
+        lowConfidenceWords: o.lowConfidenceWords,
+        lowConfidenceSample: o.words.filter(w => w.confidence < 60).slice(0, 40).map(w => ({ text: w.text, confidence: Math.round(w.confidence) })),
+        engine: o.engine,
+        language: o.language,
+        durationMs: o.durationMs
+      }
+    : null;
+}
+
+async function importIntoWorkflow(load: () => DocumentSession) {
+  const session = load();
+  registerDocumentSession(session);
+  const analysis = documentWorkflow.analyze(session);
+  return {
+    ok: true as const,
+    document: summarizeDocument(session),
+    preview: analysis.preview,
+    corners: analysis.detection.corners,
+    detectionReason: analysis.detection.reason ?? null,
+    detectionConfidence: analysis.detection.confidence,
+    skewDegrees: analysis.skewDegrees
+  };
+}
+
+ipcMain.handle('document-ocr-status', async () => {
+  const a = await new TesseractOcrEngine().isAvailable();
+  return { available: a.available, reason: a.reason ?? null };
+});
+
+ipcMain.handle('document-import-dialog', async () => {
+  try {
+    const options = {
+      title: 'Choose a document image',
+      properties: ['openFile' as const],
+      filters: [{ name: 'Images (PNG, JPEG)', extensions: ['png', 'jpg', 'jpeg'] }]
+    };
+    const res = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+    if (res.canceled || res.filePaths.length === 0) return { ok: false, code: 'CANCELLED', message: 'No file was selected.' };
+    return await importIntoWorkflow(() => documentWorkflow.importFile(res.filePaths[0]));
+  } catch (err: any) {
+    appLog('ERROR', 'Document import failed', err?.message || err);
+    return toErrorPayload(err);
+  }
+});
+
+ipcMain.handle('document-import-capture', async (_, payload) => {
+  const parsed = parseCaptureName(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  try {
+    const file = path.join(getCapturesFolder(), parsed.fileName);
+    return await importIntoWorkflow(() => documentWorkflow.importFile(file));
+  } catch (err: any) {
+    appLog('ERROR', 'Document import from captures failed', err?.message || err);
+    return toErrorPayload(err);
+  }
+});
+
+ipcMain.handle('document-process', async (_, payload) => {
+  const parsed = parseProcessRequest(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  const entry = documentSessions.get(parsed.value.id);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open. Import it again.' };
+  try {
+    const { corners, rotationQuarterTurns, rotationDegrees, enhance } = parsed.value;
+    const out = documentWorkflow.process(entry.session, { corners, rotationQuarterTurns, rotationDegrees, enhance });
+    return { ok: true, document: summarizeDocument(entry.session), preview: out.preview };
+  } catch (err: any) {
+    return toErrorPayload(err);
+  }
+});
+
+ipcMain.handle('document-ocr', async (event, payload) => {
+  const parsed = parseSessionRequest(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  const entry = documentSessions.get(parsed.id);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open. Import it again.' };
+  if (entry.abort) return { ok: false, code: 'INVALID_ARGUMENT', message: 'OCR is already running for this document.' };
+  const controller = new AbortController();
+  entry.abort = controller;
+  try {
+    await documentWorkflow.recognize(entry.session, {
+      signal: controller.signal,
+      onProgress: p => {
+        if (!event.sender.isDestroyed()) event.sender.send('document-ocr-progress', { id: parsed.id, stage: p.stage, progress: p.progress });
+      }
+    });
+    appLog('INFO', 'Document OCR finished', { words: entry.session.ocr?.words.length ?? 0 });
+    return { ok: true, result: describeOcr(entry.session) };
+  } catch (err: any) {
+    if (!(err instanceof DocumentError && err.code === 'CANCELLED')) appLog('ERROR', 'Document OCR failed', err?.message || err);
+    return toErrorPayload(err);
+  } finally {
+    entry.abort = null;
+  }
+});
+
+ipcMain.handle('document-ocr-cancel', (_, payload) => {
+  const parsed = parseSessionRequest(payload);
+  if (!parsed.ok) return false;
+  documentSessions.get(parsed.id)?.abort?.abort();
+  return true;
+});
+
+ipcMain.handle('document-set-text', (_, payload) => {
+  const parsed = parseTextRequest(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  const entry = documentSessions.get(parsed.id);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open.' };
+  documentWorkflow.setText(entry.session, parsed.text);
+  return { ok: true };
+});
+
+ipcMain.handle('document-save', (_, payload) => {
+  const parsed = parseSessionRequest(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  const entry = documentSessions.get(parsed.id);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open.' };
+  try {
+    const saved = documentWorkflow.save(entry.session, documentsFolder());
+    return { ok: true, directory: saved.directory };
+  } catch (err: any) {
+    appLog('ERROR', 'Document save failed', err?.message || err);
+    return toErrorPayload(err);
+  }
+});
+
+ipcMain.handle('document-export-pdf', (_, payload) => {
+  const parsed = parseSessionRequest(payload);
+  if (!parsed.ok) return { ok: false, code: 'INVALID_ARGUMENT', message: parsed.message };
+  const entry = documentSessions.get(parsed.id);
+  if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open.' };
+  try {
+    const pdfPath = documentWorkflow.exportSearchablePdf(entry.session, documentsFolder());
+    return { ok: true, path: pdfPath, directory: path.dirname(pdfPath) };
+  } catch (err: any) {
+    return toErrorPayload(err);
+  }
+});
+
+ipcMain.handle('document-release', (_, payload) => {
+  const parsed = parseSessionRequest(payload);
+  if (!parsed.ok) return false;
+  documentSessions.get(parsed.id)?.abort?.abort();
+  documentSessions.delete(parsed.id);
+  return true;
 });
 
 ipcMain.handle('open-path', async (_, targetPath: string) => {
@@ -540,7 +813,7 @@ mcpControlServer.on('clientDisconnected', (count) => {
 });
 
 mcpControlServer.on('actionAudit', (audit) => {
-  appLog('INFO', `MCP Action [${audit.action}] by '${audit.clientName}' on ${audit.serial}: ${audit.status}`);
+  appLog('INFO', `MCP Action [${audit.action}] by '${audit.clientName}' on ${SecurityValidator.redactSerial(audit.serial)}: ${audit.status}`);
   mainWindow?.webContents.send('mcp-action-audit', audit);
   mainWindow?.webContents.send('mcp-status-changed');
 });

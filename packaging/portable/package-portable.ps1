@@ -67,6 +67,11 @@ $AppPackageJson = @{
 } | ConvertTo-Json
 Set-Content -Path "$AppDir\package.json" -Value $AppPackageJson -Encoding UTF8
 
+Write-Host "3b. Bundling local OCR runtime (tesseract.js + English language data)..." -ForegroundColor Green
+# tesseract.js loads worker scripts and WebAssembly at runtime, so it cannot be bundled into main.js.
+node "$PSScriptRoot\copy-runtime-deps.js" "$AppDir\node_modules" tesseract.js "@tesseract.js-data/eng"
+if ($LASTEXITCODE -ne 0) { throw "Failed to copy the OCR runtime dependencies." }
+
 Write-Host "4. Bundling Official Android ADB & Scrcpy Engine Binaries..." -ForegroundColor Green
 # Ensure binary folder exists at both root level and inside resources
 New-Item -ItemType Directory -Path "$TargetDir\bin" -Force | Out-Null

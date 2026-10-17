@@ -28,7 +28,7 @@ Before testing, verify the host workstation environment:
 **Objective:** Verify that unauthenticated or locked devices are detected with actionable guidance.
 
 1. Connect the Android phone via USB without unlocking it, or revoke USB debugging authorizations on the phone (*Developer Options -> Revoke USB debugging authorizations*).
-2. Launch AndroScrn (`AndroScrn.bat` or `npm run dev`).
+2. Launch AndroScrn (`AndroScrn.bat` or `npm --prefix apps/desktop run dev`).
 3. Click **"Refresh Devices"**.
 4. **Expected Results:**
    - [ ] Device dropdown displays the phone serial and transport type (USB).

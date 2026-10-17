@@ -9,3 +9,5 @@ export * from './cli';
 export * from './camera_manager';
 export * from './companion_client';
 export * from './lab_inspection';
+export * from './oem_guidance';
+export * from './wireless_discovery';

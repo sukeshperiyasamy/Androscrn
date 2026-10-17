@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import ConnectionHelp, { DeviceHelp } from './ConnectionHelp';
+import WirelessDiscoveryPanel from './WirelessDiscoveryPanel';
+import DocumentPanel from './DocumentPanel';
 import {
   Smartphone,
   Wifi,
@@ -66,11 +69,15 @@ interface CameraCapabilities {
 
 interface AndroidDevice {
   serial: string;
-  state: 'device' | 'unauthorized' | 'offline' | 'connecting' | 'unknown';
+  state: 'device' | 'unauthorized' | 'offline' | 'connecting' | 'authorizing' | 'no permissions' | 'recovery' | 'sideload' | 'bootloader' | 'unknown';
   model: string;
   product: string;
   device: string;
   transportType: 'usb' | 'wifi';
+  connectionType?: 'usb' | 'tcpip' | 'wireless-debugging' | 'emulator';
+  manufacturer?: string;
+  androidVersion?: string;
+  apiLevel?: number;
   alias?: string;
   batteryLevel?: number;
   ipAddress?: string;
@@ -116,11 +123,13 @@ interface SystemInfo {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'mirror' | 'camera' | 'wireless' | 'media' | 'diagnostics' | 'workflow' | 'ai' | 'about'>('mirror');
+  const [activeTab, setActiveTab] = useState<'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about'>('mirror');
   
   // Device State
   const [devices, setDevices] = useState<AndroidDevice[]>([]);
   const [selectedSerial, setSelectedSerial] = useState<string>('');
+  const [deviceHelp, setDeviceHelp] = useState<DeviceHelp | null>(null);
+  const [helpRetrying, setHelpRetrying] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [aliasInput, setAliasInput] = useState('');
   const [editingAlias, setEditingAlias] = useState(false);
@@ -240,6 +249,26 @@ export default function App() {
 
   // Check IPC availability
   const api = (window as any).androscrnApi;
+
+  // Connection help follows the selected device. Only the (serial, state) pair re-triggers a lookup,
+  // so polling the same device does not rebuild or re-announce identical guidance.
+  const helpTarget = devices.find(d => d.serial === selectedSerial);
+  const helpTargetState = helpTarget?.state;
+  useEffect(() => {
+    let cancelled = false;
+    if (!api?.getDeviceHelp || !selectedSerial || !helpTargetState) {
+      setDeviceHelp(null);
+      return;
+    }
+    api.getDeviceHelp(selectedSerial).then((h: DeviceHelp) => {
+      if (!cancelled) setDeviceHelp(h);
+    }).catch(() => {
+      if (!cancelled) setDeviceHelp(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSerial, helpTargetState]);
 
   // Refresh devices and mirror status
   const refreshDevices = async () => {
@@ -1105,6 +1134,24 @@ export default function App() {
         </div>
       )}
 
+      {/* Connection help for the selected device (connection state vs. vendor input restrictions) */}
+      <ConnectionHelp
+        deviceLabel={helpTarget ? (helpTarget.alias || helpTarget.model) : 'device'}
+        help={deviceHelp}
+        retrying={helpRetrying}
+        onRetry={async () => {
+          setHelpRetrying(true);
+          try {
+            await refreshDevices();
+            if (api?.getDeviceHelp && selectedSerial) {
+              setDeviceHelp(await api.getDeviceHelp(selectedSerial));
+            }
+          } finally {
+            setHelpRetrying(false);
+          }
+        }}
+      />
+
       {/* Pending AI Pairing Requests (Human-in-the-Loop Gatekeeper) */}
       {mcpStatus.pendingRequests && mcpStatus.pendingRequests.length > 0 && (
         <div className="mx-4 mt-3 space-y-2" role="region" aria-label="Pending AI Pairing Handshake Requests" id="mcp-pairing-requests-container">
@@ -1224,6 +1271,22 @@ export default function App() {
             >
               <Camera className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               <span>Media & Captures</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('documents')}
+              role="tab"
+              aria-selected={activeTab === 'documents'}
+              aria-controls="main-tab-panel"
+              id="tab-documents"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+                activeTab === 'documents'
+                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-cyan-400" aria-hidden="true" />
+              <span>Documents & OCR</span>
             </button>
 
             <button
@@ -2615,6 +2678,9 @@ export default function App() {
           {/* TAB 2: WIRELESS & HOTSPOT */}
           {activeTab === 'wireless' && (
             <div className="space-y-4">
+              {/* Smart wireless-debugging discovery (explicit, user-initiated) */}
+              <WirelessDiscoveryPanel api={api} onDevicesChanged={refreshDevices} />
+
               {/* 1-Click Wireless Handoff Card */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
@@ -2733,6 +2799,10 @@ export default function App() {
           )}
 
           {/* TAB 3: MEDIA & CAPTURES */}
+          {activeTab === 'documents' && (
+            <DocumentPanel api={api} selectedSerial={selectedSerial} deviceReady={activeDevice?.state === 'device'} captures={captures as any} />
+          )}
+
           {activeTab === 'media' && (
             <div className="space-y-4">
               <div className="glass-panel p-5 flex items-center justify-between">

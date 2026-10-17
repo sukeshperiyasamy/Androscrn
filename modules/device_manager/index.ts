@@ -19,11 +19,34 @@ export interface AndroidDevice {
   product: string;
   device: string;
   transportType: 'usb' | 'wifi';
+  /** More precise link type: USB, classic `adb tcpip`, Android 11+ wireless debugging (mDNS serial), or emulator. */
+  connectionType?: 'usb' | 'tcpip' | 'wireless-debugging' | 'emulator';
+  /** Raw state token reported by ADB (useful when `state` is `unknown`). */
+  rawState?: string;
+  manufacturer?: string;
+  brand?: string;
+  androidVersion?: string;
+  apiLevel?: number;
+  /** Vendor OS skin identifiers when exposed through system properties (e.g. MIUI / HyperOS version names). */
+  osSkin?: string;
   alias?: string;
   batteryLevel?: number;
   ipAddress?: string;
   guidance?: string;
 }
+
+export interface DeviceProperties {
+  manufacturer?: string;
+  brand?: string;
+  model?: string;
+  androidVersion?: string;
+  apiLevel?: number;
+  osSkin?: string;
+}
+
+export type TargetResolution =
+  | { ok: true; serial: string }
+  | { ok: false; reason: 'none' | 'ambiguous' | 'not-found' | 'not-ready'; message: string };
 
 export function getDeviceStateGuidance(state: AndroidDevice['state']): string {
   switch (state) {
@@ -129,7 +152,11 @@ export class DeviceManager {
   /**
    * Executes an ADB command with discrete positional arguments (no shell injection)
    */
-  public executeAdb(args: string[], timeoutMs = 10000): Promise<{ stdout: string; stderr: string; code: number }> {
+  public executeAdb(
+    args: string[],
+    timeoutMs = 10000,
+    signal?: AbortSignal
+  ): Promise<{ stdout: string; stderr: string; code: number; aborted?: boolean }> {
     return new Promise((resolve) => {
       if (!fs.existsSync(this.adbPath)) {
         return resolve({
@@ -147,11 +174,22 @@ export class DeviceManager {
       let stdout = '';
       let stderr = '';
       let timedOut = false;
+      let aborted = false;
+
+      const onAbort = () => {
+        aborted = true;
+        child.kill();
+      };
 
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill();
       }, timeoutMs);
+
+      if (signal) {
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       child.stdout?.on('data', (data) => {
         stdout += data.toString();
@@ -163,7 +201,10 @@ export class DeviceManager {
 
       child.on('close', (code) => {
         clearTimeout(timer);
-        if (timedOut) {
+        signal?.removeEventListener('abort', onAbort);
+        if (aborted) {
+          resolve({ stdout, stderr: stderr + '\nCommand cancelled.', code: -1, aborted: true });
+        } else if (timedOut) {
           resolve({ stdout, stderr: stderr + '\nCommand timed out.', code: -1 });
         } else {
           resolve({ stdout, stderr, code: code ?? 0 });
@@ -172,6 +213,7 @@ export class DeviceManager {
 
       child.on('error', (err) => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         resolve({ stdout, stderr: err.message, code: -1 });
       });
     });
@@ -223,9 +265,19 @@ export class DeviceManager {
       else if (rawState === 'bootloader') state = 'bootloader';
       else if (trimmed.includes('no permissions')) state = 'no permissions';
 
-      // Determine transport type: if serial has IP:port format, it is Wi-Fi, otherwise USB
-      const isWifi = serial.includes(':') || /^\d+\.\d+\.\d+\.\d+/.test(serial);
+      // Determine link type: emulator, Android 11+ wireless-debugging mDNS serial, classic IP:port, or USB
+      const isEmulator = /^emulator-\d+$/.test(serial);
+      const isMdnsSerial = /\._adb-tls-connect\._tcp/.test(serial) || /^adb-.+\._adb-tls/.test(serial);
+      const isTcpIp = !isMdnsSerial && (serial.includes(':') || /^\d+\.\d+\.\d+\.\d+/.test(serial));
+      const isWifi = isMdnsSerial || isTcpIp;
       const transportType: 'usb' | 'wifi' = isWifi ? 'wifi' : 'usb';
+      const connectionType: AndroidDevice['connectionType'] = isEmulator
+        ? 'emulator'
+        : isMdnsSerial
+          ? 'wireless-debugging'
+          : isTcpIp
+            ? 'tcpip'
+            : 'usb';
 
       let model = 'Android Device';
       let product = 'Unknown';
@@ -247,8 +299,10 @@ export class DeviceManager {
         product,
         device,
         transportType,
+        connectionType,
+        rawState: rawState === 'no' ? 'no permissions' : rawState,
         alias,
-        ipAddress: isWifi ? serial.split(':')[0] : undefined,
+        ipAddress: isTcpIp ? serial.split(':')[0] : undefined,
         guidance: getDeviceStateGuidance(state)
       });
     }
@@ -280,6 +334,94 @@ export class DeviceManager {
     );
 
     return devices;
+  }
+
+  /**
+   * Like getDevices(), but also resolves manufacturer, Android version and API level for
+   * authorized devices. Property lookups are bounded and failures never remove a device.
+   */
+  public async getDevicesDetailed(): Promise<AndroidDevice[]> {
+    const devices = await this.getDevices();
+    await Promise.allSettled(
+      devices
+        .filter(d => d.state === 'device')
+        .map(async d => {
+          const props = await this.getDeviceProperties(d.serial);
+          if (props.manufacturer) d.manufacturer = props.manufacturer;
+          if (props.brand) d.brand = props.brand;
+          if (props.androidVersion) d.androidVersion = props.androidVersion;
+          if (props.apiLevel !== undefined) d.apiLevel = props.apiLevel;
+          if (props.osSkin) d.osSkin = props.osSkin;
+          if (props.model && (d.model === 'Android Device' || !d.model)) d.model = props.model;
+        })
+    );
+    return devices;
+  }
+
+  /**
+   * Reads a small allow-list of system properties. Missing or unreadable properties are omitted
+   * instead of throwing, and no personal identifiers (IMEI, account names, etc.) are requested.
+   */
+  public async getDeviceProperties(serial: string): Promise<DeviceProperties> {
+    if (!SecurityValidator.isValidSerial(serial)) return {};
+    const res = await this.executeAdb(['-s', serial, 'shell', 'getprop'], 4000);
+    if (res.code !== 0) return {};
+    return DeviceManager.parseDeviceProperties(res.stdout);
+  }
+
+  /**
+   * Parses `getprop` output ("[key]: [value]") for the allow-listed keys only.
+   */
+  public static parseDeviceProperties(stdout: string): DeviceProperties {
+    const wanted = new Set([
+      'ro.product.manufacturer',
+      'ro.product.brand',
+      'ro.product.model',
+      'ro.build.version.release',
+      'ro.build.version.sdk',
+      'ro.miui.ui.version.name',
+      'ro.mi.os.version.name'
+    ]);
+    const props: Record<string, string> = {};
+    for (const line of stdout.split(/\r?\n/)) {
+      const m = line.match(/^\[([^\]]+)\]:\s*\[(.*)\]\s*$/);
+      if (m && wanted.has(m[1]) && m[2].trim()) props[m[1]] = m[2].trim();
+    }
+    const out: DeviceProperties = {};
+    if (props['ro.product.manufacturer']) out.manufacturer = props['ro.product.manufacturer'];
+    if (props['ro.product.brand']) out.brand = props['ro.product.brand'];
+    if (props['ro.product.model']) out.model = props['ro.product.model'];
+    if (props['ro.build.version.release']) out.androidVersion = props['ro.build.version.release'];
+    const sdk = parseInt(props['ro.build.version.sdk'] || '', 10);
+    if (!isNaN(sdk)) out.apiLevel = sdk;
+    if (props['ro.mi.os.version.name']) out.osSkin = `HyperOS ${props['ro.mi.os.version.name']}`;
+    else if (props['ro.miui.ui.version.name']) out.osSkin = `MIUI ${props['ro.miui.ui.version.name']}`;
+    return out;
+  }
+
+  /**
+   * Resolves which device an operation must target. Never guesses when several devices are
+   * attached: an explicit serial is required, it must exist, and it must be in the `device` state.
+   */
+  public static resolveTargetSerial(devices: AndroidDevice[], requestedSerial?: string): TargetResolution {
+    const ready = devices.filter(d => d.state === 'device');
+    if (requestedSerial) {
+      const match = devices.find(d => d.serial === requestedSerial);
+      if (!match) {
+        return { ok: false, reason: 'not-found', message: 'The selected device is no longer connected. Refresh and choose a device.' };
+      }
+      if (match.state !== 'device') {
+        return { ok: false, reason: 'not-ready', message: getDeviceStateGuidance(match.state) };
+      }
+      return { ok: true, serial: match.serial };
+    }
+    if (ready.length === 0) {
+      return { ok: false, reason: 'none', message: 'No authorized device is connected.' };
+    }
+    if (ready.length > 1) {
+      return { ok: false, reason: 'ambiguous', message: 'Multiple devices are connected. Select the target device explicitly.' };
+    }
+    return { ok: true, serial: ready[0].serial };
   }
 
   /**
