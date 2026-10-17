@@ -296,3 +296,17 @@ once, across all running MCP instances.
 The test suites must never launch a browser. The unit suite installs a guard that blocks and reports any browser, URL or
 HTML launch, and `androscrn docs` is the only command that opens a browser, once per explicit request. See
 [testing.md](testing.md#6-browser-launch-guard).
+
+### The desktop UI looks unstyled (plain text, no layout)
+
+The interface relies on Tailwind CSS compiled at build time. If you built the UI before Phase 11.1, or the build was
+interrupted, rebuild it: `npm run build`, then run `npm run test:styling` to confirm the compiled stylesheet contains the
+utility classes. For a portable build, rebuild it with `npm run build:portable`.
+
+### OCR says it is unavailable or recognizes nothing
+
+- *"OCR engine ... is not installed"* or *"language data ... was not found"*: the bundled `tesseract.js` runtime or
+  `eng.traineddata` is missing. Run `npm install` for a source build, or rebuild/reinstall the portable build. You can set
+  `ANDROSCRN_OCR_DATA_DIR` to a folder containing `eng.traineddata.gz`.
+- Gibberish from a rotated photo: rotate it upright with the 90 degree buttons first. Slightly tilted text: use *Suggested
+  straighten*. Only English is supported. See [document-intelligence.md](document-intelligence.md).

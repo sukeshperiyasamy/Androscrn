@@ -376,6 +376,52 @@ export function enhanceForOcr(img: RawImage): RawImage {
   return out;
 }
 
+export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+  const crossProd = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const c1 = crossProd(a, b, c);
+  const c2 = crossProd(a, b, d);
+  const c3 = crossProd(c, d, a);
+  const c4 = crossProd(c, d, b);
+  return ((c1 > 1e-5 && c2 < -1e-5) || (c1 < -1e-5 && c2 > 1e-5)) && ((c3 > 1e-5 && c4 < -1e-5) || (c3 < -1e-5 && c4 > 1e-5));
+}
+
+export function isSelfIntersecting(quad: Quad | Point[]): boolean {
+  if (!Array.isArray(quad) || quad.length !== 4) return true;
+  const [p0, p1, p2, p3] = quad;
+  return segmentsIntersect(p0, p1, p2, p3) || segmentsIntersect(p1, p2, p3, p0);
+}
+
+export function isConvexQuad(points: Quad | Point[]): boolean {
+  if (!Array.isArray(points) || points.length !== 4) return false;
+  const [p0, p1, p2, p3] = points;
+  for (const p of points) {
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
+  }
+  if (isSelfIntersecting(points)) return false;
+  const crossProd = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const c0 = crossProd(p0, p1, p2);
+  const c1 = crossProd(p1, p2, p3);
+  const c2 = crossProd(p2, p3, p0);
+  const c3 = crossProd(p3, p0, p1);
+  const eps = 1e-4;
+  const allPos = c0 > eps && c1 > eps && c2 > eps && c3 > eps;
+  const allNeg = c0 < -eps && c1 < -eps && c2 < -eps && c3 < -eps;
+  return allPos || allNeg;
+}
+
+export function rotateQuadQuarterTurns(corners: Quad, width: number, height: number, quarterTurns: number): Quad {
+  const turns = ((Math.round(quarterTurns) % 4) + 4) % 4;
+  if (turns === 0) return [ ...corners ] as Quad;
+  const rotated = corners.map(p => {
+    let nx = p.x, ny = p.y;
+    if (turns === 1) { nx = height - 1 - p.y; ny = p.x; }
+    else if (turns === 2) { nx = width - 1 - p.x; ny = height - 1 - p.y; }
+    else if (turns === 3) { nx = p.y; ny = width - 1 - p.x; }
+    return { x: nx, y: ny };
+  });
+  return orderCorners(rotated);
+}
+
 export function validateQuad(corners: unknown, width: number, height: number): Quad {
   if (!Array.isArray(corners) || corners.length !== 4) {
     throw new DocumentError('INVALID_ARGUMENT', 'Four corner points are required.');
@@ -385,8 +431,16 @@ export function validateQuad(corners: unknown, width: number, height: number): Q
     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new DocumentError('INVALID_ARGUMENT', 'Corner points must be numeric.');
     if (p.x < -1 || p.y < -1 || p.x > width + 1 || p.y > height + 1) throw new DocumentError('INVALID_ARGUMENT', 'Corner points must lie inside the image.');
     return { x: Math.min(width - 1, Math.max(0, p.x)), y: Math.min(height - 1, Math.max(0, p.y)) };
-  });
+  }) as Quad;
+
+  if (isSelfIntersecting(pts)) {
+    throw new DocumentError('INVALID_ARGUMENT', 'The corners form a self-intersecting quadrilateral.');
+  }
+
   const ordered = orderCorners(pts);
+  if (!isConvexQuad(ordered) || isSelfIntersecting(ordered)) {
+    throw new DocumentError('INVALID_ARGUMENT', 'The selected corners do not form a valid convex quadrilateral.');
+  }
   if (polygonArea(ordered) < width * height * 0.01) {
     throw new DocumentError('INVALID_ARGUMENT', 'The selected area is too small to be a document.');
   }

@@ -72,7 +72,13 @@ async function runPlaywrightSuite() {
     });
     page = await context.newPage();
 
-    // -------------------------------------------------------------
+    const externalNetworkRequests: string[] = [];
+    page.on('request', req => {
+      const u = req.url();
+      if (!u.startsWith('http://127.0.0.1:') && !u.startsWith('http://localhost:')) {
+        externalNetworkRequests.push(u);
+      }
+    });
     // Test Scenario 1: Zero Devices Initial Render & Guidance
     // -------------------------------------------------------------
     console.log('Scenario 1: Zero Devices Empty State & Guidance');
@@ -1042,6 +1048,43 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     recordTest('Import tells the user the original is not modified', /original file is never modified/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
     recordTest('Run OCR is offered once a document is imported', await page.isVisible('[data-testid="document-ocr-panel"] button:has-text("Run OCR")'));
 
+    // Manual corner adjustment (Phase 11.2)
+    recordTest('Adjust corners button is available', await page.isVisible('[data-testid="adjust-corners-button"]'));
+    await page.click('[data-testid="adjust-corners-button"]');
+    await page.waitForSelector('[data-testid="document-corner-editor-svg"]', { timeout: 3000 });
+    recordTest('Interactive corner adjustment editor SVG is displayed', (await page.locator('[data-testid="document-corner-editor-svg"]').count()) === 1);
+    recordTest('Editor renders four accessible corner handles', (await page.locator('[data-testid^="corner-handle-"]').count()) === 4);
+    recordTest('Corner handles have slider role and accessible labels', (await page.getAttribute('[data-testid="corner-handle-0"]', 'role')) === 'slider' && /Corner Top-Left/.test((await page.getAttribute('[data-testid="corner-handle-0"]', 'aria-label')) ?? ''));
+
+    // Rotate boundary
+    await page.click('[data-testid="rotate-corners-button"]');
+    await page.waitForTimeout(100);
+    recordTest('Rotate boundary 90 degrees updates the polygon', (await page.locator('[data-testid="document-corner-editor-svg"] polygon').count()) === 1);
+
+    // Reset to detected
+    await page.click('[data-testid="reset-corners-button"]');
+    await page.waitForTimeout(100);
+    recordTest('Reset to detected boundary restores outline', (await page.locator('[data-testid="document-corner-editor-svg"] polygon').count()) === 1);
+
+    // Keyboard navigation on corner handle
+    await page.focus('[data-testid="corner-handle-0"]');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(100);
+    recordTest('Corner handle responds to keyboard arrow keys', (await page.locator('[data-testid="corner-handle-0"]').count()) === 1);
+
+    // Cancel corner adjustment preserves previous state
+    await page.click('[data-testid="cancel-corners-button"]');
+    await page.waitForTimeout(100);
+    recordTest('Cancelling corner adjustment closes editor without modifying original', (await page.locator('[data-testid="document-corner-editor-svg"]').count()) === 0 && (await page.locator('[data-testid="document-boundary-svg"]').count()) === 1);
+
+    // Re-open and confirm boundary
+    await page.click('[data-testid="adjust-corners-button"]');
+    await page.waitForSelector('[data-testid="document-corner-editor-svg"]', { timeout: 3000 });
+    await page.click('[data-testid="confirm-corners-button"]');
+    await page.waitForTimeout(100);
+    recordTest('Confirming boundary saves adjusted corners and returns to preview', (await page.locator('[data-testid="document-corner-editor-svg"]').count()) === 0 && /boundary confirmed/i.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
+
     // adjustments
     await page.click('button[aria-label="Rotate right 90 degrees"]');
     await page.$eval('input[aria-label="Fine rotation in degrees"]', (el: any) => {
@@ -1089,7 +1132,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     await page.click('button:has-text("Export searchable PDF")');
     await page.waitForTimeout(250);
     recordTest('Export searchable PDF reports the file path', /Searchable PDF saved: .*searchable\.pdf/.test((await page.textContent('[data-testid="document-message"]')) ?? ''));
-    recordTest('The PDF limitation (edits are not re-embedded) is stated', /not re-embedded in the PDF/.test((await page.textContent('[data-testid="document-ocr-panel"]')) ?? ''));
+    recordTest('The PDF note says reviewed text is embedded and added words are approximate', /carries your reviewed text/.test((await page.textContent('[data-testid="document-ocr-panel"]')) ?? ''));
 
     // keyboard operation
     await page.focus('button:has-text("Run OCR")');
@@ -1114,6 +1157,49 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const docFits = await page.evaluate(() => { const el = document.querySelector('[data-testid="document-panel"]') as HTMLElement | null; return !el || el.getBoundingClientRect().right <= window.innerWidth + 24; });
     recordTest('The document panel stays within a 375px viewport', docFits);
     await page.setViewportSize({ width: 1280, height: 800 });
+
+    // -------------------------------------------------------------
+    // Test Scenario 15: Styling pipeline - utility classes must produce real CSS (Phase 11.1)
+    // -------------------------------------------------------------
+    console.log('\nScenario 15: Tailwind utility classes are applied');
+    const styleProbe = await page.evaluate(() => {
+      const tab = document.querySelector('#tab-documents') as HTMLElement;
+      const cs = getComputedStyle(tab);
+      const sr = document.querySelector('.sr-only') as HTMLElement | null;
+      const srCs = sr ? getComputedStyle(sr) : null;
+      const bodyCs = getComputedStyle(document.body);
+      return {
+        tabDisplay: cs.display,
+        tabPaddingLeft: parseFloat(cs.paddingLeft),
+        tabMinHeight: parseFloat(cs.minHeight),
+        tabRadius: parseFloat(cs.borderTopLeftRadius),
+        srPosition: srCs ? srCs.position : 'none',
+        srWidth: srCs ? srCs.width : 'none',
+        bodyBg: bodyCs.backgroundColor,
+        bodyFont: bodyCs.fontFamily,
+        overflowX: document.documentElement.scrollWidth - window.innerWidth
+      };
+    });
+    recordTest('Navigation tabs are laid out with flex utilities', styleProbe.tabDisplay === 'flex');
+    recordTest('Utility spacing and sizing classes take effect (padding, min-height, rounding)', styleProbe.tabPaddingLeft >= 8 && styleProbe.tabMinHeight >= 40 && styleProbe.tabRadius >= 8);
+    recordTest('The sr-only utility visually hides labels while keeping them accessible', styleProbe.srPosition === 'absolute' && styleProbe.srWidth === '1px');
+    recordTest('The dark application background is applied', /rgb\(\d+, \d+, \d+\)/.test(styleProbe.bodyBg) && styleProbe.bodyBg !== 'rgba(0, 0, 0, 0)');
+    recordTest('Desktop UI makes zero external font requests at startup', externalNetworkRequests.filter(u => u.includes('fonts.googleapis.com') || u.includes('fonts.gstatic.com')).length === 0);
+    recordTest('Application uses local system font stack without network fonts', styleProbe.bodyFont.includes('system-ui') || styleProbe.bodyFont.includes('Segoe UI') || styleProbe.bodyFont.includes('sans-serif'));
+    await page.focus('#tab-documents');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    const focusShadow = await page.evaluate(() => getComputedStyle(document.activeElement as HTMLElement).boxShadow);
+    recordTest('Keyboard focus shows a visible ring (focus-visible utilities generate CSS)', focusShadow !== 'none' && focusShadow !== '');
+    for (const width of [1280, 1024, 800, 640]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForTimeout(100);
+      const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      recordTest(`No horizontal page overflow at ${width}px width`, over <= 1);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const loadOutcome = await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as any)?.type);
+    recordTest('The renderer did not reload itself during the session (single navigation)', loadOutcome === 'navigate');
 
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);

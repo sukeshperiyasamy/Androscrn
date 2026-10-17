@@ -16,7 +16,8 @@ export type DocumentErrorCode =
   | 'OCR_FAILED'
   | 'CANCELLED'
   | 'TIMEOUT'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'WRITE_FAILED';
 
 export class DocumentError extends Error {
   constructor(public code: DocumentErrorCode, message: string) {

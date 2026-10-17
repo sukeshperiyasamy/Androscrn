@@ -29,9 +29,15 @@ import {
   OcrResult,
   LOW_CONFIDENCE_THRESHOLD,
   buildSearchablePdf,
+  alignEditedText,
   extractTextLayer,
   escapePdfString,
-  Quad
+  Quad,
+  segmentsIntersect,
+  isSelfIntersecting,
+  isConvexQuad,
+  rotateQuadQuarterTurns,
+  MAX_OUTPUT_DIMENSION
 } from '../../modules/document_intelligence';
 import { createImage, fillRect, makeTextPage, placePageOnBackground, meanAbsDiff } from './fixtures/document-fixtures';
 
@@ -253,6 +259,43 @@ export async function runDocumentTests(assert: AssertFn, assertEqual: AssertEqua
   assertEqual(codeOf(() => validateQuad([{ x: -50, y: 0 }, { x: 99, y: 0 }, { x: 99, y: 99 }, { x: 0, y: 99 }], 100, 100)), 'INVALID_ARGUMENT', 'Corners far outside the image are invalid');
   assertEqual(codeOf(() => validateQuad(null, 100, 100)), 'INVALID_ARGUMENT', 'Missing corners are invalid');
 
+  // Quadrilateral geometry tests: valid, invalid, self-intersecting, concave, rotations
+  assert(segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 10, y: 0 }), 'Crossing line segments intersect');
+  assert(!segmentsIntersect({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 5 }, { x: 10, y: 5 }), 'Parallel line segments do not intersect');
+  assert(!segmentsIntersect({ x: 0, y: 0 }, { x: 4, y: 4 }, { x: 6, y: 6 }, { x: 10, y: 10 }), 'Disjoint collinear segments do not intersect');
+
+  const validBox: Quad = [{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 90 }, { x: 10, y: 90 }];
+  const bowtieQuad: Quad = [{ x: 10, y: 10 }, { x: 90, y: 90 }, { x: 90, y: 10 }, { x: 10, y: 90 }];
+  const concaveQuad: Quad = [{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 50, y: 40 }, { x: 10, y: 90 }];
+  const collinearQuad: Quad = [{ x: 10, y: 10 }, { x: 50, y: 10 }, { x: 90, y: 10 }, { x: 10, y: 90 }];
+
+  assert(!isSelfIntersecting(validBox), 'Standard rectangle is not self-intersecting');
+  assert(isSelfIntersecting(bowtieQuad), 'Bowtie quad is identified as self-intersecting');
+  assert(isConvexQuad(validBox), 'Standard rectangle is a convex quadrilateral');
+  assert(!isConvexQuad(bowtieQuad), 'Bowtie quad is not convex');
+  assert(!isConvexQuad(concaveQuad), 'Concave arrowhead quad is not convex');
+  assert(!isConvexQuad(collinearQuad), 'Collinear points do not form a convex quad');
+  assert(!isConvexQuad([{ x: 0, y: 0 }, { x: 1, y: 1 }] as any), 'Fewer than 4 points is not a convex quad');
+
+  const rotated0 = rotateQuadQuarterTurns(validBox, 100, 100, 0);
+  assertEqual(JSON.stringify(rotated0), JSON.stringify(validBox), 'Zero quarter turns leaves quad unchanged');
+  const rotated1 = rotateQuadQuarterTurns(validBox, 100, 100, 1);
+  assert(isConvexQuad(rotated1), 'Rotated quad remains convex');
+  assertEqual(rotated1[0].x, 9, 'Rotated quad top-left x is correctly mapped by 90-degree turn');
+  const rotated4 = rotateQuadQuarterTurns(validBox, 100, 100, 4);
+  assertEqual(JSON.stringify(rotated4), JSON.stringify(validBox), 'Four quarter turns returns to original quad');
+
+  assertEqual(codeOf(() => validateQuad(bowtieQuad, 100, 100)), 'INVALID_ARGUMENT', 'validateQuad rejects self-intersecting quads');
+  assertEqual(codeOf(() => validateQuad(concaveQuad, 100, 100)), 'INVALID_ARGUMENT', 'validateQuad rejects non-convex quads');
+  const tinyQuad: Quad = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+  assertEqual(codeOf(() => validateQuad(tinyQuad, 100, 100)), 'INVALID_ARGUMENT', 'validateQuad rejects quads smaller than 1% of the image');
+
+  const bigPhoto = createImage(4200, 4200);
+  fillRect(bigPhoto, 100, 100, 4000, 4000, [240, 240, 240]);
+  const bigQuad: Quad = [{ x: 100, y: 100 }, { x: 4100, y: 100 }, { x: 4100, y: 4100 }, { x: 100, y: 4100 }];
+  const warpedBig = perspectiveWarp(bigPhoto, bigQuad);
+  assert(warpedBig.width <= MAX_OUTPUT_DIMENSION && warpedBig.height <= MAX_OUTPUT_DIMENSION, `Warping very large region caps dimension at MAX_OUTPUT_DIMENSION (${MAX_OUTPUT_DIMENSION})`);
+
   const labelled = createImage(6, 4);
   fillRect(labelled, 0, 0, 1, 1, [255, 0, 0]);
   const r1 = rotateQuarterTurns(labelled, 1);
@@ -375,6 +418,30 @@ export async function runDocumentTests(assert: AssertFn, assertEqual: AssertEqua
     fs.rmSync(langDir, { recursive: true, force: true });
   }
 
+  // ------------------------------------------------------------------ edited-text alignment
+  const aw = (text: string, x0: number, y = 10): any => ({ text, confidence: 80, bbox: { x0, y0: y, x1: x0 + text.length * 10, y1: y + 20 } });
+  const base = [aw('Invoice', 0), aw('total', 100), aw('45O', 180), aw('due', 260)];
+  const same = alignEditedText(base, 'Invoice total 45O due');
+  assert(same.unchanged === 4 && same.replaced === 0 && same.inserted === 0 && same.removed === 0, 'Unchanged text aligns one-to-one');
+  const fixed = alignEditedText(base, 'Invoice total 450 due');
+  assert(fixed.replaced === 1 && fixed.words[2].text === '450' && fixed.words[2].bbox.x0 === 180, 'A corrected word keeps the original word position');
+  const removed = alignEditedText(base, 'Invoice 45O due');
+  assert(removed.removed === 1 && removed.words.length === 3 && removed.words[1].bbox.x0 === 180, 'A deleted word is dropped and neighbours keep their positions');
+  const mid = alignEditedText(base, 'Invoice total now 45O due');
+  assert(mid.inserted === 1 && mid.words[2].text === 'now' && mid.words[2].bbox.x0 >= base[1].bbox.x1 && mid.words[2].bbox.y0 === 10 && mid.words[3].text === '45O', 'An inserted word is placed right after its previous word on the same line');
+  const start = alignEditedText(base, 'Dear Invoice total 45O due');
+  assert(start.words[0].text === 'Dear' && start.words[0].bbox.y0 === 10 && start.words[1].text === 'Invoice' && start.words[1].bbox.x0 === 0, 'A word inserted at the start precedes the first word in the text layer (it may overlap it when there is no room to its left)');
+  const end = alignEditedText(base, 'Invoice total 45O due soon');
+  assert(end.words[4].text === 'soon' && end.words[4].bbox.x0 >= base[3].bbox.x1, 'A word inserted at the end is placed after the last word');
+  const multiline = alignEditedText(base, 'Invoice\n\ntotal   45O\tdue');
+  assert(multiline.unchanged === 4, 'Line breaks and repeated whitespace in the edited text do not matter');
+  assertEqual(codeOf(() => alignEditedText(base, '  \n ')), 'INVALID_ARGUMENT', 'Empty edited text cannot be aligned');
+  assertEqual(codeOf(() => alignEditedText([], 'anything')), 'INVALID_ARGUMENT', 'Alignment needs recognized words to position text');
+  const big = Array.from({ length: 5000 }, (_, i) => aw(`w${i}`, i));
+  assertEqual(codeOf(() => alignEditedText(big, Array.from({ length: 5000 }, (_, i) => `x${i}`).join(' '))), 'INVALID_ARGUMENT', 'Pathologically large alignments are refused instead of exhausting memory');
+  const full = alignEditedText(base, 'completely different words here');
+  assertEqual(full.words.length, 4, 'A fully rewritten text of equal length reuses the original positions');
+
   // ------------------------------------------------------------------ searchable PDF
   const pdfImage = makeTextPage(['HELLO WORLD'], 4, 20);
   const words = [
@@ -391,7 +458,7 @@ export async function runDocumentTests(assert: AssertFn, assertEqual: AssertEqua
   const startxref = parseInt(/startxref\n(\d+)\n%%EOF/.exec(pdfText)?.[1] || '-1', 10);
   assertEqual(pdfText.substr(startxref, 4), 'xref', 'startxref points at the xref table');
   const entries = [...pdfText.slice(startxref).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => parseInt(m[1], 10));
-  assertEqual(entries.length, 7, 'xref lists all seven objects');
+  assertEqual(entries.length, 10, 'xref lists all ten objects (including Type 0 composite font and ToUnicode CMap)');
   assert(entries.every((off, i) => pdfText.substr(off, `${i + 1} 0 obj`.length) === `${i + 1} 0 obj`), 'Every xref offset points at its object');
   assert(/\/Subtype \/Image/.test(pdfText) && /\/Filter \/DCTDecode/.test(pdfText), 'The page image is embedded as a JPEG XObject');
   const jpegStart = pdf.indexOf(Buffer.from([0xff, 0xd8, 0xff]));
@@ -401,7 +468,7 @@ export async function runDocumentTests(assert: AssertFn, assertEqual: AssertEqua
   assertEqual(layer.slice(0, 2).join(' '), 'HELLO WORLD', 'The text layer contains the recognized words');
   assertEqual(layer[2], 'a(b)c\\d', 'Parentheses and backslashes are escaped and round-trip');
   assertEqual(layer[3], 'café', 'Latin-1 characters survive in the text layer');
-  assertEqual(layer[4], '??', 'Characters outside Latin-1 degrade to "?" (documented limitation)');
+  assertEqual(layer[4], '漢字', 'Characters outside Latin-1 survive in Unicode via Type 0 font and ToUnicode CMap');
   assertEqual(escapePdfString('(x)'), '\\(x\\)', 'PDF string escaping handles parentheses');
   assert(/\/MediaBox \[0 0 [\d.]+ [\d.]+\]/.test(pdfText), 'The page has a media box sized from the image and DPI');
   assertEqual(codeOf(() => buildSearchablePdf({ width: 0, height: 0, data: new Uint8Array(0) }, pdfOcr)), 'INVALID_ARGUMENT', 'PDF export rejects an empty image');
@@ -465,9 +532,22 @@ export async function runDocumentTests(assert: AssertFn, assertEqual: AssertEqua
     assertEqual(JSON.parse(fs.readFileSync(saved.manifest, 'utf8')).textEditedByUser, true, 'Manifest reports user-edited text');
     assertEqual(fs.readFileSync(saved.text as string, 'utf8'), 'edited', 'The edited text is what gets saved');
 
-    const pdfPath = wf.exportSearchablePdf(session, outDir);
-    assert(fs.existsSync(pdfPath) && fs.readFileSync(pdfPath).subarray(0, 5).toString() === '%PDF-', 'Searchable PDF is written to the output folder');
-    assertEqual(extractTextLayer(fs.readFileSync(pdfPath)).join(' '), 'HELLO WORLD', 'The PDF text layer is the OCR words (edits are exported as text only)');
+    // session text is currently the edit 'edited' (one word) -> embedded as the edited text
+    const exported = wf.exportSearchablePdf(session, outDir);
+    assert(fs.existsSync(exported.path) && fs.readFileSync(exported.path).subarray(0, 5).toString() === '%PDF-', 'Searchable PDF is written to the output folder');
+    assertEqual(exported.textSource, 'edited', 'An edited session exports its edited text');
+    assertEqual(extractTextLayer(fs.readFileSync(exported.path)).join(' '), 'edited', 'The PDF text layer carries the reviewed text, not the stale OCR words');
+    wf.setText(session, 'HELLO WORLD');
+    const unedited = wf.exportSearchablePdf(session, outDir);
+    assertEqual(unedited.textSource, 'ocr', 'Text equal to the OCR output is exported as the recognized text');
+    assertEqual(extractTextLayer(fs.readFileSync(unedited.path)).join(' '), 'HELLO WORLD', 'Unedited export embeds the OCR words');
+    wf.setText(session, 'HELLO there WORLD');
+    const withInsert = wf.exportSearchablePdf(session, outDir);
+    assertEqual(withInsert.insertedWords, 1, 'An inserted word is counted');
+    assertEqual(extractTextLayer(fs.readFileSync(withInsert.path)).join(' '), 'HELLO there WORLD', 'Inserted words appear in order in the text layer');
+    wf.setText(session, '   ');
+    assertEqual(codeOf(() => wf.exportSearchablePdf(session, outDir)), 'INVALID_ARGUMENT', 'Exporting an emptied text is refused with an explanation');
+    wf.setText(session, 'edited');
 
     const afterHash = crypto.createHash('sha256').update(fs.readFileSync(srcFile)).digest('hex');
     assertEqual(afterHash, srcHashBefore, 'The source file on disk is unchanged after the whole workflow');

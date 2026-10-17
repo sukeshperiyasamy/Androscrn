@@ -14,6 +14,9 @@ Result counts change as tests are added: read the `RESULTS` line each command pr
 | PATH logic only | `npm run test:path` | No | See section 3. |
 | Discovery, OEM guidance, wireless validation, redaction | `npm run test:discovery` | No | All ADB and network behavior is **mocked**. |
 | Document intelligence (OCR) | `npm run test:document` | No | Synthetic images; the engine is scripted except for one smoke test of the real tesseract.js engine (skipped with a reason if unavailable). See [document-intelligence.md](document-intelligence.md). |
+| Styling pipeline | `npm run test:styling` | No | Tailwind config, CSS entry point and the compiled CSS (needs `npm run build`; the portable-build part is skipped with a reason if `dist-release` is absent). |
+| OCR sample validation | `npm run validate:ocr` | No | Not part of `npm test`. Runs the real engine on the synthetic samples and rewrites [qa/ocr-sample-validation.md](qa/ocr-sample-validation.md). |
+| PDF export validation | `npm run validate:pdf` | No | Not part of `npm test`. Re-opens exported PDFs with pdf.js and rewrites [qa/pdf-export-validation.md](qa/pdf-export-validation.md). |
 | Documentation checks | `npm run docs:check` | No | Relative links and anchors, `npm run` references, no local paths or private IPs, README stays a landing page. |
 | Integration | `npm run test:integration` | No | |
 | Playwright UI | `npm run test:ui` | No | Needs Chrome at `C:\Program Files\Google\Chrome\Application\chrome.exe` and a built UI (`npm run build`). The UI runs against a mocked `androscrnApi`. |
@@ -95,33 +98,51 @@ the suite fails if one was attempted. To check a test run yourself, use the trac
 
 ## 7. Current validation status
 
-_Last verified: 2026-10-18, Windows 11 (build 10.0.26200), Node 22 on the host, bundled ADB 1.0.41, Electron 31.7.7. These
-results belong to the commit that contains this file; re-run the commands above for anything later._
+_Last verified: 2026-10-18 (Phase 11.2), Windows 11 (build 10.0.26200), Node 22 on the host, bundled ADB 1.0.41, Electron
+31.7.7. These results belong to the working tree; re-run the commands above for anything later._
+
+**GitHub Actions** for commit `6f4a6eb` (Phase 11): workflow *AndroScrn CI* completed with conclusion **success**; every
+step passed except the failure-only log upload, which was correctly skipped. (Pages deployment for the same commit also
+succeeded.) This is a statement about that commit, not about later changes.
 
 | Check | Command | Result |
 | :--- | :--- | :--- |
-| Unit suite (3 consecutive runs) | `node dist/tests/unit/runner.js` | 908 passed, 0 failed, **1 skipped**, in each of three runs |
-| Native CLI launcher | `npm run test:native-cli` | 15 passed (fixture build and the portable artifact exe) |
+| Unit suite (3 consecutive runs) | `node dist/tests/unit/runner.js` | 975 passed, 0 failed, **1 skipped**, in each of three runs |
+| Styling pipeline | `npm run test:styling` | 26 passed (production and portable CSS, local font stack, zero network fonts) |
+| Document intelligence + privacy | `npm run test:document` | 188 passed, including quadrilateral geometry, Type 0 Unicode PDF, and real-engine smoke test |
+| Native CLI launcher | `npm run test:native-cli` | 15 passed |
 | PATH logic | `npm run test:path` | 67 passed, **1 skipped** (opt-in real-persistence check) |
 | Discovery, OEM guidance, wireless validation | `npm run test:discovery` | 222 passed |
-| Document intelligence | `npm run test:document` | 146 passed, including the real-engine smoke test on a synthetic image |
 | Integration | `npm run test:integration` | 39 passed |
-| Playwright UI (mocked IPC) | `npm run test:ui` | 151 passed |
+| Playwright UI (mocked IPC, real CSS) | `npm run test:ui` | 172 passed (including manual corner adjustment editor, accessible handles, rotate, reset, keyboard navigation) |
 | Full build | `npm run build` | succeeded |
-| Portable build | `npm run build:portable` | succeeded (about 148 MB zipped) |
+| Portable build | `npm run build:portable` | succeeded (148.16 MB zipped) |
+| OCR sample validation | `npm run validate:ocr` | ran; results in [qa/ocr-sample-validation.md](qa/ocr-sample-validation.md) |
+| Real-photo OCR validation | `npm run validate:ocr:real` | harness ran; status PENDING dataset; [qa/real-photo-validation.md](qa/real-photo-validation.md) |
+| PDF export validation (pdf.js + visual canvas) | `npm run validate:pdf` | 36 of 36 checks passed; [qa/pdf-export-validation.md](qa/pdf-export-validation.md) |
 | Documentation checks | `npm run docs:check` | passed |
 
-**Skipped:** *Real PowerShell persistence round-trip* - opt-in (`ANDROSCRN_TEST_REAL_ENV=1`); it writes and deletes a
-disposable User variable and is last known to pass from the Phase 10.1 run, not re-run here.
+**Skipped:** *Real PowerShell persistence round-trip* - opt-in (`ANDROSCRN_TEST_REAL_ENV=1`); last known to pass in Phase
+10.1, not re-run here.
+
+**Manual Corner Adjustment & Offline Fonts (Phase 11.2).** The desktop document workflow now supports interactive manual
+corner adjustment with an SVG editor, touch/mouse dragging with pointer capture, keyboard accessibility (`role="slider"`),
+convex quadrilateral validation, rotate 90°, reset to detected, and cancel/confirm controls. External Google Fonts links
+and CSS `@import` rules were completely removed from the desktop renderer, replacing them with a high-fidelity system font
+stack (`system-ui, -apple-system, Segoe UI, Roboto, sans-serif`). Playwright network instrumentation validates 0 external
+font or network requests at startup. PDF generation now utilizes a Type 0 composite font (`/Identity-H` + `/ToUnicode` CMap),
+preserving full Unicode (curly quotes, accents, currency, CJK) without question-mark fallback degradation, validated
+via pdf.js text extraction and Chromium canvas rendering.
 
 **What these results do and do not show**
 
 - Automated tests use recorded ADB output, fakes and synthetic images. They are not hardware evidence.
+- **Sample OCR validation and PDF validation** are small, synthetic and automated (pdf.js, not Acrobat or a browser
+  viewer). They are not evidence of accuracy on real documents.
 - **Physical-device validation (USB):** last performed in Phase 10.1 on a Xiaomi `21091116I` (Android 13, API 33,
   HyperOS): the hardware suite passed except one operation reported as **blocked** (touch injection refused by the
-  device). It was **not re-run** for Phase 10.2 or Phase 11.
+  device). It was **not re-run** in Phases 10.2-11.1.
 - **Wireless debugging on a physical phone: Not tested.** Use the procedure in section 5.
-- **OCR accuracy on real documents: not measured.** The only recognizer run is on a generated block-letter image.
 - **Windows ARM64:** untested ([platform-support.md](platform-support.md)).
 
 Earlier, superseded transcripts of the test suites are kept for history in

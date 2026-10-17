@@ -32,4 +32,5 @@ Earlier engineering notes and reports are kept for history and may describe supe
 [release-verification-report.md](release-verification-report.md), [progress.md](progress.md),
 [repository-inventory.md](repository-inventory.md), [reference-analysis.md](reference-analysis.md),
 [existing-capabilities.md](existing-capabilities.md), [integration-decision.md](integration-decision.md),
-[technical-gaps.md](technical-gaps.md), and the [README test history](qa/2026-10-readme-validation-history.md).
+[technical-gaps.md](technical-gaps.md), and the QA reports: [README test history](qa/2026-10-readme-validation-history.md),
+[OCR sample validation](qa/ocr-sample-validation.md), [Real-photo validation](qa/real-photo-validation.md), [PDF export validation](qa/pdf-export-validation.md).

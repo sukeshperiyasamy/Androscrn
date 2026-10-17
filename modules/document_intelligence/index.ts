@@ -24,11 +24,13 @@ import {
 } from './preprocess';
 import { OcrEngine, OcrResult, OcrProgress } from './ocr';
 import { buildSearchablePdf } from './pdf';
+import { alignEditedText, AlignmentResult } from './align';
 
 export * from './image';
 export * from './preprocess';
 export * from './ocr';
 export * from './pdf';
+export * from './align';
 
 export const PREVIEW_MAX_DIMENSION = 900;
 
@@ -81,6 +83,16 @@ export interface SavedArtifacts {
   ocrJson: string | null;
   text: string | null;
   manifest: string;
+}
+
+export interface PdfExportResult {
+  path: string;
+  /** Which text the invisible layer contains. */
+  textSource: 'ocr' | 'edited';
+  /** Edited-text export only: words added (positions approximate), dropped and replaced (original positions). */
+  insertedWords: number;
+  removedWords: number;
+  replacedWords: number;
 }
 
 export function makePreview(img: RawImage, maxDimension = PREVIEW_MAX_DIMENSION): Preview {
@@ -202,7 +214,11 @@ export class DocumentWorkflow {
    */
   public save(session: DocumentSession, baseDir: string): SavedArtifacts {
     const directory = path.join(baseDir, session.id);
-    fs.mkdirSync(directory, { recursive: true });
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+    } catch {
+      throw new DocumentError('WRITE_FAILED', 'The output folder could not be created. Check that the location is writable.');
+    }
 
     const ext = session.format === 'png' ? 'png' : 'jpg';
     const originalPath = path.join(directory, `original.${ext}`);
@@ -254,16 +270,26 @@ export class DocumentWorkflow {
     return { directory, original: originalPath, processed: processedPath, ocrJson: ocrPath, text: textPath, manifest: manifestPath };
   }
 
-  /** Builds and writes a searchable PDF. Requires OCR output (the text layer is the OCR words). */
-  public exportSearchablePdf(session: DocumentSession, baseDir: string): string {
+  /**
+   * Builds and writes a searchable PDF. Requires OCR output to position text on the page. If the user edited the
+   * text, the invisible layer carries the *edited* words: unchanged and replaced words sit at their original
+   * positions, inserted words are placed next to their neighbour (approximate), deleted words are dropped.
+   */
+  public exportSearchablePdf(session: DocumentSession, baseDir: string): PdfExportResult {
     if (!session.ocr || session.ocr.words.length === 0) {
       throw new DocumentError('INVALID_ARGUMENT', 'Run OCR first: a searchable PDF needs recognized text to embed.');
     }
+    const edited = session.editedText !== undefined && session.editedText !== session.ocr.text;
+    const alignment: AlignmentResult | null = edited ? alignEditedText(session.ocr.words, session.editedText as string) : null;
     const directory = path.join(baseDir, session.id);
-    fs.mkdirSync(directory, { recursive: true });
-    const pdf = buildSearchablePdf(this.workingImage(session), session.ocr, { title: session.sourceName });
+    const pdf = buildSearchablePdf(this.workingImage(session), session.ocr, { title: session.sourceName, words: alignment?.words });
     const target = path.join(directory, 'searchable.pdf');
-    fs.writeFileSync(target, pdf);
-    return target;
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(target, pdf);
+    } catch {
+      throw new DocumentError('WRITE_FAILED', 'The PDF could not be written. Check that the location is writable and has free space.');
+    }
+    return { path: target, textSource: edited ? 'edited' : 'ocr', insertedWords: alignment?.inserted ?? 0, removedWords: alignment?.removed ?? 0, replacedWords: alignment?.replaced ?? 0 };
   }
 }

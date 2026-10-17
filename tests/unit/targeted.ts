@@ -4,9 +4,11 @@ import { runPathEnvironmentTests, snapshotRealUserPath, assertRealUserPathUnchan
 import { runDiscoveryTests } from './discovery.test';
 import { runWirelessValidationTests } from './wireless-validation.test';
 import { runDocumentTests } from './document.test';
+import { runDocumentPrivacyTests } from './document-privacy.test';
+import { runStylingTests } from './styling.test';
 
 /**
- * Runs one unit-test group on its own: `node dist/tests/unit/targeted.js <native|path|discovery|document>`.
+ * Runs one unit-test group on its own: `node dist/tests/unit/targeted.js <native|path|discovery|document|styling>`.
  * Exit code is 1 on any failure, 0 otherwise. Skips are counted and printed, never reported as passes.
  */
 let total = 0;
@@ -52,8 +54,12 @@ async function main() {
       await runDiscoveryTests(assert, assertEqual);
       await runWirelessValidationTests(assert, assertEqual);
       break;
+    case 'styling':
+      runStylingTests(assert, skip);
+      break;
     case 'document':
       await runDocumentTests(assert, assertEqual, skip);
+      await runDocumentPrivacyTests(assert);
       break;
     default:
       console.error('Usage: node dist/tests/unit/targeted.js <native|path|discovery|document>');

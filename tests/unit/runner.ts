@@ -15,6 +15,8 @@ import { runNativeCliTests } from './native-cli.test';
 import { installLaunchGuard, assertNoBrowserLaunches } from './launch-guard';
 import { runWirelessValidationTests } from './wireless-validation.test';
 import { runDocumentTests } from './document.test';
+import { runDocumentPrivacyTests } from './document-privacy.test';
+import { runStylingTests } from './styling.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -263,6 +265,10 @@ OFFLINE_DEV_1          offline transport_id:4
 
   // Phase 11: local document intelligence
   await runDocumentTests(assert, assertEqual, skip);
+  await runDocumentPrivacyTests(assert);
+
+  // Phase 11.1: styling pipeline regression
+  runStylingTests(assert, skip);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);

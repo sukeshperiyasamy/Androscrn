@@ -9,6 +9,10 @@
     "test:path": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js path",
     "test:document": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js document",
     "docs:check": "node scripts/check-docs.js",
+    "test:styling": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js styling",
+    "validate:ocr": "tsc -p tsconfig.json && node dist/tests/validation/ocr-validation.js",
+    "validate:ocr:real": "tsc -p tsconfig.json && node dist/tests/validation/real-photo-validation.js",
+    "validate:pdf": "tsc -p tsconfig.json && node dist/tests/validation/pdf-validation.js",
     "test:discovery": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js discovery",
     "test:integration": "tsc -p tsconfig.json && node dist/tests/integration/integration.test.js",
     "test:ui": "tsc -p tsconfig.json && node dist/tests/ui/playwright-ui.test.js",
@@ -34,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^22.13.0",
     "@types/pngjs": "^6.0.5",
+    "pdfjs-dist": "^4.10.38",
     "playwright": "1.64.1",
     "typescript": "7.0.2"
   },

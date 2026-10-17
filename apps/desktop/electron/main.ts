@@ -663,8 +663,8 @@ ipcMain.handle('document-export-pdf', (_, payload) => {
   const entry = documentSessions.get(parsed.id);
   if (!entry) return { ok: false, code: 'NOT_FOUND', message: 'That document is no longer open.' };
   try {
-    const pdfPath = documentWorkflow.exportSearchablePdf(entry.session, documentsFolder());
-    return { ok: true, path: pdfPath, directory: path.dirname(pdfPath) };
+    const exported = documentWorkflow.exportSearchablePdf(entry.session, documentsFolder());
+    return { ok: true, path: exported.path, directory: path.dirname(exported.path), textSource: exported.textSource, insertedWords: exported.insertedWords, removedWords: exported.removedWords, replacedWords: exported.replacedWords };
   } catch (err: any) {
     return toErrorPayload(err);
   }

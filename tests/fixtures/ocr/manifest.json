@@ -1,0 +1,23 @@
+{
+  "printed-clean": {
+    "description": "Clean printed English page, dark text on white, three short paragraphs.",
+    "font": "Segoe UI (Windows system font) rendered by Chrome, 24px",
+    "width": 900,
+    "height": 364,
+    "source": "synthetic: text written for this project, rendered locally"
+  },
+  "multi-paragraph-punctuation": {
+    "description": "Several paragraphs with numbers, currency, quotation marks, parentheses and mixed punctuation.",
+    "font": "Segoe UI (Windows system font) rendered by Chrome, 24px",
+    "width": 900,
+    "height": 386,
+    "source": "synthetic: text written for this project, rendered locally"
+  },
+  "low-contrast": {
+    "description": "Low-contrast page: mid-gray text on a light-gray background (same text as printed-clean).",
+    "font": "Segoe UI (Windows system font) rendered by Chrome, 24px",
+    "width": 900,
+    "height": 364,
+    "source": "synthetic: text written for this project, rendered locally"
+  }
+}
