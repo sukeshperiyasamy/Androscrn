@@ -58,12 +58,18 @@ export interface WorkflowExecutionReport {
   failedSteps: number;
   results: StepExecutionResult[];
   overallStatus: 'passed' | 'failed';
+  // Seamless compatibility aliases for UI and API consumers
+  success: boolean;
+  durationMs: number;
+  completedSteps: number;
+  steps: Array<{ stepId: string; action: WorkflowActionType; success: boolean; durationMs: number; error?: string }>;
 }
 
 export class WorkflowEngine extends EventEmitter {
   private deviceManager: DeviceManager;
   private diagnosticsManager: DiagnosticsManager;
   private isCancelled = false;
+  private currentAbortController: AbortController | null = null;
 
   constructor(deviceManager: DeviceManager, diagnosticsManager: DiagnosticsManager) {
     super();
@@ -73,6 +79,13 @@ export class WorkflowEngine extends EventEmitter {
 
   public cancel(): void {
     this.isCancelled = true;
+    if (this.currentAbortController) {
+      try {
+        this.currentAbortController.abort();
+      } catch {
+        // Ignore abort errors
+      }
+    }
   }
 
   /**
@@ -83,6 +96,42 @@ export class WorkflowEngine extends EventEmitter {
     workflow: WorkflowDefinition,
     outputFolder: string
   ): Promise<WorkflowExecutionReport> {
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      throw new Error(`Invalid target device serial: "${serial}".`);
+    }
+    if (!workflow || typeof workflow !== 'object') {
+      throw new Error('Invalid workflow definition: workflow object is required.');
+    }
+    if (!workflow.id || typeof workflow.id !== 'string') {
+      throw new Error('Invalid workflow definition: "id" must be a non-empty string.');
+    }
+    if (!workflow.name || typeof workflow.name !== 'string') {
+      throw new Error('Invalid workflow definition: "name" must be a non-empty string.');
+    }
+    if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+      throw new Error('Invalid workflow definition: "steps" must be a non-empty array.');
+    }
+    if (workflow.steps.length > 1000) {
+      throw new Error('Invalid workflow definition: exceeds maximum limit of 1000 steps.');
+    }
+
+    const allowedActions: WorkflowActionType[] = ['tap', 'swipe', 'keyevent', 'input_text', 'wait', 'screenshot', 'assert_text'];
+    for (let i = 0; i < workflow.steps.length; i++) {
+      const s = workflow.steps[i];
+      if (!s || typeof s !== 'object') {
+        throw new Error(`Invalid workflow step at index ${i}: step must be an object.`);
+      }
+      if (!s.id || typeof s.id !== 'string') {
+        throw new Error(`Invalid workflow step at index ${i}: step "id" is required.`);
+      }
+      if (!s.action || typeof s.action !== 'string' || !allowedActions.includes(s.action as any)) {
+        throw new Error(`Invalid workflow step at index ${i}: unknown or missing action "${s?.action}".`);
+      }
+      if (!s.params || typeof s.params !== 'object') {
+        throw new Error(`Invalid workflow step at index ${i}: "params" object is required.`);
+      }
+    }
+
     this.isCancelled = false;
     const startTime = new Date();
     const results: StepExecutionResult[] = [];
@@ -137,12 +186,29 @@ export class WorkflowEngine extends EventEmitter {
         }
         break;
       }
+
+      if (this.isCancelled || result.status === 'skipped') {
+        for (let j = i + 1; j < workflow.steps.length; j++) {
+          results.push({
+            stepId: workflow.steps[j].id,
+            action: workflow.steps[j].action,
+            status: 'skipped',
+            durationMs: 0,
+            error: 'Workflow was cancelled by user.'
+          });
+        }
+        break;
+      }
     }
 
     const endTime = new Date();
+    const totalDurationMs = endTime.getTime() - startTime.getTime();
     const passedSteps = results.filter(r => r.status === 'passed').length;
     const failedSteps = results.filter(r => r.status === 'failed').length;
-    const overallStatus = failedSteps === 0 && !this.isCancelled ? 'passed' : 'failed';
+    const overallStatus: 'passed' | 'failed' =
+      failedSteps === 0 && !this.isCancelled && results.length === workflow.steps.length && passedSteps === workflow.steps.length
+        ? 'passed'
+        : 'failed';
 
     const report: WorkflowExecutionReport = {
       workflowId: workflow.id,
@@ -150,16 +216,41 @@ export class WorkflowEngine extends EventEmitter {
       targetSerial: serial,
       startTime: startTime.toISOString(),
       endTime: endTime.toISOString(),
-      totalDurationMs: endTime.getTime() - startTime.getTime(),
+      totalDurationMs,
       totalSteps: workflow.steps.length,
       passedSteps,
       failedSteps,
       results,
-      overallStatus
+      overallStatus,
+      success: overallStatus === 'passed',
+      durationMs: totalDurationMs,
+      completedSteps: passedSteps,
+      steps: results.map(r => ({
+        stepId: r.stepId,
+        action: r.action,
+        success: r.status === 'passed',
+        durationMs: r.durationMs,
+        error: r.error
+      }))
     };
 
     this.emit('workflow_completed', report);
     return report;
+  }
+
+  private async runAdbWithAbort(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string; code: number; aborted?: boolean }> {
+    const ac = new AbortController();
+    this.currentAbortController = ac;
+    try {
+      if (this.isCancelled) {
+        return { stdout: '', stderr: 'Workflow was cancelled by user.', code: -1, aborted: true };
+      }
+      return await this.deviceManager.executeAdb(args, timeoutMs, ac.signal);
+    } finally {
+      if (this.currentAbortController === ac) {
+        this.currentAbortController = null;
+      }
+    }
   }
 
   private async executeStep(serial: string, step: WorkflowStep, outputFolder: string, result: StepExecutionResult): Promise<void> {
@@ -171,9 +262,17 @@ export class WorkflowEngine extends EventEmitter {
       case 'tap': {
         const x = step.params.x ?? 500;
         const y = step.params.y ?? 500;
-        const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()]);
-        if (res.code !== 0) throw new Error(`Tap failed: ${res.stderr}`);
-        if (isInputInjectionBlocked(res)) throw new Error(`Tap blocked by device security settings: ${res.stderr.trim()}`);
+        if (!SecurityValidator.isValidCoordinate(x, 20000) || !SecurityValidator.isValidCoordinate(y, 20000)) {
+          throw new Error(`Invalid tap coordinates: (${x}, ${y}). Coordinates must be non-negative integers <= 20000.`);
+        }
+        const res = await this.runAdbWithAbort(['-s', serial, 'shell', 'input', 'tap', x.toString(), y.toString()], 10000);
+        if (res.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (isInputInjectionBlocked(res)) throw new Error(`Tap blocked by device security settings: ${res.stderr.trim() || res.stdout.trim()}`);
+        if (res.code !== 0) throw new Error(`Tap failed: ${res.stderr || `Exit code ${res.code}`}`);
         break;
       }
 
@@ -183,36 +282,82 @@ export class WorkflowEngine extends EventEmitter {
         const x2 = step.params.x2 ?? 300;
         const y2 = step.params.y2 ?? 200;
         const duration = step.params.durationMs ?? 300;
-        const res = await this.deviceManager.executeAdb([
+        if (
+          !SecurityValidator.isValidCoordinate(x1, 20000) ||
+          !SecurityValidator.isValidCoordinate(y1, 20000) ||
+          !SecurityValidator.isValidCoordinate(x2, 20000) ||
+          !SecurityValidator.isValidCoordinate(y2, 20000)
+        ) {
+          throw new Error(`Invalid swipe coordinates: (${x1}, ${y1}) -> (${x2}, ${y2}). Coordinates must be non-negative integers <= 20000.`);
+        }
+        if (!SecurityValidator.isValidSwipeDuration(duration)) {
+          throw new Error(`Invalid swipe duration: ${duration}ms (must be between 50 and 10000ms).`);
+        }
+        const res = await this.runAdbWithAbort([
           '-s', serial, 'shell', 'input', 'swipe',
           x1.toString(), y1.toString(), x2.toString(), y2.toString(), duration.toString()
-        ]);
-        if (res.code !== 0) throw new Error(`Swipe failed: ${res.stderr}`);
-        if (isInputInjectionBlocked(res)) throw new Error(`Swipe blocked by device security settings: ${res.stderr.trim()}`);
+        ], 15000);
+        if (res.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (isInputInjectionBlocked(res)) throw new Error(`Swipe blocked by device security settings: ${res.stderr.trim() || res.stdout.trim()}`);
+        if (res.code !== 0) throw new Error(`Swipe failed: ${res.stderr || `Exit code ${res.code}`}`);
         break;
       }
 
       case 'keyevent': {
         const code = step.params.keycode ?? 3; // 3 = HOME
-        const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'keyevent', code.toString()]);
-        if (res.code !== 0) throw new Error(`Keyevent failed: ${res.stderr}`);
-        if (isInputInjectionBlocked(res)) throw new Error(`Keyevent blocked by device security settings: ${res.stderr.trim()}`);
+        const numCode = typeof code === 'number' ? code : parseInt(String(code), 10);
+        if (!SecurityValidator.isValidKeyCode(numCode)) {
+          throw new Error(`Invalid keycode: ${code}. Keycode must be an integer between 0 and 300.`);
+        }
+        const res = await this.runAdbWithAbort(['-s', serial, 'shell', 'input', 'keyevent', numCode.toString()], 10000);
+        if (res.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (isInputInjectionBlocked(res)) throw new Error(`Keyevent blocked by device security settings: ${res.stderr.trim() || res.stdout.trim()}`);
+        if (res.code !== 0) throw new Error(`Keyevent failed: ${res.stderr || `Exit code ${res.code}`}`);
         break;
       }
 
       case 'input_text': {
         const text = step.params.text ?? '';
-        // Escape spaces for Android shell input
-        const escaped = text.replace(/\s/g, '%s').replace(/[^a-zA-Z0-9%._-]/g, '');
-        const res = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'input', 'text', escaped]);
-        if (res.code !== 0) throw new Error(`Text input failed: ${res.stderr}`);
-        if (isInputInjectionBlocked(res)) throw new Error(`Text input blocked by device security settings: ${res.stderr.trim()}`);
+        const sanitized = SecurityValidator.sanitizeInputText(text, { allowPunctuation: true });
+        if (!sanitized.valid || !sanitized.encoded) {
+          throw new Error(`Input text validation failed: ${sanitized.error || 'Invalid text.'}`);
+        }
+        const res = await this.runAdbWithAbort(['-s', serial, 'shell', 'input', 'text', sanitized.encoded], 15000);
+        if (res.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (isInputInjectionBlocked(res)) throw new Error(`Text input blocked by device security settings: ${res.stderr.trim() || res.stdout.trim()}`);
+        if (res.code !== 0) throw new Error(`Text input failed: ${res.stderr || `Exit code ${res.code}`}`);
         break;
       }
 
       case 'wait': {
         const ms = step.params.waitMs ?? 1000;
-        await new Promise(r => setTimeout(r, ms));
+        if (typeof ms !== 'number' || !Number.isInteger(ms) || ms < 0 || ms > 60000) {
+          throw new Error(`Invalid wait duration: ${ms}ms (must be an integer between 0 and 60000ms).`);
+        }
+        const interval = 25;
+        let elapsed = 0;
+        while (elapsed < ms && !this.isCancelled) {
+          const chunk = Math.min(interval, ms - elapsed);
+          await new Promise(r => setTimeout(r, chunk));
+          elapsed += chunk;
+        }
+        if (this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
         break;
       }
 
@@ -224,10 +369,29 @@ export class WorkflowEngine extends EventEmitter {
       }
 
       case 'assert_text': {
+        const expected = step.params.text;
+        if (typeof expected !== 'string' || expected.length === 0) {
+          throw new Error('assert_text step requires a non-empty string "text" parameter.');
+        }
         // UI Hierarchy XML dump probe
-        const dumpRes = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'uiautomator', 'dump', '/data/local/tmp/dump.xml']);
-        const readRes = await this.deviceManager.executeAdb(['-s', serial, 'shell', 'cat', '/data/local/tmp/dump.xml']);
-        const expected = step.params.text || '';
+        const dumpRes = await this.runAdbWithAbort(['-s', serial, 'shell', 'uiautomator', 'dump', '/data/local/tmp/dump.xml'], 15000);
+        if (dumpRes.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (dumpRes.code !== 0) {
+          throw new Error(`UI automator dump failed: ${dumpRes.stderr.trim() || dumpRes.stdout.trim() || 'Command failed'}`);
+        }
+        const readRes = await this.runAdbWithAbort(['-s', serial, 'shell', 'cat', '/data/local/tmp/dump.xml'], 10000);
+        if (readRes.aborted || this.isCancelled) {
+          result.status = 'skipped';
+          result.error = 'Workflow was cancelled by user.';
+          return;
+        }
+        if (readRes.code !== 0) {
+          throw new Error(`Failed to read UI hierarchy dump: ${readRes.stderr.trim() || 'File unreadable'}`);
+        }
         if (!readRes.stdout.toLowerCase().includes(expected.toLowerCase())) {
           throw new Error(`Text assertion failed: "${expected}" was not found in current UI state.`);
         }
@@ -235,7 +399,7 @@ export class WorkflowEngine extends EventEmitter {
       }
 
       default:
-        throw new Error(`Unknown workflow action: ${step.action}`);
+        throw new Error(`Unknown workflow action: "${(step as any).action}".`);
     }
   }
 }

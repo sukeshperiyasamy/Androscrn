@@ -135,26 +135,27 @@ export class SecurityValidator {
   }
 
   /**
+   * Safely quotes and escapes an argument for POSIX /system/bin/sh so that
+   * metacharacters (;, &, |, $, `, (, ), <, >, etc.) are treated strictly as literals
+   * and can never trigger command execution or shell interpretation.
+   */
+  static escapeShellArg(arg: string): string {
+    return "'" + arg.replace(/'/g, "'\\''") + "'";
+  }
+
+  /**
    * Validates and encodes input text for safe ADB injection.
    * Prevents shell metacharacter injection and rejects non-ASCII Unicode to avoid silent corruption.
+   * When allowPunctuation is true (e.g. WorkflowEngine), uses POSIX shell single-quote escaping to
+   * preserve legitimate punctuation while mathematically neutralizing command injection.
    */
-  static sanitizeInputText(rawText: string): { valid: boolean; encoded?: string; error?: string } {
+  static sanitizeInputText(rawText: string, options?: { allowPunctuation?: boolean }): { valid: boolean; encoded?: string; error?: string } {
     if (typeof rawText !== 'string' || rawText.length === 0) {
       return { valid: false, error: 'Input text cannot be empty.' };
     }
 
     if (rawText.length > 500) {
       return { valid: false, error: 'Input text exceeds maximum length of 500 characters.' };
-    }
-
-    // Disallow dangerous shell metacharacters that adbd /system/bin/sh evaluates
-    const dangerousShellChars = /[;&|`$<>(){}[\]\\"]/;
-    const dangerousMatch = rawText.match(dangerousShellChars);
-    if (dangerousMatch) {
-      return {
-        valid: false,
-        error: `Disallowed character '${dangerousMatch[0]}' in text input: Shell metacharacters are rejected to prevent command injection.`
-      };
     }
 
     // Check for control characters or Unicode > 127
@@ -176,8 +177,28 @@ export class SecurityValidator {
       }
     }
 
+    if (options?.allowPunctuation) {
+      // Safe POSIX shell quoting and space encoding for workflow engine
+      // This preserves legitimate punctuation (.,!@#$%^&*()-_=+[]{};:'"/<>?~`)
+      // while neutralizing command injection without relying on a metacharacter blacklist
+      const encodedSpaces = rawText.replace(/ /g, '%s');
+      const safeQuoted = SecurityValidator.escapeShellArg(encodedSpaces);
+      return { valid: true, encoded: safeQuoted };
+    }
+
+    // Disallow dangerous shell metacharacters that adbd /system/bin/sh evaluates
+    const dangerousShellChars = /[;&|`$<>(){}[\]\\"]/;
+    const dangerousMatch = rawText.match(dangerousShellChars);
+    if (dangerousMatch) {
+      return {
+        valid: false,
+        error: `Disallowed character '${dangerousMatch[0]}' in text input: Shell metacharacters are rejected to prevent command injection.`
+      };
+    }
+
     // Encode spaces as %s for Android input tool
     const encoded = rawText.replace(/ /g, '%s');
     return { valid: true, encoded };
   }
 }
+

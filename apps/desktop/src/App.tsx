@@ -241,6 +241,19 @@ export default function App() {
     }>;
   }>({ connectedMcpProcesses: 0, pendingRequests: [], activeSessions: [], recentAudits: [] });
 
+  // Workflow Sequencer State (Phase 10/11)
+  const [workflowPreset, setWorkflowPreset] = useState<'sanity' | 'gestures' | 'custom'>('sanity');
+  const [workflowRunning, setWorkflowRunning] = useState<boolean>(false);
+  const [workflowResult, setWorkflowResult] = useState<any>(null);
+  const [workflowSteps, setWorkflowSteps] = useState<Array<{ id: string; action: string; params: any; description?: string }>>([
+    { id: 's1', action: 'keyevent', params: { keycode: 3 }, description: 'Press HOME' },
+    { id: 's2', action: 'wait', params: { waitMs: 800 }, description: 'Wait 800ms' },
+    { id: 's3', action: 'keyevent', params: { keycode: 187 }, description: 'Open App Switcher (Recents)' },
+    { id: 's4', action: 'wait', params: { waitMs: 1000 }, description: 'Wait 1000ms' },
+    { id: 's5', action: 'keyevent', params: { keycode: 4 }, description: 'Press BACK to Home' },
+    { id: 's6', action: 'screenshot', params: { label: 'workflow_sanity_check' }, description: 'Capture Verification Screenshot' }
+  ]);
+
   // Status Alerts
   const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>({
     type: 'info',
@@ -402,40 +415,46 @@ export default function App() {
       refreshMcpStatus();
     }, 2500);
 
+    const unsubs: Array<() => void> = [];
+
     if (api?.onMcpPairingRequest) {
-      api.onMcpPairingRequest((req: any) => {
+      const u = api.onMcpPairingRequest((req: any) => {
         refreshMcpStatus();
         setAlertBanner({
           type: 'info',
           message: `🔔 Incoming AI Pairing Request from '${req.clientName}' for Tier ${req.requestedTier}. Desktop approval required.`
         });
       });
+      if (typeof u === 'function') unsubs.push(u);
     }
 
     if (api?.onMcpStatusChanged) {
-      api.onMcpStatusChanged(() => {
+      const u = api.onMcpStatusChanged(() => {
         refreshMcpStatus();
       });
+      if (typeof u === 'function') unsubs.push(u);
     }
 
     if (api?.onMcpSessionsRevoked) {
-      api.onMcpSessionsRevoked(() => {
+      const u = api.onMcpSessionsRevoked(() => {
         refreshMcpStatus();
         setAlertBanner({
           type: 'error',
           message: '⚠️ All AI sessions have been revoked by the Emergency Kill Switch.'
         });
       });
+      if (typeof u === 'function') unsubs.push(u);
     }
 
     if (api?.onMcpActionAudit) {
-      api.onMcpActionAudit((audit: any) => {
+      const u = api.onMcpActionAudit((_audit: any) => {
         refreshMcpStatus();
       });
+      if (typeof u === 'function') unsubs.push(u);
     }
 
     if (api?.onMirrorStatusChanged) {
-      api.onMirrorStatusChanged((data: any) => {
+      const u = api.onMirrorStatusChanged((data: any) => {
         setIsMirroring(data.running);
         if (!data.running) {
           if (data.disconnected) {
@@ -452,9 +471,24 @@ export default function App() {
           refreshDevices();
         }
       });
+      if (typeof u === 'function') unsubs.push(u);
     }
 
-    return () => clearInterval(interval);
+    if (api?.onCameraStatusChanged) {
+      const u = api.onCameraStatusChanged((data: any) => {
+        if (data && typeof data.running === 'boolean') {
+          setIsCameraRunning(data.running);
+        }
+      });
+      if (typeof u === 'function') unsubs.push(u);
+    }
+
+    return () => {
+      clearInterval(interval);
+      unsubs.forEach(cleanup => {
+        try { cleanup(); } catch {}
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -463,8 +497,38 @@ export default function App() {
       refreshLogcat();
     } else if (activeTab === 'ai') {
       refreshMcpStatus();
+    } else if (activeTab === 'wireless' && api?.detectHotspot) {
+      api.detectHotspot().then((gw: string | null) => {
+        if (gw) setHotspotGateway(gw);
+      }).catch(() => {});
     }
   }, [activeTab, selectedSerial]);
+
+  // Timelapse progress polling (Phase 7.1)
+  useEffect(() => {
+    let t: any;
+    if (timelapseRunning && api?.labGetTimelapseStatus) {
+      t = setInterval(async () => {
+        try {
+          const st = await api.labGetTimelapseStatus();
+          if (st) {
+            if (typeof st.completedFrames === 'number') {
+              setTimelapseCurrentFrame(st.completedFrames);
+            }
+            if (!st.isRunning) {
+              setTimelapseRunning(false);
+              setTimelapseStatusMsg('Timelapse session completed. Frames saved to Captures.');
+              if (api?.getCaptures) {
+                const updated = await api.getCaptures();
+                setCaptures(updated);
+              }
+            }
+          }
+        } catch {}
+      }, 1000);
+    }
+    return () => clearInterval(t);
+  }, [timelapseRunning]);
 
   // Mirroring Session Timer
   useEffect(() => {
@@ -940,6 +1004,91 @@ export default function App() {
     }
   };
 
+  const handleDisconnectWifiDevice = async (serial: string) => {
+    if (!serial || !api?.disconnectDevice) return;
+    setAlertBanner({ type: 'info', message: `Disconnecting wireless device ${serial}...` });
+    try {
+      const res = await api.disconnectDevice(serial);
+      if (res.success) {
+        setAlertBanner({ type: 'success', message: `Successfully disconnected wireless device ${serial}` });
+        refreshDevices();
+      } else {
+        setAlertBanner({ type: 'error', message: res.error || 'Failed to disconnect wireless device' });
+      }
+    } catch (err: any) {
+      setAlertBanner({ type: 'error', message: err?.message || 'Error disconnecting wireless device' });
+    }
+  };
+
+  const handleSelectWorkflowPreset = (preset: 'sanity' | 'gestures' | 'custom') => {
+    setWorkflowPreset(preset);
+    setWorkflowResult(null);
+    if (preset === 'sanity') {
+      setWorkflowSteps([
+        { id: 's1', action: 'keyevent', params: { keycode: 3 }, description: 'Press HOME' },
+        { id: 's2', action: 'wait', params: { waitMs: 800 }, description: 'Wait 800ms' },
+        { id: 's3', action: 'keyevent', params: { keycode: 187 }, description: 'Open App Switcher (Recents)' },
+        { id: 's4', action: 'wait', params: { waitMs: 1000 }, description: 'Wait 1000ms' },
+        { id: 's5', action: 'keyevent', params: { keycode: 4 }, description: 'Press BACK to Home' },
+        { id: 's6', action: 'screenshot', params: { label: 'workflow_sanity_check' }, description: 'Capture Verification Screenshot' }
+      ]);
+    } else if (preset === 'gestures') {
+      setWorkflowSteps([
+        { id: 's1', action: 'tap', params: { x: 500, y: 800 }, description: 'Tap Center Screen (500, 800)' },
+        { id: 's2', action: 'wait', params: { waitMs: 500 }, description: 'Wait 500ms' },
+        { id: 's3', action: 'swipe', params: { x: 500, y: 1400, x2: 500, y2: 400, durationMs: 300 }, description: 'Swipe Upwards Scroll' },
+        { id: 's4', action: 'wait', params: { waitMs: 800 }, description: 'Wait 800ms' },
+        { id: 's5', action: 'swipe', params: { x: 500, y: 400, x2: 500, y2: 1400, durationMs: 300 }, description: 'Swipe Downwards Return' }
+      ]);
+    }
+  };
+
+  const handleExecuteWorkflow = async () => {
+    if (!selectedSerial || !api?.executeWorkflow) {
+      setAlertBanner({ type: 'error', message: 'Please select an authorized Android device to run the workflow.' });
+      return;
+    }
+    setWorkflowRunning(true);
+    setWorkflowResult(null);
+    setAlertBanner({ type: 'info', message: `Executing workflow with ${workflowSteps.length} steps on ${selectedSerial}...` });
+    try {
+      const res = await api.executeWorkflow({
+        serial: selectedSerial,
+        workflow: {
+          id: `wf_${Date.now()}`,
+          name: workflowPreset === 'sanity' ? 'Device Sanity & Navigation' : workflowPreset === 'gestures' ? 'Touch & Swipe Gestures' : 'Custom Workflow',
+          steps: workflowSteps
+        }
+      });
+      setWorkflowResult(res);
+      const isOk = res?.overallStatus === 'passed' || res?.success === true;
+      if (isOk) {
+        setAlertBanner({ type: 'success', message: `Workflow completed successfully (${res?.passedSteps || res?.completedSteps || workflowSteps.length} steps passed)!` });
+        if (api?.getCaptures) {
+          const updated = await api.getCaptures();
+          setCaptures(updated);
+        }
+      } else {
+        const errMsg = res?.error || (res?.results?.find((r: any) => r.status === 'failed')?.error) || 'Execution failed';
+        setAlertBanner({ type: 'error', message: `Workflow stopped: ${errMsg}` });
+      }
+    } catch (err: any) {
+      setAlertBanner({ type: 'error', message: err?.message || 'Workflow execution error' });
+    } finally {
+      setWorkflowRunning(false);
+    }
+  };
+
+  const handleCancelWorkflow = async () => {
+    if (!api?.cancelWorkflow) return;
+    try {
+      setAlertBanner({ type: 'info', message: 'Cancelling workflow sequence...' });
+      await api.cancelWorkflow();
+    } catch (err: any) {
+      setAlertBanner({ type: 'error', message: err?.message || 'Failed to send cancellation signal' });
+    }
+  };
+
   const handleTakeScreenshot = async () => {
     if (!selectedSerial) {
       setAlertBanner({ type: 'error', message: 'No Android device selected for screenshot.' });
@@ -1071,7 +1220,17 @@ export default function App() {
               )}
 
               {activeDevice?.transportType === 'wifi' ? (
-                <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
+                  <button
+                    onClick={() => handleDisconnectWifiDevice(activeDevice.serial)}
+                    className="text-[10px] text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 transition-colors cursor-pointer"
+                    title={`Disconnect ${activeDevice.serial}`}
+                    aria-label={`Disconnect wireless device ${activeDevice.serial}`}
+                  >
+                    Disconnect
+                  </button>
+                </>
               ) : (
                 <Usb className="w-3.5 h-3.5 text-indigo-400 ml-1" title="Connected via USB" aria-label="Connected via USB" />
               )}
@@ -2738,7 +2897,48 @@ export default function App() {
                   >
                     <span>Connect to Hotspot Gateway</span>
                   </button>
+                  <button
+                    onClick={async () => {
+                      if (api?.detectHotspot) {
+                        const gw = await api.detectHotspot();
+                        if (gw) {
+                          setHotspotGateway(gw);
+                          setAlertBanner({ type: 'success', message: `Detected hotspot gateway: ${gw}` });
+                        } else {
+                          setAlertBanner({ type: 'info', message: 'No hotspot gateway detected on active network adapters. Defaulted to 192.168.43.1' });
+                        }
+                      }
+                    }}
+                    className="glass-button text-xs py-2 px-3 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    title="Auto-detect hotspot gateway IP from network interfaces"
+                    aria-label="Auto-detect hotspot gateway IP"
+                  >
+                    <span>Detect Gateway</span>
+                  </button>
                 </div>
+
+                {devices.filter(d => d.transportType === 'wifi').length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-300">
+                    <div className="flex items-center gap-2">
+                      <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Active Wi-Fi Device:</span>
+                      {devices.filter(d => d.transportType === 'wifi').map(d => (
+                        <span key={d.serial} className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40 text-cyan-200 font-mono text-[11px]">
+                          {d.serial}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const wifiDev = devices.find(d => d.transportType === 'wifi');
+                        if (wifiDev) handleDisconnectWifiDevice(wifiDev.serial);
+                      }}
+                      className="text-xs text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 px-3 py-1 rounded-lg border border-rose-500/30 transition-colors cursor-pointer"
+                    >
+                      Disconnect Wi-Fi Device
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Android 11+ PIN Pairing Wizard */}
@@ -3057,28 +3257,261 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 5: WORKFLOW RUNNER (PREVIEW) */}
+          {/* TAB 5: WORKFLOW RUNNER */}
           {activeTab === 'workflow' && (
-            <div className="glass-panel p-6 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="glass-panel p-6 space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Layers className="w-5 h-5 text-indigo-400" />
-                    Automated Test & Workflow Sequencer (Beta)
+                    Automated Workflow & Gesture Sequencer
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Execute structured touchscreen gestures, keyevents, text input, and visual assertion sequences on target device.
+                    Execute validated sequences of touchscreen gestures, key events, and visual assertions on target Android devices.
                   </p>
                 </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                  Preview Feature
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border ${
+                    isDeviceReady ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  }`}>
+                    {isDeviceReady ? `Target Ready: ${activeDevice?.model || selectedSerial}` : 'No Authorized Target'}
+                  </span>
+                </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
-                The Workflow Engine supports step sequencing through `WorkflowEngine` using discrete argument vectors.
-                Live physical touchscreen execution requires an authorized target device attached over USB.
+              {/* Preset Selector & Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center bg-slate-900 rounded-xl p-1 border border-slate-800 text-xs font-semibold">
+                  <button
+                    onClick={() => handleSelectWorkflowPreset('sanity')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      workflowPreset === 'sanity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Sanity & Navigation
+                  </button>
+                  <button
+                    onClick={() => handleSelectWorkflowPreset('gestures')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      workflowPreset === 'gestures' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Touch & Gestures
+                  </button>
+                  <button
+                    onClick={() => handleSelectWorkflowPreset('custom')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      workflowPreset === 'custom' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Custom Steps
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {workflowPreset === 'custom' && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'tap', params: { x: 500, y: 500 }, description: 'Tap (500, 500)' }])}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                      >
+                        + Tap
+                      </button>
+                      <button
+                        onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'swipe', params: { x: 500, y: 1000, x2: 500, y2: 300, durationMs: 300 }, description: 'Swipe Up' }])}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                      >
+                        + Swipe
+                      </button>
+                      <button
+                        onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'keyevent', params: { keycode: 3 }, description: 'Press HOME' }])}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                      >
+                        + Key
+                      </button>
+                      <button
+                        onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'wait', params: { waitMs: 1000 }, description: 'Wait 1000ms' }])}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                      >
+                        + Wait
+                      </button>
+                      <button
+                        onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'screenshot', params: { label: 'custom_step' }, description: 'Take Screenshot' }])}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                      >
+                        + Screenshot
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    {workflowRunning && (
+                      <button
+                        type="button"
+                        onClick={handleCancelWorkflow}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600/80 hover:bg-rose-600 text-white cursor-pointer transition-colors shadow-sm"
+                        title="Cancel running workflow"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-current" />
+                        <span>Cancel Sequence</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={handleExecuteWorkflow}
+                      disabled={!isDeviceReady || workflowRunning || workflowSteps.length === 0}
+                      className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all ${
+                        !isDeviceReady || workflowRunning || workflowSteps.length === 0
+                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/40'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 cursor-pointer border border-emerald-500/40'
+                      }`}
+                    >
+                      {workflowRunning ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Running Workflow...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Run Sequence ({workflowSteps.length} Steps)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {/* Step Sequence Table */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <span>Step Sequence ({workflowSteps.length} Operations)</span>
+                  {workflowPreset === 'custom' && workflowSteps.length > 0 && (
+                    <button
+                      onClick={() => setWorkflowSteps([])}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 normal-case font-normal cursor-pointer"
+                    >
+                      Clear All Steps
+                    </button>
+                  )}
+                </div>
+
+                <div className="divide-y divide-slate-800/80 max-h-72 overflow-y-auto font-mono text-xs">
+                  {workflowSteps.map((step, idx) => (
+                    <div key={idx} className="px-4 py-2.5 flex items-center justify-between hover:bg-slate-850/50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${
+                          step.action === 'tap' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                          step.action === 'swipe' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' :
+                          step.action === 'keyevent' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
+                          step.action === 'input_text' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                          step.action === 'wait' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                          step.action === 'screenshot' ? 'bg-pink-500/15 text-pink-400 border border-pink-500/30' :
+                          'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
+                        }`}>
+                          {step.action}
+                        </span>
+                        <span className="text-slate-300 font-sans text-xs">
+                          {step.description || step.action}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-4 text-[11px] text-slate-400">
+                        <span>
+                          {step.action === 'tap' && `x: ${step.params?.x ?? 500}, y: ${step.params?.y ?? 500}`}
+                          {step.action === 'swipe' && `(${step.params?.x ?? 300},${step.params?.y ?? 800}) → (${step.params?.x2 ?? 300},${step.params?.y2 ?? 200}) [${step.params?.durationMs ?? 300}ms]`}
+                          {step.action === 'keyevent' && `keycode: ${step.params?.keycode ?? 3}`}
+                          {step.action === 'input_text' && `text: "${step.params?.text ?? ''}"`}
+                          {step.action === 'wait' && `${step.params?.waitMs ?? 1000}ms delay`}
+                          {step.action === 'screenshot' && `save: ${step.params?.label || 'capture'}.png`}
+                        </span>
+                        {workflowPreset === 'custom' && (
+                          <button
+                            onClick={() => setWorkflowSteps(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-slate-500 hover:text-rose-400 transition-colors p-1 cursor-pointer"
+                            title="Delete step"
+                            aria-label={`Delete step ${idx + 1}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Execution Results View */}
+              {workflowResult && (() => {
+                const isSuccess = workflowResult.overallStatus === 'passed' || workflowResult.success === true;
+                const completedStepsCount = workflowResult.passedSteps ?? workflowResult.completedSteps ?? (isSuccess ? workflowSteps.length : 0);
+                const totalDuration = workflowResult.totalDurationMs ?? workflowResult.durationMs;
+                const reportSteps = workflowResult.steps || (workflowResult.results ? workflowResult.results.map((r: any) => ({
+                  action: r.action,
+                  success: r.status === 'passed',
+                  durationMs: r.durationMs,
+                  error: r.error
+                })) : []);
+
+                return (
+                  <div className={`p-4 rounded-xl border ${
+                    isSuccess
+                      ? 'bg-emerald-950/20 border-emerald-500/30'
+                      : 'bg-rose-950/20 border-rose-500/30'
+                  } space-y-3`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isSuccess ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        ) : (
+                          <AlertCircle className="w-5 h-5 text-rose-400" />
+                        )}
+                        <div>
+                          <h4 className="text-xs font-bold text-white">
+                            {isSuccess ? 'Workflow Completed Successfully' : 'Workflow Execution Stopped'}
+                          </h4>
+                          <p className="text-[11px] text-slate-400">
+                            {completedStepsCount} of {workflowSteps.length} steps executed
+                            {!isSuccess && workflowResult.error ? ` • ${workflowResult.error}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      {totalDuration !== undefined && (
+                        <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          {(totalDuration / 1000).toFixed(2)}s
+                        </span>
+                      )}
+                    </div>
+
+                    {reportSteps.length > 0 && (
+                      <div className="bg-slate-950/60 rounded-lg p-3 border border-slate-800/80 space-y-1.5 font-mono text-[11px]">
+                        {reportSteps.map((st: any, i: number) => {
+                          const isStepOk = st.status === 'passed' || st.success === true;
+                          return (
+                            <div key={i} className="flex items-center justify-between text-slate-300 py-0.5">
+                              <span className="flex items-center gap-2">
+                                {isStepOk ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                ) : (
+                                  <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                )}
+                                <span>Step {i + 1}: {st.action}</span>
+                              </span>
+                              <span className={isStepOk ? 'text-emerald-400' : 'text-rose-400'}>
+                                {isStepOk ? (st.durationMs ? `${st.durationMs}ms` : 'PASS') : (st.error || 'FAIL')}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

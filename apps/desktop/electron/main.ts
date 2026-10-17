@@ -193,9 +193,11 @@ ipcMain.handle('get-devices', async () => {
   }
 });
 
-ipcMain.handle('set-alias', (_, { serial, alias }) => {
+ipcMain.handle('set-alias', (_, payload) => {
   try {
-    deviceManager.setDeviceAlias(serial, alias);
+    const { serial, alias } = payload || {};
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) return false;
+    deviceManager.setDeviceAlias(serial, typeof alias === 'string' ? alias : '');
     return true;
   } catch (err: any) {
     appLog('ERROR', 'Error setting alias', err?.message || err);
@@ -208,7 +210,7 @@ ipcMain.handle('start-mirroring', (_, options) => {
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
     }
-    return scrcpyManager.startMirroring(options);
+    return scrcpyManager.startMirroring(options || {});
   } catch (err: any) {
     appLog('ERROR', 'Error starting mirroring', err?.message || err);
     return { success: false, message: err?.message || 'Failed to start mirroring process' };
@@ -274,8 +276,21 @@ cameraManager.on('disconnected', (data) => {
   mainWindow?.webContents.send('camera-status-changed', data);
 });
 
-ipcMain.handle('query-camera-capabilities', async (_, { serial }) => {
+ipcMain.handle('query-camera-capabilities', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return {
+        transportSupported: false,
+        deviceSupported: false,
+        cameras: [],
+        liveZoomSupported: false,
+        liveTorchSupported: false,
+        recordingSupported: false,
+        snapshotsSupported: false,
+        notes: ['Invalid device serial provided.']
+      };
+    }
     return await cameraManager.queryCapabilities(serial);
   } catch (err: any) {
     appLog('ERROR', 'Error querying camera capabilities', err?.message || err);
@@ -297,13 +312,14 @@ ipcMain.handle('start-camera', (_, options) => {
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
     }
+    const opts = options || {};
     // Auto-resolve recording folder if requested
-    if (options.record && !options.recordPath) {
+    if (opts.record && !opts.recordPath) {
       const capturesFolder = getCapturesFolder();
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      options.recordPath = path.join(capturesFolder, `camera_${options.serial || 'rec'}_${timestamp}.mp4`);
+      opts.recordPath = path.join(capturesFolder, `camera_${opts.serial || 'rec'}_${timestamp}.mp4`);
     }
-    return cameraManager.startCamera(options);
+    return cameraManager.startCamera(opts);
   } catch (err: any) {
     appLog('ERROR', 'Error starting camera session', err?.message || err);
     return { success: false, message: err?.message || 'Failed to start camera session' };
@@ -327,8 +343,12 @@ ipcMain.handle('get-camera-status', () => {
   }
 });
 
-ipcMain.handle('send-camera-zoom', async (_, { direction }) => {
+ipcMain.handle('send-camera-zoom', async (_, payload) => {
   try {
+    const direction = payload?.direction;
+    if (direction !== 'in' && direction !== 'out') {
+      return { success: false, message: 'Invalid zoom direction (must be "in" or "out")' };
+    }
     return await cameraManager.sendLiveZoom(direction);
   } catch (err: any) {
     appLog('ERROR', 'Error dispatching camera zoom', err?.message || err);
@@ -336,8 +356,12 @@ ipcMain.handle('send-camera-zoom', async (_, { direction }) => {
   }
 });
 
-ipcMain.handle('send-camera-torch', async (_, { state }) => {
+ipcMain.handle('send-camera-torch', async (_, payload) => {
   try {
+    const state = payload?.state;
+    if (state !== 'on' && state !== 'off') {
+      return { success: false, message: 'Invalid torch state (must be "on" or "off")' };
+    }
     return await cameraManager.sendLiveTorch(state);
   } catch (err: any) {
     appLog('ERROR', 'Error dispatching camera torch', err?.message || err);
@@ -345,8 +369,12 @@ ipcMain.handle('send-camera-torch', async (_, { state }) => {
   }
 });
 
-ipcMain.handle('handoff-wifi', async (_, { serial }) => {
+ipcMain.handle('handoff-wifi', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return { success: false, error: 'Invalid device serial provided' };
+    }
     return await connectionManager.handoffUsbToWifi(serial);
   } catch (err: any) {
     appLog('ERROR', 'Error in wifi handoff', err?.message || err);
@@ -354,17 +382,29 @@ ipcMain.handle('handoff-wifi', async (_, { serial }) => {
   }
 });
 
-ipcMain.handle('connect-wireless', async (_, { ip, port }) => {
+ipcMain.handle('connect-wireless', async (_, payload) => {
   try {
-    return await connectionManager.connectWireless(ip, port);
+    const { ip, port } = payload || {};
+    if (!ip || typeof ip !== 'string' || !SecurityValidator.isValidIPv4(ip)) {
+      return { success: false, error: 'Invalid IPv4 address provided' };
+    }
+    const numPort = typeof port === 'number' ? port : parseInt(String(port), 10);
+    if (!SecurityValidator.isValidPort(numPort)) {
+      return { success: false, error: 'Invalid port number (must be 1-65535)' };
+    }
+    return await connectionManager.connectWireless(ip, numPort);
   } catch (err: any) {
     appLog('ERROR', 'Error connecting wireless', err?.message || err);
     return { success: false, error: err?.message || 'Wireless connection failed' };
   }
 });
 
-ipcMain.handle('disconnect-device', async (_, { serial }) => {
+ipcMain.handle('disconnect-device', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return { success: false, error: 'Invalid device serial provided' };
+    }
     return await connectionManager.disconnect(serial);
   } catch (err: any) {
     appLog('ERROR', 'Error disconnecting device', err?.message || err);
@@ -372,9 +412,21 @@ ipcMain.handle('disconnect-device', async (_, { serial }) => {
   }
 });
 
-ipcMain.handle('pair-wireless', async (_, { ip, pairPort, pin, connectPort }) => {
+ipcMain.handle('pair-wireless', async (_, payload) => {
   try {
-    return await connectionManager.pairWireless(ip, pairPort, pin, connectPort);
+    const { ip, pairPort, pin, connectPort } = payload || {};
+    if (!ip || !SecurityValidator.isValidIPv4(ip)) {
+      return { success: false, error: 'Invalid IP address provided' };
+    }
+    const numPairPort = typeof pairPort === 'number' ? pairPort : parseInt(String(pairPort), 10);
+    if (!SecurityValidator.isValidPort(numPairPort)) {
+      return { success: false, error: 'Invalid pairing port (must be 1-65535)' };
+    }
+    if (!pin || typeof pin !== 'string' || !SecurityValidator.isValidPairingCode(pin)) {
+      return { success: false, error: 'Invalid 6-digit PIN' };
+    }
+    const numConnectPort = connectPort ? (typeof connectPort === 'number' ? connectPort : parseInt(String(connectPort), 10)) : undefined;
+    return await connectionManager.pairWireless(ip, numPairPort, pin, numConnectPort);
   } catch (err: any) {
     appLog('ERROR', 'Error pairing wireless', err?.message || err);
     return { success: false, error: err?.message || 'Pairing failed' };
@@ -471,8 +523,12 @@ ipcMain.handle('detect-hotspot', () => {
   }
 });
 
-ipcMain.handle('capture-screenshot', async (_, { serial }) => {
+ipcMain.handle('capture-screenshot', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return { success: false, error: 'Invalid or missing device serial' };
+    }
     const capturesFolder = getCapturesFolder();
     return await diagnosticsManager.captureDeviceScreenshot(serial, capturesFolder);
   } catch (err: any) {
@@ -693,8 +749,12 @@ ipcMain.handle('open-path', async (_, targetPath: string) => {
   }
 });
 
-ipcMain.handle('get-recent-logs', async (_, { serial }) => {
+ipcMain.handle('get-recent-logs', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return [];
+    }
     return await diagnosticsManager.getRecentLogs(serial, 250);
   } catch (err: any) {
     appLog('ERROR', 'Error fetching recent logs', err?.message || err);
@@ -738,8 +798,9 @@ ipcMain.handle('get-system-info', async () => {
   }
 });
 
-ipcMain.handle('get-diagnostic-report', async (_, { serial } = {}) => {
+ipcMain.handle('get-diagnostic-report', async (_, payload) => {
   try {
+    const serial = payload?.serial;
     const status = scrcpyManager.getStatus();
     return await diagnosticsManager.generateDiagnosticBundle(serial, status);
   } catch (err: any) {
@@ -748,8 +809,12 @@ ipcMain.handle('get-diagnostic-report', async (_, { serial } = {}) => {
   }
 });
 
-ipcMain.handle('export-diagnostics', async (_, { serial }) => {
+ipcMain.handle('export-diagnostics', async (_, payload) => {
   try {
+    const serial = payload?.serial;
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return { success: false, error: 'Invalid or missing device serial' };
+    }
     const capturesFolder = getCapturesFolder();
     const status = scrcpyManager.getStatus();
     return await diagnosticsManager.exportDiagnosticReport(serial, capturesFolder, status);
@@ -759,13 +824,30 @@ ipcMain.handle('export-diagnostics', async (_, { serial }) => {
   }
 });
 
-ipcMain.handle('execute-workflow', async (_, { serial, workflow }) => {
+ipcMain.handle('execute-workflow', async (_, payload) => {
   try {
+    const { serial, workflow } = payload || {};
+    if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+      return { success: false, error: 'Invalid or missing device serial' };
+    }
+    if (!workflow || typeof workflow !== 'object') {
+      return { success: false, error: 'Invalid or missing workflow definition' };
+    }
     const capturesFolder = getCapturesFolder();
     return await workflowEngine.executeWorkflow(serial, workflow, capturesFolder);
   } catch (err: any) {
     appLog('ERROR', 'Error executing workflow', err?.message || err);
     return { success: false, error: err?.message || 'Workflow execution failed' };
+  }
+});
+
+ipcMain.handle('cancel-workflow', () => {
+  try {
+    workflowEngine.cancel();
+    return { success: true };
+  } catch (err: any) {
+    appLog('ERROR', 'Error cancelling workflow', err?.message || err);
+    return { success: false, error: err?.message || 'Failed to cancel workflow' };
   }
 });
 
@@ -827,8 +909,10 @@ ipcMain.handle('get-mcp-status', () => {
   }
 });
 
-ipcMain.handle('approve-mcp-pairing', (_, { requestId }) => {
+ipcMain.handle('approve-mcp-pairing', (_, payload) => {
   try {
+    const requestId = payload?.requestId;
+    if (!requestId || typeof requestId !== 'string') return false;
     appLog('INFO', `User clicked Approve for MCP Request: ${requestId}`);
     return mcpControlServer.approveRequest(requestId);
   } catch (err: any) {
@@ -837,8 +921,10 @@ ipcMain.handle('approve-mcp-pairing', (_, { requestId }) => {
   }
 });
 
-ipcMain.handle('deny-mcp-pairing', (_, { requestId }) => {
+ipcMain.handle('deny-mcp-pairing', (_, payload) => {
   try {
+    const requestId = payload?.requestId;
+    if (!requestId || typeof requestId !== 'string') return false;
     appLog('INFO', `User clicked Deny for MCP Request: ${requestId}`);
     return mcpControlServer.denyRequest(requestId);
   } catch (err: any) {
@@ -847,8 +933,10 @@ ipcMain.handle('deny-mcp-pairing', (_, { requestId }) => {
   }
 });
 
-ipcMain.handle('revoke-mcp-session', (_, { sessionId }) => {
+ipcMain.handle('revoke-mcp-session', (_, payload) => {
   try {
+    const sessionId = payload?.sessionId;
+    if (!sessionId || typeof sessionId !== 'string') return false;
     appLog('INFO', `User revoked MCP session: ${sessionId}`);
     return mcpControlServer.revokeSession(sessionId);
   } catch (err: any) {
@@ -869,9 +957,10 @@ ipcMain.handle('revoke-all-mcp-sessions', () => {
 });
 
 // Camera Studio Companion App IPC Handlers
-ipcMain.handle('companion-get-status', async (_, { serial }) => {
+ipcMain.handle('companion-get-status', async (_, payload) => {
   try {
-    if (serial) {
+    const serial = payload?.serial;
+    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
       await companionClient.setupPortForward(serial, 8080, 8080);
     }
     return await companionClient.getStatus();
@@ -880,9 +969,10 @@ ipcMain.handle('companion-get-status', async (_, { serial }) => {
   }
 });
 
-ipcMain.handle('companion-request-pairing', async (_, { serial }) => {
+ipcMain.handle('companion-request-pairing', async (_, payload) => {
   try {
-    if (serial) {
+    const serial = payload?.serial;
+    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
       await companionClient.setupPortForward(serial, 8080, 8080);
     }
     return await companionClient.requestPairingChallenge();
@@ -891,10 +981,14 @@ ipcMain.handle('companion-request-pairing', async (_, { serial }) => {
   }
 });
 
-ipcMain.handle('companion-submit-pin', async (_, { pin, serial }) => {
+ipcMain.handle('companion-submit-pin', async (_, payload) => {
   try {
-    if (serial) {
+    const { pin, serial } = payload || {};
+    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
       await companionClient.setupPortForward(serial, 8080, 8080);
+    }
+    if (!pin || typeof pin !== 'string') {
+      return { success: false, error: 'Invalid PIN' };
     }
     return await companionClient.submitPairingPin(pin);
   } catch (err: any) {
@@ -910,20 +1004,27 @@ ipcMain.handle('companion-get-capabilities', async () => {
   }
 });
 
-ipcMain.handle('companion-set-camera', async (_, { facing }) => {
+ipcMain.handle('companion-set-camera', async (_, payload) => {
+  const facing = payload?.facing;
+  if (facing !== 'front' && facing !== 'back') {
+    return { success: false, error: 'Invalid camera facing (must be "front" or "back")' };
+  }
   return await companionClient.setCamera(facing);
 });
 
-ipcMain.handle('companion-set-zoom', async (_, { ratio }) => {
+ipcMain.handle('companion-set-zoom', async (_, payload) => {
+  const ratio = typeof payload?.ratio === 'number' ? payload.ratio : 1.0;
   return await companionClient.setZoom(ratio);
 });
 
-ipcMain.handle('companion-set-torch', async (_, { enabled }) => {
+ipcMain.handle('companion-set-torch', async (_, payload) => {
+  const enabled = !!payload?.enabled;
   return await companionClient.setTorch(enabled);
 });
 
-ipcMain.handle('companion-take-photo', async (_, { destinationDir }) => {
-  const saveDir = destinationDir || getCapturesFolder();
+ipcMain.handle('companion-take-photo', async (_, payload) => {
+  const destinationDir = payload?.destinationDir;
+  const saveDir = (destinationDir && typeof destinationDir === 'string') ? destinationDir : getCapturesFolder();
   return await companionClient.takeAndSavePhoto(saveDir);
 });
 
@@ -936,11 +1037,19 @@ ipcMain.handle('companion-get-stream-url', () => {
 });
 
 // Lab & Inspection IPC Handlers (Phase 7.1)
-ipcMain.handle('lab-generate-overlay-svg', (_, { width, height, config, metadata }) => {
+ipcMain.handle('lab-generate-overlay-svg', (_, payload) => {
+  const { width, height, config, metadata } = payload || {};
+  if (typeof width !== 'number' || typeof height !== 'number' || !config) {
+    return '<svg></svg>';
+  }
   return generateSvgOverlay(width, height, config, metadata);
 });
 
-ipcMain.handle('lab-start-timelapse', async (_, config) => {
+ipcMain.handle('lab-start-timelapse', async (_, payload) => {
+  const config = payload || {};
+  if (!config.intervalSeconds || !config.totalFrames) {
+    return { success: false, error: 'Invalid timelapse configuration (missing intervalSeconds or totalFrames)' };
+  }
   const saveDir = config.outputDir || path.join(getCapturesFolder(), `Timelapse_${Date.now()}`);
   return await timelapseScheduler.start({ ...config, outputDir: saveDir }, async (frameNum) => {
     const photoRes = await companionClient.takeAndSavePhoto(saveDir);
@@ -959,8 +1068,12 @@ ipcMain.handle('lab-get-timelapse-status', () => {
   return timelapseScheduler.getStatus();
 });
 
-ipcMain.handle('lab-export-annotated-snapshot', async (_, { sourcePath, svgOverlay, metadata }) => {
+ipcMain.handle('lab-export-annotated-snapshot', async (_, payload) => {
   try {
+    const { sourcePath, svgOverlay, metadata } = payload || {};
+    if (!sourcePath || typeof sourcePath !== 'string' || !svgOverlay) {
+      return { success: false, error: 'Invalid snapshot or overlay data' };
+    }
     const ext = path.extname(sourcePath);
     const base = path.basename(sourcePath, ext);
     const dir = path.dirname(sourcePath);

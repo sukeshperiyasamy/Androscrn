@@ -17,6 +17,7 @@ import { runWirelessValidationTests } from './wireless-validation.test';
 import { runDocumentTests } from './document.test';
 import { runDocumentPrivacyTests } from './document-privacy.test';
 import { runStylingTests } from './styling.test';
+import { runWorkflowEngineTests } from './workflow-engine.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -269,6 +270,9 @@ OFFLINE_DEV_1          offline transport_id:4
 
   // Phase 11.1: styling pipeline regression
   runStylingTests(assert, skip);
+
+  // Workflow Engine step validation regression
+  await runWorkflowEngineTests(assert, assertEqual);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);

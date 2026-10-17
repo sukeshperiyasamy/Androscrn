@@ -4,6 +4,7 @@
   "description": "Next-Generation Android Control & Automation Platform for Windows",
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm --prefix apps/desktop exec tsc -- --noEmit",
     "test:unit": "tsc -p tsconfig.json && node dist/tests/unit/runner.js",
     "test:native-cli": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js native",
     "test:path": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js path",

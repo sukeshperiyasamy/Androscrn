@@ -9,6 +9,7 @@ Result counts change as tests are added: read the `RESULTS` line each command pr
 | Group | Command | Needs a phone? | Notes |
 | :--- | :--- | :--- | :--- |
 | Everything automated | `npm test` | No | Unit, integration and Playwright UI suites in sequence. |
+| Typecheck suite | `npm run typecheck` | No | Strict TypeScript typecheck of both root backend and React desktop frontend (`tsc --noEmit`). |
 | Unit suite | `npm run test:unit` | No | Prints `UNIT TEST RESULTS: passed/total (failed, skipped)` and lists every skipped test with its reason. Skips are never counted as passes. |
 | Native CLI launcher only | `npm run test:native-cli` | No | See section 2. |
 | PATH logic only | `npm run test:path` | No | See section 3. |
@@ -98,7 +99,7 @@ the suite fails if one was attempted. To check a test run yourself, use the trac
 
 ## 7. Current validation status
 
-_Last verified: 2026-10-18 (Phase 11.2), Windows 11 (build 10.0.26200), Node 22 on the host, bundled ADB 1.0.41, Electron
+_Last verified: 2026-10-18 (Phase 11.5), Windows 11 (build 10.0.26200), Node 22 on the host, bundled ADB 1.0.41, Electron
 31.7.7. These results belong to the working tree; re-run the commands above for anything later._
 
 **GitHub Actions** for commit `6f4a6eb` (Phase 11): workflow *AndroScrn CI* completed with conclusion **success**; every
@@ -107,8 +108,9 @@ succeeded.) This is a statement about that commit, not about later changes.
 
 | Check | Command | Result |
 | :--- | :--- | :--- |
-| Unit suite (3 consecutive runs) | `node dist/tests/unit/runner.js` | 975 passed, 0 failed, **1 skipped**, in each of three runs |
-| Styling pipeline | `npm run test:styling` | 26 passed (production and portable CSS, local font stack, zero network fonts) |
+| TypeScript typecheck (Root + Desktop) | `npm run typecheck` | passed (zero diagnostics) |
+| Unit suite (3 consecutive runs) | `node dist/tests/unit/runner.js` | 1,068 passed, 0 failed, **1 skipped**, in each of three runs (including 49 WorkflowEngine security, discrete argument, & adversarial matrix tests) |
+| Styling pipeline (targeted subset) | `npm run test:styling` | 26 passed (production and portable CSS, local font stack, zero network fonts; subset of unit suite) |
 | Document intelligence + privacy | `npm run test:document` | 188 passed, including quadrilateral geometry, Type 0 Unicode PDF, and real-engine smoke test |
 | Native CLI launcher | `npm run test:native-cli` | 15 passed |
 | PATH logic | `npm run test:path` | 67 passed, **1 skipped** (opt-in real-persistence check) |
@@ -116,11 +118,14 @@ succeeded.) This is a statement about that commit, not about later changes.
 | Integration | `npm run test:integration` | 39 passed |
 | Playwright UI (mocked IPC, real CSS) | `npm run test:ui` | 172 passed (including manual corner adjustment editor, accessible handles, rotate, reset, keyboard navigation) |
 | Full build | `npm run build` | succeeded |
-| Portable build | `npm run build:portable` | succeeded (148.16 MB zipped) |
+| Portable build | `npm run build:portable` | succeeded (148.18 MB zipped) |
 | OCR sample validation | `npm run validate:ocr` | ran; results in [qa/ocr-sample-validation.md](qa/ocr-sample-validation.md) |
 | Real-photo OCR validation | `npm run validate:ocr:real` | harness ran; status PENDING dataset; [qa/real-photo-validation.md](qa/real-photo-validation.md) |
 | PDF export validation (pdf.js + visual canvas) | `npm run validate:pdf` | 36 of 36 checks passed; [qa/pdf-export-validation.md](qa/pdf-export-validation.md) |
-| Documentation checks | `npm run docs:check` | passed |
+| Documentation checks | `npm run docs:check` | passed (40 files audited for broken links, anchors, scripts, privacy) |
+| Comprehensive Product Audit | Review docs | [qa/full-product-audit.md](qa/full-product-audit.md), [qa/feature-completeness-matrix.md](qa/feature-completeness-matrix.md), [qa/remediation-backlog.md](qa/remediation-backlog.md), [qa/product-viability-assessment.md](qa/product-viability-assessment.md) |
+
+**Unique Automated Test Assertions:** 1,315 passed, 0 failed, 1 skipped across the test harness (1,068 unit + 39 integration + 36 PDF + 172 UI; 26 styling tests are verified within unit suite; 40 documentation files audited).
 
 **Skipped:** *Real PowerShell persistence round-trip* - opt-in (`ANDROSCRN_TEST_REAL_ENV=1`); last known to pass in Phase
 10.1, not re-run here.
@@ -141,7 +146,7 @@ via pdf.js text extraction and Chromium canvas rendering.
   viewer). They are not evidence of accuracy on real documents.
 - **Physical-device validation (USB):** last performed in Phase 10.1 on a Xiaomi `21091116I` (Android 13, API 33,
   HyperOS): the hardware suite passed except one operation reported as **blocked** (touch injection refused by the
-  device). It was **not re-run** in Phases 10.2-11.1.
+  device). It was **not re-run** in Phases 10.2-11.4.
 - **Wireless debugging on a physical phone: Not tested.** Use the procedure in section 5.
 - **Windows ARM64:** untested ([platform-support.md](platform-support.md)).
 

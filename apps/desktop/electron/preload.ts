@@ -6,7 +6,11 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   startMirroring: (options: any) => ipcRenderer.invoke('start-mirroring', options),
   stopMirroring: () => ipcRenderer.invoke('stop-mirroring'),
   getMirrorStatus: () => ipcRenderer.invoke('get-mirror-status'),
-  onMirrorStatusChanged: (cb: (data: any) => void) => { ipcRenderer.on('mirror-status-changed', (_, d) => cb(d)); },
+  onMirrorStatusChanged: (cb: (data: any) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('mirror-status-changed', handler);
+    return () => { ipcRenderer.removeListener('mirror-status-changed', handler); };
+  },
   handoffWifi: (serial: string) => ipcRenderer.invoke('handoff-wifi', { serial }),
   connectWireless: (ip: string, port: number) => ipcRenderer.invoke('connect-wireless', { ip, port }),
   disconnectDevice: (serial: string) => ipcRenderer.invoke('disconnect-device', { serial }),
@@ -25,23 +29,44 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   getDiagnosticReport: (serial?: string) => ipcRenderer.invoke('get-diagnostic-report', { serial }),
   exportDiagnostics: (serial: string) => ipcRenderer.invoke('export-diagnostics', { serial }),
   executeWorkflow: (data: any) => ipcRenderer.invoke('execute-workflow', data),
+  cancelWorkflow: () => ipcRenderer.invoke('cancel-workflow'),
   executeAdb: (args: string[]) => ipcRenderer.invoke('execute-adb', args),
   getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
   approveMcpPairing: (requestId: string) => ipcRenderer.invoke('approve-mcp-pairing', { requestId }),
   denyMcpPairing: (requestId: string) => ipcRenderer.invoke('deny-mcp-pairing', { requestId }),
   revokeMcpSession: (sessionId: string) => ipcRenderer.invoke('revoke-mcp-session', { sessionId }),
   revokeAllMcpSessions: () => ipcRenderer.invoke('revoke-all-mcp-sessions'),
-  onMcpPairingRequest: (cb: (req: any) => void) => { ipcRenderer.on('mcp-pairing-requested', (_, req) => cb(req)); },
-  onMcpStatusChanged: (cb: () => void) => { ipcRenderer.on('mcp-status-changed', () => cb()); },
-  onMcpSessionsRevoked: (cb: () => void) => { ipcRenderer.on('mcp-sessions-revoked', () => cb()); },
-  onMcpActionAudit: (cb: (audit: any) => void) => { ipcRenderer.on('mcp-action-audit', (_, audit) => cb(audit)); },
+  onMcpPairingRequest: (cb: (req: any) => void) => {
+    const handler = (_: any, req: any) => cb(req);
+    ipcRenderer.on('mcp-pairing-requested', handler);
+    return () => { ipcRenderer.removeListener('mcp-pairing-requested', handler); };
+  },
+  onMcpStatusChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('mcp-status-changed', handler);
+    return () => { ipcRenderer.removeListener('mcp-status-changed', handler); };
+  },
+  onMcpSessionsRevoked: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('mcp-sessions-revoked', handler);
+    return () => { ipcRenderer.removeListener('mcp-sessions-revoked', handler); };
+  },
+  onMcpActionAudit: (cb: (audit: any) => void) => {
+    const handler = (_: any, audit: any) => cb(audit);
+    ipcRenderer.on('mcp-action-audit', handler);
+    return () => { ipcRenderer.removeListener('mcp-action-audit', handler); };
+  },
   queryCameraCapabilities: (serial: string) => ipcRenderer.invoke('query-camera-capabilities', { serial }),
   startCamera: (options: any) => ipcRenderer.invoke('start-camera', options),
   stopCamera: () => ipcRenderer.invoke('stop-camera'),
   getCameraStatus: () => ipcRenderer.invoke('get-camera-status'),
   sendCameraZoom: (direction: 'in' | 'out') => ipcRenderer.invoke('send-camera-zoom', { direction }),
   sendCameraTorch: (state: 'on' | 'off') => ipcRenderer.invoke('send-camera-torch', { state }),
-  onCameraStatusChanged: (cb: (data: any) => void) => { ipcRenderer.on('camera-status-changed', (_, d) => cb(d)); },
+  onCameraStatusChanged: (cb: (data: any) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('camera-status-changed', handler);
+    return () => { ipcRenderer.removeListener('camera-status-changed', handler); };
+  },
   companionGetStatus: (serial?: string) => ipcRenderer.invoke('companion-get-status', { serial }),
   companionRequestPairing: (serial?: string) => ipcRenderer.invoke('companion-request-pairing', { serial }),
   companionSubmitPin: (pin: string, serial?: string) => ipcRenderer.invoke('companion-submit-pin', { pin, serial }),
