@@ -1,10 +1,40 @@
+# Dependencies
 node_modules/
+apps/desktop/node_modules/
+
+# TypeScript & bundler build outputs
 dist/
 dist-electron/
 dist-release/
 apps/desktop/dist/
 apps/desktop/dist-electron/
-apps/desktop/node_modules/
-*.log
-.DS_Store
+
+# Android companion build artifacts & caches
+android/companion/.gradle/
+android/companion/build/
+android/companion/app/build/
+android/companion/local.properties
+*.hprof
+
+# Captures & test media output
 Captures/
+
+# Logs & temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE & system artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local environment & secrets
+.env
+.env.local
+.env.*.local
+*.jks
+*.keystore
+

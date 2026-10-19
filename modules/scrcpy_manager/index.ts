@@ -159,7 +159,7 @@ export class ScrcpyManager extends EventEmitter {
       return { success: false, message: 'Screen mirroring launch already in progress.' };
     }
 
-    if (this.currentProcess && !this.currentProcess.killed) {
+    if (this.currentProcess && !this.currentProcess.killed && this.currentProcess.exitCode === null) {
       return { success: false, message: 'A screen mirroring session is already active.' };
     }
 
@@ -208,6 +208,12 @@ export class ScrcpyManager extends EventEmitter {
         const text = chunk.toString();
         this.lastError = text.trim();
         this.emit('log', { type: 'stderr', text });
+      });
+
+      child.on('exit', (code) => {
+        this.lastExitCode = code;
+        this.currentProcess = null;
+        this.currentSerial = null;
       });
 
       child.on('close', (code) => {
@@ -267,9 +273,10 @@ export class ScrcpyManager extends EventEmitter {
    * Returns current process status and last exit information
    */
   public getStatus(): ScrcpyProcessStatus {
+    const isRunning = this.currentProcess !== null && !this.currentProcess.killed && this.currentProcess.exitCode === null;
     return {
-      running: this.currentProcess !== null && !this.currentProcess.killed,
-      pid: this.currentProcess?.pid,
+      running: isRunning,
+      pid: isRunning ? this.currentProcess?.pid : undefined,
       targetSerial: this.currentSerial || undefined,
       exitCode: this.lastExitCode,
       lastError: this.lastError || undefined

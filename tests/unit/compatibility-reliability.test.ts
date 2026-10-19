@@ -127,5 +127,32 @@ boot_dev_7             bootloader usb:1-7 transport_id:8
     fs.rmdirSync(testCapturesDir);
   } catch {}
 
-  console.log('  ✓ Section 6 Completed: Zero orphan files left on disk after capture failures');
+  // 7. Crash Recovery & Terminated Child Process Detection
+  console.log('\n--- Section 7: Process Crash Recovery & Terminated Child Lifecycle ---');
+  const crashTestMgr = new ScrcpyManager('C:\\nonexistent\\scrcpy_dummy.exe');
+
+  // Inject a mock child process that has already exited (exitCode !== null, killed: false)
+  const mockChild: any = {
+    pid: 12345,
+    killed: false,
+    exitCode: 1,
+    stdout: { on: () => {} },
+    stderr: { on: () => {} },
+    on: () => {}
+  };
+  (crashTestMgr as any).currentProcess = mockChild;
+
+  // Verify getStatus reports running === false because exitCode !== null
+  const crashStatus = crashTestMgr.getStatus();
+  assertEqual(crashStatus.running, false, 'Terminated process with exitCode !== null reported as running: false');
+  assertEqual(crashStatus.pid, undefined, 'Terminated process PID omitted from active status');
+
+  // CameraManager mock child check
+  const crashCamMgr = new CameraManager('C:\\nonexistent\\scrcpy_dummy.exe', dm);
+  (crashCamMgr as any).currentProcess = mockChild;
+  const camCrashStatus = crashCamMgr.getStatus();
+  assertEqual(camCrashStatus.running, false, 'Terminated camera process with exitCode !== null reported as running: false');
+  assertEqual(camCrashStatus.pid, undefined, 'Terminated camera PID omitted from active status');
+
+  console.log('  ✓ Section 7 Completed: Terminated child process lifecycle verified');
 }

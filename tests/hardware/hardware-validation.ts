@@ -471,6 +471,9 @@ export async function runHardwareValidation() {
   assert(camStopOk === true, `Camera streaming stopped cleanly`);
   assert(cameraManager.getStatus().running === false, `Camera manager confirms process termination`);
 
+  // Allow 1.5s for Android camera HAL and device socket to fully release hardware sensor
+  await new Promise(r => setTimeout(r, 1500));
+
   // 4. PC-Side MP4 Recording Test
   console.log('Executing 2-second PC-side hardware camera recording...');
   const hwRecPath = path.join(tempCapturesDir, 'hardware_cam_test.mp4');

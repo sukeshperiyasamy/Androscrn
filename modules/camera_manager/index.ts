@@ -445,7 +445,7 @@ export class CameraManager extends EventEmitter {
       return { success: false, message: 'Camera preview launch already in progress.' };
     }
 
-    if (this.currentProcess && !this.currentProcess.killed) {
+    if (this.currentProcess && !this.currentProcess.killed && this.currentProcess.exitCode === null) {
       return { success: false, message: 'A camera streaming session is already active.' };
     }
 
@@ -495,6 +495,13 @@ export class CameraManager extends EventEmitter {
         const text = chunk.toString();
         this.lastError = text.trim();
         this.emit('log', { type: 'stderr', text });
+      });
+
+      child.on('exit', (code) => {
+        this.lastExitCode = code;
+        this.currentProcess = null;
+        this.currentSerial = null;
+        this.currentOptions = null;
       });
 
       child.on('close', (code) => {
@@ -639,9 +646,10 @@ export class CameraManager extends EventEmitter {
    * Returns current process status and active session metadata.
    */
   public getStatus(): CameraProcessStatus {
+    const isRunning = this.currentProcess !== null && !this.currentProcess.killed && this.currentProcess.exitCode === null;
     return {
-      running: this.currentProcess !== null && !this.currentProcess.killed,
-      pid: this.currentProcess?.pid,
+      running: isRunning,
+      pid: isRunning ? this.currentProcess?.pid : undefined,
       targetSerial: this.currentSerial || undefined,
       activeCameraId: this.currentOptions?.cameraId,
       activeResolution: this.currentOptions?.size,

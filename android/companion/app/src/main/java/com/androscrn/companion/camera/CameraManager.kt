@@ -110,7 +110,7 @@ class CameraManager(
                 currentZoomRatio = zoomState.zoomRatio
             }
         } catch (exc: Exception) {
-            Log.error("CameraManager", "Use case binding failed", exc)
+            Log.e("CameraManager", "Use case binding failed", exc)
         }
     }
 
