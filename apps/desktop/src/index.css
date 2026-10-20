@@ -1,26 +1,47 @@
-/* Tailwind utilities used throughout the React components (see tailwind.config.js). */
+/* Tailwind base, components, and utilities */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg-primary: #07090e;
-  --bg-secondary: #0d121f;
-  --bg-card: rgba(18, 24, 38, 0.7);
-  --bg-card-hover: rgba(26, 34, 53, 0.85);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.6);
-  --primary: #6366f1;
-  --primary-glow: rgba(99, 102, 241, 0.35);
-  --success: #10b981;
-  --success-glow: rgba(16, 185, 129, 0.35);
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --danger-glow: rgba(239, 68, 68, 0.35);
-  --cyan: #06b6d4;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* Semantic Tokens (AndroScrn Light Theme) */
+  --color-background: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-secondary: #F3F6F8;
+  --color-text-primary: #202936;
+  --color-text-secondary: #667085;
+  --color-text-muted: #84909E;
+  --color-border: #D9DEE5;
+  --color-primary: #0F766E;
+  --color-primary-hover: #115E59;
+  --color-primary-subtle: #DDF4EF;
+  --color-success: #15803D;
+  --color-success-bg: #DCFCE7;
+  --color-warning: #B45309;
+  --color-warning-bg: #FEF3C7;
+  --color-danger: #B91C1C;
+  --color-danger-bg: #FEE2E2;
+  --color-info: #1D4ED8;
+  --color-info-bg: #DBEAFE;
+
+  /* Legacy CSS Variables Mapped to Light Theme Semantic Tokens */
+  --bg-primary: var(--color-background);
+  --bg-secondary: var(--color-surface-secondary);
+  --bg-card: var(--color-surface);
+  --bg-card-hover: var(--color-surface-secondary);
+  --border-color: var(--color-border);
+  --border-focus: var(--color-primary);
+  --primary: var(--color-primary);
+  --primary-glow: rgba(15, 118, 110, 0.15);
+  --success: var(--color-success);
+  --success-glow: rgba(21, 128, 61, 0.15);
+  --warning: var(--color-warning);
+  --danger: var(--color-danger);
+  --danger-glow: rgba(185, 28, 28, 0.15);
+  --cyan: var(--color-primary);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
@@ -33,83 +54,109 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-primary);
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.5;
-  background-image: 
-    radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.06) 0%, transparent 45%);
-  background-attachment: fixed;
 }
 
-/* Glassmorphism Classes */
+/* Elevated Surface Panels (Cards) */
 .glass-panel {
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(16, 24, 40, 0.05);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: #CBD5E1;
 }
 
+/* Secondary Button (Default .glass-button) */
 .glass-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.625rem 1.25rem;
-  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: #FFFFFF;
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   text-decoration: none;
+  box-shadow: 0 1px 2px 0 rgba(16, 24, 40, 0.04);
 }
 
-.glass-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.18);
-  transform: translateY(-1px);
+.glass-button:hover:not(:disabled) {
+  background: var(--color-surface-secondary);
+  border-color: #CBD5E1;
+  color: var(--color-text-primary);
 }
 
-.glass-button:active {
-  transform: translateY(0);
+.glass-button:active:not(:disabled) {
+  background: #E5E9EE;
 }
 
+.glass-button:disabled {
+  opacity: 0.5;
+  background: #F8FAFC;
+  color: var(--color-text-muted);
+  border-color: #E2E8F0;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Primary Button (.glass-button-primary) */
 .glass-button-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  box-shadow: 0 4px 14px 0 var(--primary-glow);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 2px 0 rgba(15, 118, 110, 0.2);
 }
 
-.glass-button-primary:hover {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  box-shadow: 0 6px 20px 0 var(--primary-glow);
+.glass-button-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: #FFFFFF !important;
+  box-shadow: 0 2px 4px 0 rgba(15, 118, 110, 0.25);
 }
 
+.glass-button-primary:active:not(:disabled) {
+  background: #0F5B54;
+}
+
+/* Success Button */
 .glass-button-success {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  box-shadow: 0 4px 14px 0 var(--success-glow);
+  background: var(--color-success);
+  border: 1px solid var(--color-success);
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 2px 0 rgba(21, 128, 61, 0.2);
 }
 
+.glass-button-success:hover:not(:disabled) {
+  background: #166534;
+  border-color: #166534;
+  color: #FFFFFF !important;
+}
+
+/* Danger / Destructive Button */
 .glass-button-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  box-shadow: 0 4px 14px 0 var(--danger-glow);
+  background: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 2px 0 rgba(185, 28, 28, 0.2);
+}
+
+.glass-button-danger:hover:not(:disabled) {
+  background: #991B1B;
+  border-color: #991B1B;
+  color: #FFFFFF !important;
 }
 
 /* Pulsing Badge Indicator */
@@ -118,47 +165,47 @@ body {
   height: 8px;
   border-radius: 50%;
   position: relative;
+  display: inline-block;
 }
 
 .status-pulse.active {
-  background-color: var(--success);
-  box-shadow: 0 0 10px var(--success);
+  background-color: var(--color-success);
 }
 
 .status-pulse.active::after {
   content: '';
   position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
   border-radius: 50%;
-  border: 2px solid var(--success);
+  border: 2px solid var(--color-success);
   animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 .status-pulse.inactive {
-  background-color: var(--text-muted);
+  background-color: var(--color-text-muted);
 }
 
 @keyframes pulse {
   0% { transform: scale(0.9); opacity: 0.8; }
-  50% { transform: scale(1.6); opacity: 0; }
+  50% { transform: scale(1.5); opacity: 0; }
   100% { transform: scale(0.9); opacity: 0; }
 }
 
-/* Custom Scrollbar */
+/* Clean Professional Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: var(--color-surface-secondary);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: #CBD5E1;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: #94A3B8;
 }

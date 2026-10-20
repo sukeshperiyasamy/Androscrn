@@ -41,10 +41,24 @@ export interface CameraSessionOptions {
   recordPath?: string;
   noAudio?: boolean;
   windowTitle?: string;
+  autoReconnect?: boolean;
 }
+
+export type CameraSessionStatus = 'idle' | 'starting' | 'running' | 'interrupted' | 'reconnecting' | 'stopped' | 'error';
+
+export type CameraExitReason =
+  | 'user_stopped'
+  | 'camera_preempted'
+  | 'device_disconnected'
+  | 'startup_error'
+  | 'process_crashed';
 
 export interface CameraProcessStatus {
   running: boolean;
+  status: CameraSessionStatus;
+  exitReason?: CameraExitReason;
+  canReconnect: boolean;
+  reconnectCount: number;
   pid?: number;
   targetSerial?: string;
   activeCameraId?: string;
@@ -56,6 +70,8 @@ export interface CameraProcessStatus {
   torchActive?: boolean;
   exitCode?: number | null;
   lastError?: string;
+  autoReconnect?: boolean;
+  recentStderr?: string[];
 }
 
 export class CameraManager extends EventEmitter {
@@ -64,11 +80,27 @@ export class CameraManager extends EventEmitter {
   private currentProcess: ChildProcess | null = null;
   private currentSerial: string | null = null;
   private currentOptions: CameraSessionOptions | null = null;
+  private lastSessionOptions: CameraSessionOptions | null = null;
   private lastExitCode: number | null = null;
   private lastError: string | null = null;
   private currentZoom = 1.0;
   private torchActive = false;
   private isStarting = false;
+
+  private currentSessionId = 0;
+  private sessionStatus: CameraSessionStatus = 'idle';
+  private exitReason?: CameraExitReason;
+  private canReconnect = false;
+  private reconnectCount = 0;
+  private maxReconnectRetries = 5;
+  private lastStartedAt = 0;
+  private userRequestedStop = false;
+  private stderrRingBuffer: string[] = [];
+  private readonly maxStderrLines = 50;
+  private reconnectCooldownMs = 1500;
+  private lastReconnectAttempt = 0;
+  private autoReconnect = true;
+  private autoReconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(scrcpyExePath: string, deviceManager: DeviceManager) {
     super();
@@ -441,12 +473,75 @@ export class CameraManager extends EventEmitter {
    * Starts a camera streaming session using native scrcpy.
    */
   public startCamera(options: CameraSessionOptions): { success: boolean; pid?: number; message?: string } {
+    return this.startCameraInternal(options, false);
+  }
+
+  /**
+   * Reconnects the most recent camera session options with retry bounding and preemption recovery.
+   */
+  public async reconnectCamera(): Promise<{ success: boolean; pid?: number; message?: string }> {
+    if (this.autoReconnectTimer) {
+      clearTimeout(this.autoReconnectTimer);
+      this.autoReconnectTimer = null;
+    }
+
+    if (!this.lastSessionOptions) {
+      return { success: false, message: 'No previous camera session configuration found to reconnect.' };
+    }
+
+    const isRunning = this.currentProcess !== null && !this.currentProcess.killed && this.currentProcess.exitCode === null;
+    if (isRunning) {
+      return { success: false, message: 'Camera streaming session is already active.' };
+    }
+
+    if (this.reconnectCount >= this.maxReconnectRetries) {
+      return {
+        success: false,
+        message: `Maximum reconnect attempts (${this.maxReconnectRetries}) reached. Please restart Camera Studio manually.`
+      };
+    }
+
+    const now = Date.now();
+    if (now - this.lastReconnectAttempt < this.reconnectCooldownMs) {
+      return {
+        success: false,
+        message: `Reconnect rate-limited. Please wait ${Math.ceil((this.reconnectCooldownMs - (now - this.lastReconnectAttempt)) / 1000)}s before trying again.`
+      };
+    }
+    this.lastReconnectAttempt = now;
+    this.reconnectCount++;
+
+    const isConnected = await this.deviceManager.isDeviceConnected(this.lastSessionOptions.serial);
+    if (!isConnected) {
+      this.sessionStatus = 'stopped';
+      this.exitReason = 'device_disconnected';
+      this.canReconnect = false;
+      this.emit('statusChanged', this.getStatus());
+      return { success: false, message: 'Device is no longer connected to ADB.' };
+    }
+
+    this.sessionStatus = 'reconnecting';
+    this.emit('reconnecting', {
+      attempt: this.reconnectCount,
+      maxRetries: this.maxReconnectRetries,
+      serial: this.lastSessionOptions.serial
+    });
+    this.emit('statusChanged', this.getStatus());
+
+    return this.startCameraInternal(this.lastSessionOptions, true);
+  }
+
+  private startCameraInternal(options: CameraSessionOptions, isReconnect: boolean): { success: boolean; pid?: number; message?: string } {
     if (this.isStarting) {
       return { success: false, message: 'Camera preview launch already in progress.' };
     }
 
+    // Terminate existing active camera process to prevent duplicate windows or orphaned locks
     if (this.currentProcess && !this.currentProcess.killed && this.currentProcess.exitCode === null) {
-      return { success: false, message: 'A camera streaming session is already active.' };
+      try {
+        this.currentProcess.kill();
+      } catch {}
+      this.currentProcess = null;
     }
 
     if (!fs.existsSync(this.scrcpyExePath)) {
@@ -462,11 +557,25 @@ export class CameraManager extends EventEmitter {
         return { success: false, message: err.message };
       }
 
+      this.currentSessionId++;
+      const sessionId = this.currentSessionId;
+
       this.lastError = null;
       this.lastExitCode = null;
       this.currentZoom = options.zoom || 1.0;
       this.torchActive = !!options.torch;
-      this.currentOptions = options;
+      this.autoReconnect = options.autoReconnect !== undefined ? options.autoReconnect : true;
+      this.currentOptions = { ...options, autoReconnect: this.autoReconnect };
+      this.lastSessionOptions = { ...options, autoReconnect: this.autoReconnect };
+      this.userRequestedStop = false;
+      this.stderrRingBuffer = [];
+      this.lastStartedAt = Date.now();
+      if (!isReconnect) {
+        this.reconnectCount = 0;
+      }
+      this.canReconnect = false;
+      this.exitReason = undefined;
+      this.sessionStatus = isReconnect ? 'reconnecting' : 'starting';
 
       const binDir = path.dirname(this.scrcpyExePath);
 
@@ -478,48 +587,125 @@ export class CameraManager extends EventEmitter {
 
       this.currentProcess = child;
       this.currentSerial = options.serial;
+      this.sessionStatus = 'running';
 
       this.emit('started', {
+        running: true,
+        status: 'running',
         pid: child.pid,
         serial: this.currentSerial,
         cameraId: options.cameraId,
         recording: !!options.recordPath
       });
+      this.emit('statusChanged', this.getStatus());
 
       child.stdout?.on('data', (chunk) => {
+        if (this.currentSessionId !== sessionId) return;
         const text = chunk.toString();
         this.emit('log', { type: 'stdout', text });
       });
 
       child.stderr?.on('data', (chunk) => {
+        if (this.currentSessionId !== sessionId) return;
         const text = chunk.toString();
         this.lastError = text.trim();
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        for (const line of lines) {
+          this.stderrRingBuffer.push(line);
+          if (this.stderrRingBuffer.length > this.maxStderrLines) {
+            this.stderrRingBuffer.shift();
+          }
+        }
         this.emit('log', { type: 'stderr', text });
       });
 
+      let isClosed = false;
+
       child.on('exit', (code) => {
+        if (this.currentSessionId !== sessionId) return;
         this.lastExitCode = code;
-        this.currentProcess = null;
-        this.currentSerial = null;
-        this.currentOptions = null;
       });
 
-      child.on('close', (code) => {
-        const exitedSerial = this.currentSerial;
+      child.on('close', async (code) => {
+        if (isClosed) return;
+        isClosed = true;
+        if (this.currentSessionId !== sessionId) return;
+
         this.lastExitCode = code;
         this.currentProcess = null;
+        const targetSerial = this.currentSerial || this.lastSessionOptions?.serial || '';
         this.currentSerial = null;
         this.currentOptions = null;
 
-        this.emit('stopped', { code, serial: exitedSerial });
+        if (this.userRequestedStop) {
+          this.sessionStatus = 'stopped';
+          this.exitReason = 'user_stopped';
+          this.canReconnect = false;
+          this.emit('stopped', { running: false, status: 'stopped', exitReason: 'user_stopped', code, serial: targetSerial });
+          this.emit('statusChanged', this.getStatus());
+          return;
+        }
 
-        if (code === 2) {
-          this.emit('disconnected', { serial: exitedSerial });
+        const stderrJoined = this.stderrRingBuffer.join('\n');
+        const hasCameraPreemptedKeywords =
+          /Camera disconnected|Camera capture failed|evicting conflicting client|adjCameraPriority|RESET_REASON_TERMINATED|Device disconnected|Camera \d+: start to disconnect|ERROR_CAMERA_DEVICE|ERROR_CAMERA_DISABLED|com\.miui\.face/i.test(stderrJoined);
+
+        let deviceStillConnected = false;
+        try {
+          if (targetSerial) {
+            deviceStillConnected = await this.deviceManager.isDeviceConnected(targetSerial);
+          }
+        } catch {
+          deviceStillConnected = false;
+        }
+
+        // Stale event guard after async call
+        if (this.currentSessionId !== sessionId) return;
+
+        const sessionDurationMs = Date.now() - this.lastStartedAt;
+
+        if (deviceStillConnected) {
+          if (hasCameraPreemptedKeywords || sessionDurationMs > 1500) {
+            this.sessionStatus = 'interrupted';
+            this.exitReason = 'camera_preempted';
+            this.canReconnect = true;
+            const message = 'Camera stream was preempted by Android (e.g. phone screen wake, lockscreen or Face Unlock). Device is still connected.';
+            this.emit('interrupted', { running: false, status: 'interrupted', exitReason: 'camera_preempted', canReconnect: true, code, serial: targetSerial, message });
+            this.emit('stopped', { running: false, status: 'interrupted', exitReason: 'camera_preempted', canReconnect: true, code, serial: targetSerial, message });
+            this.emit('statusChanged', this.getStatus());
+
+            if (this.autoReconnect && this.reconnectCount < this.maxReconnectRetries) {
+              if (this.autoReconnectTimer) clearTimeout(this.autoReconnectTimer);
+              this.autoReconnectTimer = setTimeout(() => {
+                if (this.sessionStatus === 'interrupted' && !this.userRequestedStop) {
+                  this.reconnectCamera().catch(() => {});
+                }
+              }, this.reconnectCooldownMs + 500);
+            }
+          } else {
+            this.sessionStatus = 'error';
+            this.exitReason = 'startup_error';
+            this.canReconnect = false;
+            const message = this.lastError || 'Camera failed to start or resolution unsupported.';
+            this.emit('stopped', { running: false, status: 'error', exitReason: 'startup_error', canReconnect: false, code, serial: targetSerial, message });
+            this.emit('statusChanged', this.getStatus());
+          }
+        } else {
+          this.sessionStatus = 'stopped';
+          this.exitReason = 'device_disconnected';
+          this.canReconnect = false;
+          this.emit('disconnected', { running: false, status: 'stopped', exitReason: 'device_disconnected', canReconnect: false, code, serial: targetSerial });
+          this.emit('stopped', { running: false, status: 'stopped', exitReason: 'device_disconnected', canReconnect: false, code, serial: targetSerial });
+          this.emit('statusChanged', this.getStatus());
         }
       });
 
       child.on('error', (err) => {
+        if (this.currentSessionId !== sessionId) return;
         this.lastError = err.message;
+        this.sessionStatus = 'error';
+        this.exitReason = 'process_crashed';
+        this.canReconnect = false;
         if (this.listenerCount('error') > 0) {
           this.emit('error', err);
         } else {
@@ -528,11 +714,15 @@ export class CameraManager extends EventEmitter {
         this.currentProcess = null;
         this.currentSerial = null;
         this.currentOptions = null;
+        this.emit('statusChanged', this.getStatus());
       });
 
       return { success: true, pid: child.pid };
     } catch (err: any) {
       this.lastError = err.message;
+      this.sessionStatus = 'error';
+      this.exitReason = 'startup_error';
+      this.emit('statusChanged', this.getStatus());
       return { success: false, message: err.message };
     } finally {
       this.isStarting = false;
@@ -543,16 +733,63 @@ export class CameraManager extends EventEmitter {
    * Stops active camera session cleanly.
    */
   public stopCamera(): boolean {
-    if (!this.currentProcess) return false;
+    if (this.autoReconnectTimer) {
+      clearTimeout(this.autoReconnectTimer);
+      this.autoReconnectTimer = null;
+    }
+
+    if (!this.currentProcess && this.sessionStatus === 'idle') {
+      return false;
+    }
+
+    this.userRequestedStop = true;
+    this.reconnectCount = 0;
+    this.canReconnect = false;
+    this.sessionStatus = 'stopped';
+    this.exitReason = 'user_stopped';
+
+    if (!this.currentProcess) {
+      this.emit('statusChanged', this.getStatus());
+      return false;
+    }
 
     try {
+      const exitedSerial = this.currentSerial;
       this.currentProcess.kill();
       this.currentProcess = null;
       this.currentSerial = null;
       this.currentOptions = null;
+      this.emit('stopped', { running: false, status: 'stopped', exitReason: 'user_stopped', code: 0, serial: exitedSerial });
+      this.emit('statusChanged', this.getStatus());
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Focuses the native scrcpy Camera Studio window on Windows.
+   */
+  public focusCameraWindow(): { success: boolean; message: string } {
+    if (!this.currentProcess || this.currentProcess.killed) {
+      return { success: false, message: 'Camera preview is not active.' };
+    }
+    const windowTitle = this.currentOptions?.windowTitle || `AndroScrn Camera Studio - ${this.currentSerial}`;
+    try {
+      const psScript = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $wshell = New-Object -ComObject Wscript.Shell
+        if ($wshell.AppActivate('${windowTitle}')) {
+          # Window brought to foreground
+        }
+      `;
+      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      return { success: true, message: `Brought "${windowTitle}" to foreground.` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to focus camera window: ${err.message}` };
     }
   }
 
@@ -649,17 +886,23 @@ export class CameraManager extends EventEmitter {
     const isRunning = this.currentProcess !== null && !this.currentProcess.killed && this.currentProcess.exitCode === null;
     return {
       running: isRunning,
+      status: isRunning ? 'running' : this.sessionStatus,
+      exitReason: this.exitReason,
+      canReconnect: this.canReconnect,
+      reconnectCount: this.reconnectCount,
       pid: isRunning ? this.currentProcess?.pid : undefined,
       targetSerial: this.currentSerial || undefined,
-      activeCameraId: this.currentOptions?.cameraId,
-      activeResolution: this.currentOptions?.size,
-      activeFps: this.currentOptions?.fps,
-      isRecording: !!this.currentOptions?.recordPath,
-      recordingPath: this.currentOptions?.recordPath,
+      activeCameraId: this.currentOptions?.cameraId || this.lastSessionOptions?.cameraId,
+      activeResolution: this.currentOptions?.size || this.lastSessionOptions?.size,
+      activeFps: this.currentOptions?.fps || this.lastSessionOptions?.fps,
+      isRecording: !!(this.currentOptions?.recordPath || this.lastSessionOptions?.recordPath),
+      recordingPath: this.currentOptions?.recordPath || this.lastSessionOptions?.recordPath,
       currentZoom: this.currentZoom,
       torchActive: this.torchActive,
       exitCode: this.lastExitCode,
-      lastError: this.lastError || undefined
+      lastError: this.lastError || undefined,
+      autoReconnect: this.autoReconnect,
+      recentStderr: [...this.stderrRingBuffer]
     };
   }
 }

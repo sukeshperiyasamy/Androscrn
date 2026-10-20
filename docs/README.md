@@ -20,6 +20,8 @@ Start with the [project README](../README.md), then use the guides below.
 
 - [architecture.md](architecture.md), [mcp-tool-reference.md](mcp-tool-reference.md),
   [portable-packaging.md](portable-packaging.md), [dependencies-and-licenses.md](dependencies-and-licenses.md)
+- Privacy & Legal: [privacy-policy.md](privacy-policy.md), [terms-of-use.md](terms-of-use.md),
+  [android-submission-readiness.md](android-submission-readiness.md)
 - Architecture decisions: [ADR 001](adr/001-architecture-reconciliation-and-mcp.md),
   [ADR 002](adr/002-camera-companion-architecture.md), [ADR 003](adr/003-multipurpose-camera-platform.md)
 - Process: [testing-strategy.md](testing-strategy.md), [manual-device-test.md](manual-device-test.md),

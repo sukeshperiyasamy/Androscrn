@@ -465,4 +465,17 @@ export class DeviceManager {
 
     return null;
   }
+
+  /**
+   * Checks whether a specific device serial is currently attached and authorized
+   */
+  public async isDeviceConnected(serial: string): Promise<boolean> {
+    if (!serial || !SecurityValidator.isValidSerial(serial)) return false;
+    try {
+      const devices = await this.getDevices();
+      return devices.some(d => d.serial === serial && d.state === 'device');
+    } catch {
+      return false;
+    }
+  }
 }

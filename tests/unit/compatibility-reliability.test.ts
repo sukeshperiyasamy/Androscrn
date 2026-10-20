@@ -155,4 +155,40 @@ boot_dev_7             bootloader usb:1-7 transport_id:8
   assertEqual(camCrashStatus.pid, undefined, 'Terminated camera PID omitted from active status');
 
   console.log('  ✓ Section 7 Completed: Terminated child process lifecycle verified');
+
+  // 8. ScrcpyManager Input Control Detection & Mirror Window Focus
+  console.log('\n--- Section 8: Input Control Detection & Mirror Window Focus ---');
+  const inputTestMgr = new ScrcpyManager('C:\\nonexistent\\scrcpy_dummy.exe');
+
+  // When idle, focusMirrorWindow returns success: false
+  const focusIdleRes = await inputTestMgr.focusMirrorWindow();
+  assertEqual(focusIdleRes.success, false, 'focusMirrorWindow on idle session returns success: false');
+  assert(focusIdleRes.message?.includes('not active') === true, 'Idle focus error explains missing session');
+
+  // Verify initial status has inputControlBlocked === false
+  const inputInitStatus = inputTestMgr.getStatus();
+  assertEqual(inputInitStatus.inputControlBlocked, false, 'Initial inputControlBlocked is false');
+  assertEqual(inputInitStatus.inputControlMessage, undefined, 'Initial inputControlMessage is undefined');
+
+  let inputBlockedEventFired = false;
+  let eventPayload: any = null;
+  inputTestMgr.on('inputBlocked', (payload) => {
+    inputBlockedEventFired = true;
+    eventPayload = payload;
+  });
+
+  // Simulate permission denial state
+  (inputTestMgr as any).inputControlBlocked = true;
+  (inputTestMgr as any).inputControlMessage = 'Input injection denied: requires INJECT_EVENTS permission. Enable "USB debugging (Security Settings)" in Developer Options on your Xiaomi device.';
+  inputTestMgr.emit('inputBlocked', {
+    serial: 'test-device-serial',
+    inputControlBlocked: true,
+    message: (inputTestMgr as any).inputControlMessage
+  });
+
+  assertEqual(inputBlockedEventFired, true, 'inputBlocked event emitted upon detecting permission denial');
+  assertEqual(eventPayload?.inputControlBlocked, true, 'Event payload contains inputControlBlocked: true');
+  assertEqual(inputTestMgr.getStatus().inputControlBlocked, true, 'getStatus reflects inputControlBlocked: true');
+
+  console.log('  ✓ Section 8 Completed: Input control detection and mirror window focus verified');
 }

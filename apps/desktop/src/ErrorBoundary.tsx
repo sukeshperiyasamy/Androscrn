@@ -57,49 +57,49 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6 font-sans select-none">
-          <div className="max-w-xl w-full bg-slate-900 border border-red-500/30 rounded-2xl p-6 shadow-2xl space-y-5">
-            <div className="flex items-center space-x-3 text-red-400">
-              <div className="p-2.5 bg-red-950/60 border border-red-500/20 rounded-xl">
-                <AlertTriangle className="w-6 h-6" />
+        <div className="min-h-screen bg-[#F3F6F8] text-[#202936] flex items-center justify-center p-6 font-sans select-none">
+          <div className="max-w-xl w-full bg-white border border-[#D9DEE5] rounded-2xl p-6 shadow-xl space-y-5">
+            <div className="flex items-center space-x-3 text-[#B91C1C]">
+              <div className="p-2.5 bg-[#FEE2E2] border border-[#B91C1C]/20 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-[#B91C1C]" />
               </div>
               <div>
-                <h2 className="text-lg font-bold tracking-tight text-white">Workbench Interface Error</h2>
-                <p className="text-xs text-slate-400">An unexpected error occurred while rendering the UI.</p>
+                <h2 className="text-lg font-bold tracking-tight text-[#202936]">Workbench Interface Error</h2>
+                <p className="text-xs text-[#667085]">An unexpected error occurred while rendering the UI.</p>
               </div>
             </div>
 
-            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs text-red-300 overflow-x-auto max-h-48">
-              <p className="font-semibold text-red-200 mb-1">
+            <div className="bg-[#FEE2E2]/40 border border-[#B91C1C]/20 rounded-xl p-4 font-mono text-xs text-[#B91C1C] overflow-x-auto max-h-48">
+              <p className="font-semibold text-[#B91C1C] mb-1">
                 {this.state.error?.name || 'Error'}: {this.state.error?.message || 'Unknown runtime error'}
               </p>
               {this.state.error?.stack && (
-                <pre className="text-[11px] text-slate-400 mt-2 whitespace-pre-wrap leading-relaxed">
+                <pre className="text-[11px] text-[#84909E] mt-2 whitespace-pre-wrap leading-relaxed">
                   {this.state.error.stack}
                 </pre>
               )}
             </div>
 
             {this.state.errorInfo?.componentStack && (
-              <details className="text-xs text-slate-400 cursor-pointer">
-                <summary className="hover:text-slate-200 transition-colors py-1">View Component Stack</summary>
-                <pre className="mt-2 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 text-[10px] text-slate-400 overflow-x-auto whitespace-pre-wrap">
+              <details className="text-xs text-[#667085] cursor-pointer">
+                <summary className="hover:text-[#202936] transition-colors py-1">View Component Stack</summary>
+                <pre className="mt-2 bg-[#F3F6F8] p-3 rounded-lg border border-[#D9DEE5] text-[10px] text-[#667085] overflow-x-auto whitespace-pre-wrap">
                   {this.state.errorInfo.componentStack}
                 </pre>
               </details>
             )}
 
-            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-[#D9DEE5]">
               <button
                 onClick={this.handleReset}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-colors border border-slate-700/60"
+                className="glass-button text-xs py-2 px-4"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Try Again</span>
               </button>
               <button
                 onClick={this.handleReload}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors shadow-sm shadow-emerald-950"
+                className="glass-button glass-button-primary text-xs py-2 px-4"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Reload Workbench</span>

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   startMirroring: (options: any) => ipcRenderer.invoke('start-mirroring', options),
   stopMirroring: () => ipcRenderer.invoke('stop-mirroring'),
   getMirrorStatus: () => ipcRenderer.invoke('get-mirror-status'),
+  focusMirrorWindow: () => ipcRenderer.invoke('focus-mirror-window'),
   onMirrorStatusChanged: (cb: (data: any) => void) => {
     const handler = (_: any, d: any) => cb(d);
     ipcRenderer.on('mirror-status-changed', handler);
@@ -59,9 +60,11 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   queryCameraCapabilities: (serial: string) => ipcRenderer.invoke('query-camera-capabilities', { serial }),
   startCamera: (options: any) => ipcRenderer.invoke('start-camera', options),
   stopCamera: () => ipcRenderer.invoke('stop-camera'),
+  reconnectCamera: () => ipcRenderer.invoke('reconnect-camera'),
   getCameraStatus: () => ipcRenderer.invoke('get-camera-status'),
   sendCameraZoom: (direction: 'in' | 'out') => ipcRenderer.invoke('send-camera-zoom', { direction }),
   sendCameraTorch: (state: 'on' | 'off') => ipcRenderer.invoke('send-camera-torch', { state }),
+  focusCameraWindow: () => ipcRenderer.invoke('focus-camera-window'),
   onCameraStatusChanged: (cb: (data: any) => void) => {
     const handler = (_: any, d: any) => cb(d);
     ipcRenderer.on('camera-status-changed', handler);

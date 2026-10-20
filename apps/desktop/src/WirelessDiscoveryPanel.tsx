@@ -111,10 +111,10 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
   return (
     <div className="glass-panel p-5" data-testid="wireless-discovery-panel">
       <div className="flex items-center gap-2 mb-2">
-        <Search className="w-5 h-5 text-cyan-400" aria-hidden="true" />
-        <h3 className="text-base font-bold text-white">Discover Wireless Devices</h3>
+        <Search className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
+        <h3 className="text-base font-bold text-[#202936]">Discover Wireless Devices</h3>
       </div>
-      <p className="text-xs text-slate-300 mb-3">
+      <p className="text-xs text-[#667085] mb-3">
         Looks for phones on your local network that are advertising Android Wireless debugging (ADB mDNS). Turn on
         Wireless debugging on the phone yourself first (Developer options). AndroScrn never enables it for you, never
         scans other networks, and only pairs or connects after you select a device and confirm.
@@ -125,7 +125,7 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
           type="button"
           onClick={discover}
           disabled={running}
-          className="glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+          className="glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
         >
           <Wifi className="w-4 h-4" aria-hidden="true" />
           <span>{running ? 'Searching…' : 'Discover Wireless Devices'}</span>
@@ -134,7 +134,7 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
           <button
             type="button"
             onClick={cancel}
-            className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+            className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
           >
             <XCircle className="w-4 h-4" aria-hidden="true" />
             <span>Cancel</span>
@@ -146,21 +146,21 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
         {status && (
           <div
             className={`text-xs ${
-              status.type === 'error' ? 'text-rose-300' : status.type === 'success' ? 'text-emerald-300' : 'text-indigo-200'
+              status.type === 'error' ? 'text-[#B91C1C]' : status.type === 'success' ? 'text-[#15803D]' : 'text-[#0F766E]'
             }`}
           >
             {status.message}
           </div>
         )}
-        {result && !result.cancelled && <div className="text-xs text-slate-200">{result.message}</div>}
+        {result && !result.cancelled && <div className="text-xs text-[#202936]">{result.message}</div>}
       </div>
 
       {result && result.fallback.length > 0 && (
-        <div className="mt-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200">
-          <div className="font-semibold text-white mb-1">
+        <div className="mt-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs text-[#202936]">
+          <div className="font-semibold text-[#202936] mb-1">
             {result.supported ? 'Other ways to connect' : 'Wireless discovery is unavailable here — use one of these instead'}
           </div>
-          <ul className="list-disc pl-5 space-y-1">
+          <ul className="list-disc pl-5 space-y-1 text-[#667085]">
             {result.fallback.map((f, i) => (
               <li key={i}>{f}</li>
             ))}
@@ -171,16 +171,16 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
       {result && result.endpoints.length > 0 && (
         <ul className="mt-3 space-y-2" aria-label="Discovered wireless debugging endpoints">
           {result.endpoints.map(ep => (
-            <li key={ep.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800" data-testid="wireless-endpoint">
+            <li key={ep.id} className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]" data-testid="wireless-endpoint">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                  <div className="text-xs font-semibold text-slate-100 font-mono">
+                  <div className="text-xs font-semibold text-[#202936] font-mono">
                     {ep.ip}:{ep.port}
                   </div>
-                  <div className="text-[11px] text-slate-300">
+                  <div className="text-[11px] text-[#667085]">
                     {ep.label} · {ep.kind === 'pairing' ? 'Pairing service' : 'Connection service'} · {STATUS_LABEL[ep.status]}
                   </div>
-                  <div className="text-[11px] text-slate-300 mt-0.5">{ep.note}</div>
+                  <div className="text-[11px] text-[#84909E] mt-0.5">{ep.note}</div>
                 </div>
 
                 {ep.kind === 'pairing' ? (
@@ -196,14 +196,14 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
                       maxLength={6}
                       value={pins[ep.id] || ''}
                       onChange={e => setPins(p => ({ ...p, [ep.id]: e.target.value.replace(/\D/g, '') }))}
-                      className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-100 w-28 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                      className="bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-mono text-[#202936] w-28 outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                       placeholder="6-digit code"
                     />
                     <button
                       type="button"
                       onClick={() => pair(ep)}
                       disabled={busyId === ep.id}
-                      className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                      className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     >
                       <span>Pair…</span>
                     </button>
@@ -213,7 +213,7 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
                     type="button"
                     onClick={() => connect(ep)}
                     disabled={busyId === ep.id || ep.status === 'connected'}
-                    className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                   >
                     <span>{ep.status === 'connected' ? 'Connected' : 'Connect…'}</span>
                   </button>

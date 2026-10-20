@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 5. Interactive Camera Studio Mockup Slider & Toggles
   initCameraStudioMockup();
+
+  // 6. Interactive About & Legal Section Tabs
+  initAboutTabs();
 });
 
 /**
@@ -200,3 +203,55 @@ function initCameraStudioMockup() {
     });
   }
 }
+
+/**
+ * Tab switching for About & Legal section
+ */
+function initAboutTabs() {
+  const tabs = document.querySelectorAll('.about-tab-btn');
+  const panels = document.querySelectorAll('.about-panel');
+  if (!tabs.length || !panels.length) return;
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const targetId = tab.getAttribute('aria-controls');
+      tabs.forEach((t) => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      panels.forEach((p) => {
+        p.classList.remove('active');
+      });
+
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      const targetPanel = document.getElementById(targetId);
+      if (targetPanel) {
+        targetPanel.classList.add('active');
+      }
+    });
+  });
+
+  // Handle direct hash navigation to specific about sub-tabs (e.g. #about-privacy, #about-terms)
+  function handleHash() {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const matchingTab = Array.from(tabs).find((t) => {
+      const target = t.getAttribute('aria-controls');
+      return `#${target}` === hash || `#about-${target.replace('about-panel-', '')}` === hash;
+    });
+    if (matchingTab) {
+      matchingTab.click();
+      const aboutSec = document.getElementById('about');
+      if (aboutSec) {
+        aboutSec.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }
+
+  window.addEventListener('hashchange', handleHash);
+  if (window.location.hash) {
+    handleHash();
+  }
+}
+

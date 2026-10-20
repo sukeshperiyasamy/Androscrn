@@ -97,6 +97,9 @@ connection, Camera Studio and the AI-agent security center. Workflows are descri
 | [Testing](docs/testing.md) | Test commands, prerequisites, skips, hardware procedures, validation status |
 | [Platform support](docs/platform-support.md) | Windows ARM64 investigation and packaging notes |
 | [Architecture](docs/architecture.md) | Modules, processes and data flow |
+| [Privacy policy](docs/privacy-policy.md) | Local-first data practices and companion camera policies |
+| [Terms of use](docs/terms-of-use.md) | Authorized device use, automation rules and warranty |
+| [Android readiness](docs/android-submission-readiness.md) | Google Play Store Data safety and store guidelines |
 | [Roadmap](docs/roadmap.md) | Completed and planned phases |
 
 All documentation is indexed in [docs/README.md](docs/README.md).
@@ -110,7 +113,7 @@ All documentation is indexed in [docs/README.md](docs/README.md).
 - Diagnostic exports redact serial numbers, IP and MAC addresses, Wi-Fi network names, email addresses and tokens.
 - Discovery never connects on its own; pairing and connecting each need your confirmation.
 
-Read the full model in [docs/security.md](docs/security.md).
+Read the full model in [docs/security.md](docs/security.md) and our [Privacy Policy](docs/privacy-policy.md).
 
 ## Contributing and development
 
@@ -127,4 +130,4 @@ Please keep child processes on discrete argument arrays, keep core features work
 
 Released under the [MIT License](LICENSE). AndroScrn bundles [scrcpy](https://github.com/Genymobile/scrcpy) and the
 [Android Debug Bridge](https://developer.android.com/tools/adb) (both Apache License 2.0); see
-[docs/dependencies-and-licenses.md](docs/dependencies-and-licenses.md) and `THIRD-PARTY-NOTICES.txt`.
+[docs/dependencies-and-licenses.md](docs/dependencies-and-licenses.md), [docs/terms-of-use.md](docs/terms-of-use.md) and `THIRD-PARTY-NOTICES.txt`.

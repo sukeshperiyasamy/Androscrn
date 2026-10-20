@@ -1107,3 +1107,102 @@ body {
 .text-amber { color: var(--accent-amber); }
 .text-rose { color: var(--accent-rose); }
 .mono { font-family: ui-monospace, monospace; }
+
+/* About & Legal Tabs and Panels */
+.about-tabs-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.about-tabs {
+  display: inline-flex;
+  gap: 8px;
+  background: var(--bg-surface-2);
+  padding: 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  max-width: 100%;
+}
+
+.about-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.about-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.about-tab-btn.active {
+  color: #ffffff;
+  background: var(--accent-cyan);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);
+}
+
+.about-panel {
+  display: none;
+  animation: fadeIn 200ms ease;
+}
+
+.about-panel.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.legal-card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.legal-card:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-md);
+}
+
+.legal-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.legal-badge-verified {
+  background: var(--accent-emerald-glow);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+}
+
+.legal-badge-local {
+  background: var(--accent-cyan-glow);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(2, 132, 199, 0.2);
+}
+

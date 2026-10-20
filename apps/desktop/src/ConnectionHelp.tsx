@@ -60,10 +60,10 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
   const hasConnectionIssue = !!help.connection;
   const tone =
     help.connection?.severity === 'error'
-      ? 'border-rose-500/30 bg-rose-500/10 text-rose-100'
+      ? 'border-[#B91C1C]/30 bg-[#FEE2E2] text-[#B91C1C]'
       : help.connection?.severity === 'warning'
-      ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
-      : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-100';
+      ? 'border-[#B45309]/30 bg-[#FEF3C7] text-[#B45309]'
+      : 'border-[#0F766E]/30 bg-[#DDF4EF] text-[#0F766E]';
 
   return (
     <section
@@ -79,7 +79,7 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
             onClick={() => setExpanded(v => !v)}
             aria-expanded={expanded}
             aria-controls="connection-help-body"
-            className="flex items-center gap-2 text-left font-semibold focus-visible:ring-2 focus-visible:ring-indigo-400 rounded cursor-pointer"
+            className="flex items-center gap-2 text-left font-semibold focus-visible:ring-2 focus-visible:ring-[#0F766E] rounded cursor-pointer"
           >
             {hasConnectionIssue ? (
               <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
@@ -97,7 +97,7 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
               type="button"
               onClick={onRetry}
               disabled={retrying}
-              className="glass-button text-[11px] py-1 px-3 min-h-[30px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+              className="glass-button text-[11px] py-1 px-3 min-h-[30px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
               aria-label="Retry device connection check"
             >
               <RefreshCw className={`w-3 h-3 ${retrying ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -106,7 +106,7 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
             <button
               type="button"
               onClick={() => setDismissedKey(help.key)}
-              className="text-slate-300 hover:text-white text-base font-bold px-1.5 rounded focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+              className="text-[#667085] hover:text-[#202936] text-base font-bold px-1.5 rounded focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
               aria-label="Dismiss connection help"
             >
               ×
@@ -115,10 +115,10 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
         </div>
 
         {expanded && (
-          <div id="connection-help-body" className="mt-3 space-y-3 text-slate-200">
+          <div id="connection-help-body" className="mt-3 space-y-3 text-[#202936]">
             {help.connection && (
               <div>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-300 mb-1">Connection</div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-[#667085] mb-1">Connection</div>
                 <ol className="list-decimal pl-5 space-y-1">
                   {help.connection.steps.map((step, i) => (
                     <li key={i}>{step}</li>
@@ -129,19 +129,19 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
 
             {help.vendor.map(g => (
               <div key={g.id} data-testid={`oem-guidance-${g.id}`}>
-                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-300 mb-1">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-[#667085] mb-1">
                   Vendor-specific input restrictions · {EVIDENCE_LABEL[g.evidence]}
                 </div>
-                <p className="font-semibold text-white">{g.title}</p>
+                <p className="font-semibold text-[#202936]">{g.title}</p>
                 <p className="mt-1">{g.restriction}</p>
                 <ol className="list-decimal pl-5 space-y-1 mt-2">
                   {g.steps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}
                 </ol>
-                <p className="mt-2 text-slate-300 italic">{g.uncertainty}</p>
+                <p className="mt-2 text-[#667085] italic">{g.uncertainty}</p>
                 {g.reference && (
-                  <p className="mt-1 text-slate-300">
+                  <p className="mt-1 text-[#667085]">
                     Reference: <span className="font-mono">{g.reference.label}</span> ({g.reference.url})
                   </p>
                 )}

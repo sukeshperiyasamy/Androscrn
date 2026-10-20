@@ -143,7 +143,7 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 680,
-    backgroundColor: '#07090e',
+    backgroundColor: '#FFFFFF',
     title: 'AndroScrn (Provisional Electron Distribution)',
     webPreferences: {
       preload: preloadPath,
@@ -234,10 +234,28 @@ ipcMain.handle('get-mirror-status', () => {
   }
 });
 
+ipcMain.handle('focus-mirror-window', () => {
+  try {
+    return scrcpyManager.focusMirrorWindow();
+  } catch (err: any) {
+    appLog('ERROR', 'Error focusing mirror window', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to focus mirror window' };
+  }
+});
+
 // Scrcpy Screen Mirroring Event Listeners
 scrcpyManager.on('started', (data) => {
   appLog('INFO', `Screen mirroring started [PID: ${data.pid}] for ${SecurityValidator.redactSerial(data.serial)}`);
   mainWindow?.webContents.send('mirror-status-changed', { running: true, pid: data.pid, serial: data.serial });
+});
+
+scrcpyManager.on('statusChanged', (status) => {
+  mainWindow?.webContents.send('mirror-status-changed', status);
+});
+
+scrcpyManager.on('inputBlocked', (data) => {
+  appLog('WARN', `Input injection restricted by device security: ${data.message} for ${SecurityValidator.redactSerial(data.serial)}`);
+  mainWindow?.webContents.send('mirror-status-changed', scrcpyManager.getStatus());
 });
 
 scrcpyManager.on('stopped', (data) => {
@@ -263,17 +281,22 @@ scrcpyManager.on('disconnected', (data) => {
 // Camera Studio Event Listeners & IPC Handlers
 cameraManager.on('started', (data) => {
   appLog('INFO', `Camera streaming started [PID: ${data.pid}] for ${SecurityValidator.redactSerial(data.serial)}`);
-  mainWindow?.webContents.send('camera-status-changed', data);
+  mainWindow?.webContents.send('camera-status-changed', cameraManager.getStatus());
 });
 
 cameraManager.on('stopped', (data) => {
-  appLog('INFO', `Camera streaming stopped [Code: ${data.code}] for ${SecurityValidator.redactSerial(data.serial)}`);
-  mainWindow?.webContents.send('camera-status-changed', data);
+  appLog('INFO', `Camera streaming stopped [Code: ${data.code}, Reason: ${data.exitReason || 'user_stopped'}] for ${SecurityValidator.redactSerial(data.serial)}`);
+  mainWindow?.webContents.send('camera-status-changed', cameraManager.getStatus());
 });
 
 cameraManager.on('disconnected', (data) => {
   appLog('WARN', `Camera device disconnected: ${SecurityValidator.redactSerial(data.serial)}`);
-  mainWindow?.webContents.send('camera-status-changed', data);
+  mainWindow?.webContents.send('camera-status-changed', cameraManager.getStatus());
+});
+
+cameraManager.on('interrupted', (data) => {
+  appLog('WARN', `Camera streaming interrupted: ${data.message} for ${SecurityValidator.redactSerial(data.serial)}`);
+  mainWindow?.webContents.send('camera-status-changed', cameraManager.getStatus());
 });
 
 ipcMain.handle('query-camera-capabilities', async (_, payload) => {
@@ -335,6 +358,15 @@ ipcMain.handle('stop-camera', () => {
   }
 });
 
+ipcMain.handle('reconnect-camera', async () => {
+  try {
+    return await cameraManager.reconnectCamera();
+  } catch (err: any) {
+    appLog('ERROR', 'Error reconnecting camera session', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to reconnect camera session' };
+  }
+});
+
 ipcMain.handle('get-camera-status', () => {
   try {
     return cameraManager.getStatus();
@@ -366,6 +398,15 @@ ipcMain.handle('send-camera-torch', async (_, payload) => {
   } catch (err: any) {
     appLog('ERROR', 'Error dispatching camera torch', err?.message || err);
     return { success: false, message: err?.message || 'Torch command failed' };
+  }
+});
+
+ipcMain.handle('focus-camera-window', () => {
+  try {
+    return cameraManager.focusCameraWindow();
+  } catch (err: any) {
+    appLog('ERROR', 'Error focusing camera window', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to focus camera window' };
   }
 });
 

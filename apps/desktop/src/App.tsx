@@ -41,7 +41,12 @@ import {
   Grid,
   Crosshair,
   Clock,
-  Sparkles
+  Sparkles,
+  Maximize2,
+  Minimize2,
+  Terminal,
+  Check,
+  X
 } from 'lucide-react';
 
 interface CameraDeviceInfo {
@@ -124,6 +129,7 @@ interface SystemInfo {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about'>('mirror');
+  const [aboutSubTab, setAboutSubTab] = useState<'licenses' | 'privacy' | 'terms' | 'submission'>('licenses');
   
   // Device State
   const [devices, setDevices] = useState<AndroidDevice[]>([]);
@@ -145,6 +151,8 @@ export default function App() {
   const [windowBorderless, setWindowBorderless] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [isOperating, setIsOperating] = useState(false);
+  const [inputControlBlocked, setInputControlBlocked] = useState(false);
+  const [inputControlMessage, setInputControlMessage] = useState<string | null>(null);
 
   // Camera Studio State
   const [cameraCaps, setCameraCaps] = useState<CameraCapabilities | null>(null);
@@ -160,6 +168,18 @@ export default function App() {
   const [cameraAspectRatio, setCameraAspectRatio] = useState<string>('auto');
   const [cameraLiveFeedback, setCameraLiveFeedback] = useState<string | null>(null);
   const [cameraSessionDuration, setCameraSessionDuration] = useState<number>(0);
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'starting' | 'running' | 'interrupted' | 'reconnecting' | 'stopped' | 'error'>('idle');
+  const [cameraPreempted, setCameraPreempted] = useState<boolean>(false);
+  const [canReconnectCamera, setCanReconnectCamera] = useState<boolean>(false);
+  const [cameraReconnectAttempts, setCameraReconnectAttempts] = useState<number>(0);
+  const [isReconnectingCamera, setIsReconnectingCamera] = useState<boolean>(false);
+  const [cameraPreviewExpanded, setCameraPreviewExpanded] = useState<boolean>(false);
+  const [showCameraDiagnostics, setShowCameraDiagnostics] = useState<boolean>(false);
+  const [cameraAutoReconnect, setCameraAutoReconnect] = useState<boolean>(true);
+  const [cameraRecentStderr, setCameraRecentStderr] = useState<string[]>([]);
+  const [cameraExitCode, setCameraExitCode] = useState<number | null>(null);
+  const [cameraExitReason, setCameraExitReason] = useState<string | null>(null);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState<boolean>(false);
 
   // Camera Studio Mode & Companion State (Phase 6)
   const [cameraMode, setCameraMode] = useState<'scrcpy' | 'companion'>('scrcpy');
@@ -316,6 +336,12 @@ export default function App() {
             setAlertBanner({ type: 'error', message: `Screen mirroring session exited: ${status.lastError}` });
           }
         }
+        if (typeof status.inputControlBlocked === 'boolean') {
+          setInputControlBlocked(status.inputControlBlocked);
+        }
+        if (status.inputControlMessage) {
+          setInputControlMessage(status.inputControlMessage);
+        }
       }
 
       // Sync captures
@@ -455,7 +481,22 @@ export default function App() {
 
     if (api?.onMirrorStatusChanged) {
       const u = api.onMirrorStatusChanged((data: any) => {
-        setIsMirroring(data.running);
+        if (!data) return;
+        if (typeof data.running === 'boolean') {
+          setIsMirroring(data.running);
+        }
+        if (typeof data.inputControlBlocked === 'boolean') {
+          setInputControlBlocked(data.inputControlBlocked);
+          if (data.inputControlBlocked) {
+            setAlertBanner({
+              type: 'warning',
+              message: 'Laptop touch/keyboard input blocked: Xiaomi HyperOS requires "USB debugging (Security settings)" enabled in Developer options.'
+            });
+          }
+        }
+        if (data.inputControlMessage) {
+          setInputControlMessage(data.inputControlMessage);
+        }
         if (!data.running) {
           if (data.disconnected) {
             setAlertBanner({
@@ -476,8 +517,52 @@ export default function App() {
 
     if (api?.onCameraStatusChanged) {
       const u = api.onCameraStatusChanged((data: any) => {
-        if (data && typeof data.running === 'boolean') {
+        if (!data) return;
+        if (typeof data.running === 'boolean') {
           setIsCameraRunning(data.running);
+        }
+        if (data.status) {
+          setCameraStatus(data.status);
+        }
+        if (typeof data.canReconnect === 'boolean') {
+          setCanReconnectCamera(data.canReconnect);
+        }
+        if (typeof data.reconnectCount === 'number') {
+          setCameraReconnectAttempts(data.reconnectCount);
+        }
+        if (data.exitCode !== undefined) {
+          setCameraExitCode(data.exitCode);
+        }
+        if (data.exitReason) {
+          setCameraExitReason(data.exitReason);
+        }
+        if (Array.isArray(data.recentStderr)) {
+          setCameraRecentStderr(data.recentStderr);
+        }
+        if (data.status === 'interrupted' || data.exitReason === 'camera_preempted') {
+          setCameraPreempted(true);
+          setIsReconnectingCamera(false);
+          setAlertBanner({
+            type: 'warning',
+            message: 'Camera stream disconnected: Camera sensor was preempted by Android (e.g. phone screen wake, lock screen or Face Unlock). Device is still connected.'
+          });
+        } else if (data.status === 'running') {
+          setCameraPreempted(false);
+          setIsReconnectingCamera(false);
+        } else if (data.status === 'reconnecting') {
+          setIsReconnectingCamera(true);
+        } else if (data.status === 'stopped' && data.exitReason === 'user_stopped') {
+          setCameraPreempted(false);
+          setCanReconnectCamera(false);
+          setIsReconnectingCamera(false);
+        } else if (data.exitReason === 'device_disconnected') {
+          setCameraPreempted(false);
+          setCanReconnectCamera(false);
+          setIsReconnectingCamera(false);
+          setAlertBanner({
+            type: 'error',
+            message: 'Device disconnected from ADB. Camera preview stopped.'
+          });
         }
       });
       if (typeof u === 'function') unsubs.push(u);
@@ -588,6 +673,12 @@ export default function App() {
         const st = await api.getCameraStatus();
         if (st) {
           setIsCameraRunning(st.running);
+          if (st.status) setCameraStatus(st.status);
+          if (st.canReconnect !== undefined) setCanReconnectCamera(st.canReconnect);
+          if (st.reconnectCount !== undefined) setCameraReconnectAttempts(st.reconnectCount);
+          if (st.exitCode !== undefined) setCameraExitCode(st.exitCode);
+          if (st.exitReason) setCameraExitReason(st.exitReason);
+          if (Array.isArray(st.recentStderr)) setCameraRecentStderr(st.recentStderr);
           if (st.currentZoom !== undefined) setCameraZoom(st.currentZoom);
           if (st.torchActive !== undefined) setCameraTorch(st.torchActive);
         }
@@ -595,6 +686,40 @@ export default function App() {
     } catch (e) {
       // ignore
     }
+  };
+
+  const handleFocusCameraWindow = async () => {
+    if (api?.focusCameraWindow) {
+      const res = await api.focusCameraWindow();
+      if (res?.message) {
+        setCameraLiveFeedback(res.message);
+        setTimeout(() => setCameraLiveFeedback(null), 3000);
+      }
+    }
+  };
+
+  const handleCopyCameraDiagnostics = () => {
+    const diagText = [
+      `=== AndroScrn Camera Studio Diagnostics ===`,
+      `Device Serial: ${selectedSerial}`,
+      `Device Model: ${activeDevice?.model || 'Unknown'}`,
+      `Camera Sensor ID: ${selectedCameraId}`,
+      `Selected Resolution: ${selectedResolution}`,
+      `Target FPS: ${selectedFps}`,
+      `Current Zoom: ${cameraZoom.toFixed(1)}x`,
+      `Torch Active: ${cameraTorch}`,
+      `Session Status: ${cameraStatus}`,
+      `Exit Reason: ${cameraExitReason || 'none'}`,
+      `Exit Code: ${cameraExitCode !== null ? cameraExitCode : 'N/A'}`,
+      `Reconnect Attempts: ${cameraReconnectAttempts}/5`,
+      `Recent Stderr:`,
+      cameraRecentStderr.length > 0 ? cameraRecentStderr.join('\n') : '(None)'
+    ].join('\n');
+
+    navigator.clipboard.writeText(diagText).then(() => {
+      setDiagnosticsCopied(true);
+      setTimeout(() => setDiagnosticsCopied(false), 2500);
+    }).catch(() => {});
   };
 
   const handleStartCamera = async () => {
@@ -631,11 +756,13 @@ export default function App() {
           torch: cameraTorch,
           highSpeed: cameraHighSpeed,
           aspectRatio: cameraAspectRatio !== 'auto' ? cameraAspectRatio : undefined,
-          record: recordCameraSession
+          record: recordCameraSession,
+          autoReconnect: cameraAutoReconnect
         });
 
         if (res.success) {
           setIsCameraRunning(true);
+          setCameraPreempted(false);
           setAlertBanner({
             type: 'success',
             message: 'Camera preview active in low-latency Direct3D11 window! Use Alt+Up/Down for live zoom, Alt+T for torch.'
@@ -653,7 +780,40 @@ export default function App() {
     if (api?.stopCamera) {
       await api.stopCamera();
       setIsCameraRunning(false);
+      setCameraPreempted(false);
+      setCanReconnectCamera(false);
       setAlertBanner({ type: 'info', message: 'Camera Studio preview session stopped.' });
+    }
+  };
+
+  const handleReconnectCamera = async () => {
+    if (isReconnectingCamera || isOperating) return;
+    setIsReconnectingCamera(true);
+    setAlertBanner({ type: 'info', message: 'Reconnecting Camera Studio preview...' });
+    try {
+      if (api?.reconnectCamera) {
+        const res = await api.reconnectCamera();
+        if (res.success) {
+          setCameraPreempted(false);
+          setIsCameraRunning(true);
+          setAlertBanner({
+            type: 'success',
+            message: 'Camera preview reconnected successfully!'
+          });
+        } else {
+          setAlertBanner({
+            type: 'error',
+            message: res.message || 'Camera reconnection failed. Device camera may still be occupied.'
+          });
+        }
+      }
+    } catch (e: any) {
+      setAlertBanner({
+        type: 'error',
+        message: e?.message || 'Camera reconnection error'
+      });
+    } finally {
+      setIsReconnectingCamera(false);
     }
   };
 
@@ -940,8 +1100,19 @@ export default function App() {
       await api.stopMirroring();
     }
     setIsMirroring(false);
+    setInputControlBlocked(false);
+    setInputControlMessage(null);
     setAlertBanner({ type: 'info', message: 'Screen mirroring session ended.' });
     refreshDevices();
+  };
+
+  const handleFocusMirrorWindow = async () => {
+    if (api?.focusMirrorWindow) {
+      const res = await api.focusMirrorWindow();
+      if (res?.message) {
+        setAlertBanner({ type: 'info', message: res.message });
+      }
+    }
   };
 
   const handle1ClickHandoff = async () => {
@@ -1118,7 +1289,7 @@ export default function App() {
     setIsCapturing(false);
   };
 
-  const handleSendKeyevent = (code: string, label: string) => {
+  const handleSendKeyevent = async (code: string, label: string) => {
     if (!selectedSerial) {
       setAlertBanner({ type: 'error', message: 'Select a connected device first.' });
       return;
@@ -1129,8 +1300,26 @@ export default function App() {
     }
 
     if (api?.executeAdb) {
-      api.executeAdb(['-s', selectedSerial, 'shell', 'input', 'keyevent', code]);
-      setAlertBanner({ type: 'info', message: `Sent ${label} keyevent to ${activeDevice.model}.` });
+      try {
+        const res = await api.executeAdb(['-s', selectedSerial, 'shell', 'input', 'keyevent', code]);
+        const combined = `${res?.stdout || ''} ${res?.stderr || ''}`;
+        if (/INJECT_EVENTS|SecurityException/i.test(combined)) {
+          setInputControlBlocked(true);
+          setAlertBanner({
+            type: 'error',
+            message: `Input injection blocked: Enable "USB debugging (Security settings)" in Developer options on your phone.`
+          });
+        } else if (res?.exitCode !== 0) {
+          setAlertBanner({
+            type: 'error',
+            message: `Failed to send ${label} keyevent: ${res?.stderr?.trim() || res?.stdout?.trim() || 'Command exited with error'}`
+          });
+        } else {
+          setAlertBanner({ type: 'info', message: `Sent ${label} keyevent to ${activeDevice.model}.` });
+        }
+      } catch (err: any) {
+        setAlertBanner({ type: 'error', message: `Error sending ${label} keyevent: ${err.message}` });
+      }
     }
   };
 
@@ -1162,41 +1351,41 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#07090e] text-slate-100 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#F3F6F8] text-[#202936] font-sans select-none overflow-hidden">
       {/* Top Application Header */}
-      <header className="h-16 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md px-5 flex items-center justify-between shrink-0" role="banner">
+      <header className="h-16 border-b border-[#D9DEE5] bg-white px-5 flex items-center justify-between shrink-0 shadow-xs" role="banner">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20" aria-hidden="true">
+          <div className="w-9 h-9 rounded-xl bg-[#0F766E] flex items-center justify-center shadow-xs" aria-hidden="true">
             <Smartphone className="w-5 h-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+              <h1 className="text-lg font-extrabold tracking-tight text-[#202936]">
                 AndroScrn
               </h1>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#DDF4EF] border border-[#0F766E]/20 text-[#0F766E]">
                 v1.0.0 Alpha
               </span>
             </div>
-            <p className="text-[11px] text-slate-300">Windows-First Android Control & Automation Platform</p>
+            <p className="text-[11px] text-[#667085]">Windows-First Android Control & Automation Platform</p>
           </div>
         </div>
 
         {/* Global Device Bar */}
         <div className="flex items-center gap-3">
           {devices.length > 0 ? (
-            <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
+            <div className="flex items-center gap-2 bg-white border border-[#D9DEE5] rounded-xl px-3 py-1.5 shadow-xs">
               <span className={`status-pulse ${activeDevice?.state === 'device' ? 'active' : 'inactive'}`} aria-hidden="true"></span>
               <label htmlFor="global-device-select" className="sr-only">Select Android Device</label>
               <select
                 id="global-device-select"
                 value={selectedSerial}
                 onChange={e => setSelectedSerial(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer pr-2 max-w-[260px] truncate focus-visible:ring-2 focus-visible:ring-indigo-400 rounded"
+                className="bg-transparent text-xs font-semibold text-[#202936] outline-none cursor-pointer pr-2 max-w-[260px] truncate focus-visible:ring-2 focus-visible:ring-[#0F766E] rounded"
                 aria-label="Select connected Android device"
               >
                 {devices.map(d => (
-                  <option key={d.serial} value={d.serial} className="bg-slate-900 text-slate-200">
+                  <option key={d.serial} value={d.serial} className="bg-white text-[#202936]">
                     {d.alias || d.model} ({d.transportType.toUpperCase()} - {d.serial})
                   </option>
                 ))}
@@ -1204,27 +1393,27 @@ export default function App() {
 
               {/* Device State Badge */}
               {activeDevice?.state === 'unauthorized' && (
-                <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30" role="status" aria-label="Device status: Unauthorized">
+                <span className="text-[10px] uppercase font-bold text-[#B91C1C] bg-[#FEE2E2] px-2 py-0.5 rounded border border-[#B91C1C]/30" role="status" aria-label="Device status: Unauthorized">
                   Unauthorized
                 </span>
               )}
               {activeDevice?.state === 'offline' && (
-                <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30" role="status" aria-label="Device status: Offline">
+                <span className="text-[10px] uppercase font-bold text-[#B45309] bg-[#FEF3C7] px-2 py-0.5 rounded border border-[#B45309]/30" role="status" aria-label="Device status: Offline">
                   Offline
                 </span>
               )}
               {activeDevice?.state === 'device' && (
-                <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30" role="status" aria-label="Device status: Ready">
+                <span className="text-[10px] uppercase font-bold text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded border border-[#15803D]/30" role="status" aria-label="Device status: Ready">
                   Ready
                 </span>
               )}
 
               {activeDevice?.transportType === 'wifi' ? (
                 <>
-                  <Wifi className="w-3.5 h-3.5 text-cyan-400 ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
+                  <Wifi className="w-3.5 h-3.5 text-[#0F766E] ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
                   <button
                     onClick={() => handleDisconnectWifiDevice(activeDevice.serial)}
-                    className="text-[10px] text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 transition-colors cursor-pointer"
+                    className="text-[10px] text-[#B91C1C] hover:text-white bg-[#FEE2E2] hover:bg-[#B91C1C] px-1.5 py-0.5 rounded border border-[#B91C1C]/30 transition-colors cursor-pointer"
                     title={`Disconnect ${activeDevice.serial}`}
                     aria-label={`Disconnect wireless device ${activeDevice.serial}`}
                   >
@@ -1232,17 +1421,17 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <Usb className="w-3.5 h-3.5 text-indigo-400 ml-1" title="Connected via USB" aria-label="Connected via USB" />
+                <Usb className="w-3.5 h-3.5 text-[#0F766E] ml-1" title="Connected via USB" aria-label="Connected via USB" />
               )}
 
               {activeDevice?.batteryLevel !== undefined && (
-                <span className="text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20" aria-label={`Battery level: ${activeDevice.batteryLevel}%`}>
+                <span className="text-[11px] font-mono font-medium text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded border border-[#15803D]/30" aria-label={`Battery level: ${activeDevice.batteryLevel}%`}>
                   {activeDevice.batteryLevel}%
                 </span>
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl" role="status">
+            <div className="flex items-center gap-2 text-xs text-[#B45309] bg-[#FEF3C7] border border-[#B45309]/30 px-3 py-1.5 rounded-xl" role="status">
               <span className="status-pulse inactive" aria-hidden="true"></span>
               <span>No devices detected</span>
             </div>
@@ -1251,11 +1440,11 @@ export default function App() {
           <button
             onClick={refreshDevices}
             disabled={isScanning}
-            className="glass-button p-2 text-slate-200 hover:text-white min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+            className="glass-button p-2 text-[#202936] hover:bg-[#F3F6F8] min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
             title="Scan for Devices (ADB)"
             aria-label="Scan for connected Android devices via ADB"
           >
-            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-indigo-400' : ''}`} aria-hidden="true" />
+            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-[#0F766E]' : ''}`} aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -1264,27 +1453,27 @@ export default function App() {
       {alertBanner && (
         <div className="mx-4 mt-3" role="status" aria-live="polite">
           <div
-            className={`px-4 py-2.5 rounded-xl text-xs flex items-center justify-between border backdrop-blur-md transition-all ${
+            className={`px-4 py-2.5 rounded-xl text-xs flex items-center justify-between border transition-all ${
               alertBanner.type === 'error'
-                ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                ? 'bg-[#FEE2E2] border-[#B91C1C]/30 text-[#B91C1C]'
                 : alertBanner.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-200'
+                ? 'bg-[#DCFCE7] border-[#15803D]/30 text-[#15803D]'
+                : 'bg-[#DBEAFE] border-[#1D4ED8]/30 text-[#1D4ED8]'
             }`}
           >
             <div className="flex items-center gap-2.5">
               {alertBanner.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" aria-hidden="true" />
+                <AlertCircle className="w-4 h-4 shrink-0 text-[#B91C1C]" aria-hidden="true" />
               ) : alertBanner.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" aria-hidden="true" />
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-[#15803D]" aria-hidden="true" />
               ) : (
-                <HelpCircle className="w-4 h-4 shrink-0 text-indigo-400" aria-hidden="true" />
+                <HelpCircle className="w-4 h-4 shrink-0 text-[#1D4ED8]" aria-hidden="true" />
               )}
               <span className="font-medium">{alertBanner.message}</span>
             </div>
             <button
               onClick={() => setAlertBanner(null)}
-              className="text-slate-300 hover:text-white text-base font-bold px-1.5 py-0.5 rounded focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+              className="text-[#667085] hover:text-[#202936] text-base font-bold px-1.5 py-0.5 rounded focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
               aria-label="Dismiss notification"
             >
               ×
@@ -1317,27 +1506,27 @@ export default function App() {
           {mcpStatus.pendingRequests.map(req => (
             <div
               key={req.requestId}
-              className="p-4 rounded-xl bg-amber-950/40 border-2 border-amber-500/60 backdrop-blur-md text-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-amber-500/10"
+              className="p-4 rounded-xl bg-[#FEF3C7] border-2 border-[#B45309]/50 text-[#202936] flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm"
               id={`pairing-card-${req.requestId}`}
             >
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" aria-hidden="true" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Incoming AI Agent Pairing Request</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#B45309] animate-ping" aria-hidden="true" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#B45309]">Incoming AI Agent Pairing Request</span>
                 </div>
-                <div className="text-sm font-semibold text-white">
-                  Client: <span className="text-amber-300 font-mono font-bold">{req.clientName}</span> is requesting <span className="text-amber-300 font-mono">Tier {req.requestedTier} ({req.requestedTier === 3 ? 'write:input' : req.requestedTier === 4 ? 'write:admin' : 'read'})</span>
+                <div className="text-sm font-semibold text-[#202936]">
+                  Client: <span className="text-[#B45309] font-mono font-bold">{req.clientName}</span> is requesting <span className="text-[#B45309] font-mono">Tier {req.requestedTier} ({req.requestedTier === 3 ? 'write:input' : req.requestedTier === 4 ? 'write:admin' : 'read'})</span>
                 </div>
-                <div className="text-xs text-amber-300/80 flex items-center gap-3 flex-wrap">
-                  <span>Desktop PIN: <strong className="text-base text-white font-mono bg-slate-900/90 px-2.5 py-0.5 rounded border border-amber-500/40 tracking-widest">{req.pin}</strong></span>
+                <div className="text-xs text-[#667085] flex items-center gap-3 flex-wrap">
+                  <span>Desktop PIN: <strong className="text-base text-[#202936] font-mono bg-white px-2.5 py-0.5 rounded border border-[#D9DEE5] tracking-widest font-bold shadow-xs">{req.pin}</strong></span>
                   <span>(Expires in {Math.max(0, Math.floor((req.expiresAt - Date.now()) / 1000))}s)</span>
-                  <span className="text-[11px] text-slate-400">• Click Approve to grant access or paste this PIN to the agent</span>
+                  <span className="text-[11px] text-[#667085]">• Click Approve to grant access or paste this PIN to the agent</span>
                 </div>
               </div>
               <div className="flex items-center gap-2.5 shrink-0">
                 <button
                   onClick={() => handleApprovePairing(req.requestId)}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 focus-visible:ring-2 focus-visible:ring-emerald-400 cursor-pointer min-h-[38px]"
+                  className="px-4 py-2 rounded-lg bg-[#15803D] hover:bg-[#166534] text-white font-bold text-xs flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-[#15803D] cursor-pointer min-h-[38px]"
                   id={`btn-approve-pairing-${req.requestId}`}
                   aria-label={`Approve pairing request for ${req.clientName}`}
                 >
@@ -1346,7 +1535,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handleDenyPairing(req.requestId)}
-                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/20 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer min-h-[38px]"
+                  className="px-4 py-2 rounded-lg bg-[#B91C1C] hover:bg-[#991B1B] text-white font-bold text-xs flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-[#B91C1C] cursor-pointer min-h-[38px]"
                   id={`btn-deny-pairing-${req.requestId}`}
                   aria-label={`Deny pairing request for ${req.clientName}`}
                 >
@@ -1364,7 +1553,7 @@ export default function App() {
         {/* Sidebar Nav */}
         <nav className="w-60 glass-panel p-3 flex flex-col justify-between shrink-0" aria-label="Workbench navigation" role="tablist">
           <div className="space-y-1">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2" id="nav-workbench-heading">
+            <div className="text-[11px] font-bold text-[#84909E] uppercase tracking-wider px-3 py-2" id="nav-workbench-heading">
               Workbench
             </div>
 
@@ -1374,13 +1563,13 @@ export default function App() {
               aria-selected={activeTab === 'mirror'}
               aria-controls="main-tab-panel"
               id="tab-mirror"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'mirror'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Smartphone className="w-4 h-4 text-indigo-400" aria-hidden="true" />
+              <Smartphone className={`w-4 h-4 ${activeTab === 'mirror' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Screen Mirroring</span>
             </button>
 
@@ -1390,13 +1579,13 @@ export default function App() {
               aria-selected={activeTab === 'camera'}
               aria-controls="main-tab-panel"
               id="tab-camera"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'camera'
-                  ? 'bg-rose-600/20 text-rose-200 border border-rose-500/30 shadow-md shadow-rose-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Video className="w-4 h-4 text-rose-400" aria-hidden="true" />
+              <Video className={`w-4 h-4 ${activeTab === 'camera' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Camera Studio</span>
             </button>
 
@@ -1406,13 +1595,13 @@ export default function App() {
               aria-selected={activeTab === 'wireless'}
               aria-controls="main-tab-panel"
               id="tab-wireless"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'wireless'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Wifi className="w-4 h-4 text-cyan-400" aria-hidden="true" />
+              <Wifi className={`w-4 h-4 ${activeTab === 'wireless' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Wireless & Hotspot</span>
             </button>
 
@@ -1422,13 +1611,13 @@ export default function App() {
               aria-selected={activeTab === 'media'}
               aria-controls="main-tab-panel"
               id="tab-media"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'media'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Camera className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+              <Camera className={`w-4 h-4 ${activeTab === 'media' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Media & Captures</span>
             </button>
 
@@ -1438,13 +1627,13 @@ export default function App() {
               aria-selected={activeTab === 'documents'}
               aria-controls="main-tab-panel"
               id="tab-documents"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'documents'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <FileText className="w-4 h-4 text-cyan-400" aria-hidden="true" />
+              <FileText className={`w-4 h-4 ${activeTab === 'documents' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Documents & OCR</span>
             </button>
 
@@ -1454,17 +1643,17 @@ export default function App() {
               aria-selected={activeTab === 'diagnostics'}
               aria-controls="main-tab-panel"
               id="tab-diagnostics"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'diagnostics'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-md shadow-indigo-500/10'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Activity className="w-4 h-4 text-amber-400" aria-hidden="true" />
+              <Activity className={`w-4 h-4 ${activeTab === 'diagnostics' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Diagnostics & Logs</span>
             </button>
 
-            <div className="pt-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
+            <div className="pt-3 text-[11px] font-bold text-[#84909E] uppercase tracking-wider px-3 py-2">
               Advanced (Preview)
             </div>
 
@@ -1474,13 +1663,13 @@ export default function App() {
               aria-selected={activeTab === 'workflow'}
               aria-controls="main-tab-panel"
               id="tab-workflow"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'workflow'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Layers className="w-4 h-4 text-purple-400" aria-hidden="true" />
+              <Layers className={`w-4 h-4 ${activeTab === 'workflow' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Workflow Runner</span>
             </button>
 
@@ -1490,31 +1679,31 @@ export default function App() {
               aria-selected={activeTab === 'ai'}
               aria-controls="main-tab-panel"
               id="tab-ai"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'ai'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-900/40'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
               }`}
             >
-              <Bot className="w-4 h-4 text-pink-400" aria-hidden="true" />
+              <Bot className={`w-4 h-4 ${activeTab === 'ai' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>Local AI Assistant</span>
             </button>
           </div>
 
-          <div className="pt-2 border-t border-slate-800/80">
+          <div className="pt-2 border-t border-[#D9DEE5]">
             <button
               onClick={() => setActiveTab('about')}
               role="tab"
               aria-selected={activeTab === 'about'}
               aria-controls="main-tab-panel"
               id="tab-about"
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                 activeTab === 'about'
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
-                  : 'text-slate-300 hover:text-white'
+                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
+                  : 'text-[#667085] hover:text-[#202936]'
               }`}
             >
-              <Shield className="w-4 h-4 text-slate-400" aria-hidden="true" />
+              <Shield className={`w-4 h-4 ${activeTab === 'about' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
               <span>About & Licenses</span>
             </button>
           </div>
@@ -1526,43 +1715,52 @@ export default function App() {
           {activeTab === 'mirror' && (
             <div className="space-y-4">
               {/* Primary Mirror Control Card */}
-              <div className="glass-panel p-6 relative overflow-hidden">
-                <div className="absolute right-0 top-0 w-96 h-96 bg-gradient-to-bl from-indigo-500/10 via-cyan-500/5 to-transparent pointer-events-none rounded-full blur-3xl"></div>
-
+              <div className="glass-panel p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-bold tracking-tight text-white">Screen Mirroring Studio</h2>
+                      <h2 className="text-xl font-bold tracking-tight text-[#202936]">Screen Mirroring Studio</h2>
                       {isMirroring ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#DCFCE7] border border-[#15803D]/30 text-[#15803D]">
                           <span className="status-pulse active"></span> Live ({formatSeconds(sessionDuration)})
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#F3F6F8] border border-[#D9DEE5] text-[#667085]">
                           {isDeviceReady ? 'Ready' : 'Device Not Ready'}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-[#667085] mt-1">
                       Direct display streaming via official scrcpy 5.0.1 engine with hardware decoding and audio forwarding.
                     </p>
                   </div>
 
                   <div className="flex items-center gap-3">
                     {isMirroring ? (
-                      <button
-                        onClick={handleStopMirror}
-                        className="glass-button glass-button-danger px-6 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer"
-                        aria-label="Stop screen mirroring session"
-                      >
-                        <Square className="w-4 h-4 fill-white" aria-hidden="true" />
-                        <span>Stop Mirroring</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={handleFocusMirrorWindow}
+                          className="glass-button px-5 py-2.5 text-sm min-h-[44px] flex items-center gap-2 cursor-pointer bg-white text-[#202936] hover:bg-[#F3F6F8] border border-[#D9DEE5] shadow-xs"
+                          title="Bring the interactive mirroring window to foreground"
+                          aria-label="Bring interactive mirroring window to foreground"
+                        >
+                          <ExternalLink className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
+                          <span>Focus Screen</span>
+                        </button>
+                        <button
+                          onClick={handleStopMirror}
+                          className="glass-button glass-button-danger px-6 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-[#B91C1C] cursor-pointer"
+                          aria-label="Stop screen mirroring session"
+                        >
+                          <Square className="w-4 h-4 fill-white" aria-hidden="true" />
+                          <span>Stop Mirroring</span>
+                        </button>
+                      </>
                     ) : (
                       <button
                         onClick={handleStartMirror}
                         disabled={!isDeviceReady}
-                        className={`glass-button glass-button-primary px-8 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+                        className={`glass-button glass-button-primary px-8 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                           !isDeviceReady ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
                         }`}
                         aria-label="Start screen mirroring session"
@@ -1575,15 +1773,52 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Xiaomi / OEM Input Control Security Notice */}
+                {inputControlBlocked && (
+                  <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 shadow-sm" role="alert">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
+                        <div>
+                          <div className="font-bold text-amber-900 text-sm">
+                            Xiaomi / OEM Input Control Disabled (INJECT_EVENTS Denied)
+                          </div>
+                          <div className="text-amber-800 mt-1 leading-relaxed">
+                            {inputControlMessage || 'Remote keyboard, mouse, and touch simulation were rejected by the connected device with SecurityException.'}
+                          </div>
+                          <div className="mt-2.5 p-3 rounded-lg bg-amber-100/70 border border-amber-200/80 text-[11px] text-amber-950 space-y-1">
+                            <div className="font-semibold text-amber-900">How to enable full keyboard & mouse control on Xiaomi / HyperOS / MIUI:</div>
+                            <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                              <li>Open <strong>Settings &rarr; Additional Settings &rarr; Developer Options</strong> on your phone.</li>
+                              <li>Scroll down to the <strong>Debugging</strong> section.</li>
+                              <li>Turn ON <strong>&quot;USB debugging (Security settings)&quot;</strong> (Allow granting permissions and simulating input via USB debugging).</li>
+                              <li><em>Note: Xiaomi requires an active SIM card and logged-in Mi Account to enable this toggle.</em></li>
+                              <li>Restart screen mirroring once enabled.</li>
+                            </ol>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setInputControlBlocked(false)}
+                        className="p-1 rounded-md text-amber-700 hover:bg-amber-100 cursor-pointer shrink-0"
+                        title="Dismiss notice"
+                        aria-label="Dismiss notice"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Device Status Guidance Bar if not ready */}
                 {!isDeviceReady && (
-                  <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 flex items-start gap-2.5" role="alert">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" aria-hidden="true" />
+                  <div className="mt-4 p-3 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-xs text-[#B45309] flex items-start gap-2.5" role="alert">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" aria-hidden="true" />
                     <div>
-                      <div className="font-semibold text-amber-300">
+                      <div className="font-semibold text-[#B45309]">
                         {devices.length === 0 ? 'No Android Device Connected' : `Device Status: ${activeDevice?.state.toUpperCase()}`}
                       </div>
-                      <div className="text-[11px] text-amber-200 mt-0.5">
+                      <div className="text-[11px] text-[#B45309]/90 mt-0.5">
                         {activeDevice?.guidance || 'Connect an Android device via USB. Enable Developer Options & USB Debugging on your phone.'}
                       </div>
                     </div>
@@ -1591,8 +1826,8 @@ export default function App() {
                 )}
 
                 {/* Quality Presets */}
-                <div className="mt-6 pt-5 border-t border-slate-800/80">
-                  <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3" id="quality-preset-label">
+                <div className="mt-6 pt-5 border-t border-[#D9DEE5]">
+                  <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3" id="quality-preset-label">
                     Quality Presets
                   </div>
                   <div className="grid grid-cols-4 gap-3" role="radiogroup" aria-labelledby="quality-preset-label">
@@ -1614,14 +1849,14 @@ export default function App() {
                             setQualityPreset(p.key as any);
                           }
                         }}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                        className={`p-3.5 rounded-xl border cursor-pointer transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] ${
                           qualityPreset === p.key
-                            ? 'bg-indigo-600/20 border-indigo-500/50 shadow-md shadow-indigo-500/10'
-                            : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                            ? 'bg-[#DDF4EF] border-[#0F766E] shadow-xs'
+                            : 'bg-[#F3F6F8] border-[#D9DEE5] hover:border-[#84909E]'
                         }`}
                       >
-                        <div className="font-semibold text-sm text-slate-100">{p.title}</div>
-                        <div className="text-[11px] text-slate-300 mt-1">{p.desc}</div>
+                        <div className={`font-semibold text-sm ${qualityPreset === p.key ? 'text-[#0F766E]' : 'text-[#202936]'}`}>{p.title}</div>
+                        <div className={`text-[11px] mt-1 ${qualityPreset === p.key ? 'text-[#0F766E]/80' : 'text-[#667085]'}`}>{p.desc}</div>
                       </div>
                     ))}
                   </div>
@@ -1629,45 +1864,45 @@ export default function App() {
 
                 {/* Feature Toggles */}
                 <div className="mt-5 grid grid-cols-3 gap-3">
-                  <label htmlFor="toggle-turn-screen-off" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
+                  <label htmlFor="toggle-turn-screen-off" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
                     <input
                       id="toggle-turn-screen-off"
                       type="checkbox"
                       checked={turnScreenOff}
                       onChange={e => setTurnScreenOff(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
+                      className="accent-[#0F766E] w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
-                      <div className="font-semibold text-slate-200">Turn Phone Screen Off</div>
-                      <div className="text-slate-400 text-[10px]">Save battery while streaming (-S)</div>
+                      <div className="font-semibold text-[#202936]">Turn Phone Screen Off</div>
+                      <div className="text-[#667085] text-[10px]">Save battery while streaming (-S)</div>
                     </div>
                   </label>
 
-                  <label htmlFor="toggle-stay-awake" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
+                  <label htmlFor="toggle-stay-awake" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
                     <input
                       id="toggle-stay-awake"
                       type="checkbox"
                       checked={stayAwake}
                       onChange={e => setStayAwake(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
+                      className="accent-[#0F766E] w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
-                      <div className="font-semibold text-slate-200">Stay Awake While Plugged</div>
-                      <div className="text-slate-400 text-[10px]">Prevents device sleep timeout (-w)</div>
+                      <div className="font-semibold text-[#202936]">Stay Awake While Plugged</div>
+                      <div className="text-[#667085] text-[10px]">Prevents device sleep timeout (-w)</div>
                     </div>
                   </label>
 
-                  <label htmlFor="toggle-record-session" className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-slate-800/70 cursor-pointer hover:bg-slate-900/70 transition-all focus-within:ring-2 focus-within:ring-indigo-400">
+                  <label htmlFor="toggle-record-session" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
                     <input
                       id="toggle-record-session"
                       type="checkbox"
                       checked={recordMirrorSession}
                       onChange={e => setRecordMirrorSession(e.target.checked)}
-                      className="accent-indigo-500 w-4 h-4 rounded cursor-pointer"
+                      className="accent-[#0F766E] w-4 h-4 rounded cursor-pointer"
                     />
                     <div className="text-xs">
-                      <div className="font-semibold text-slate-200">Record Video Stream (MP4)</div>
-                      <div className="text-slate-400 text-[10px]">Save directly to Captures/ via scrcpy</div>
+                      <div className="font-semibold text-[#202936]">Record Video Stream (MP4)</div>
+                      <div className="text-[#667085] text-[10px]">Save directly to Captures/ via scrcpy</div>
                     </div>
                   </label>
                 </div>
@@ -1675,14 +1910,14 @@ export default function App() {
 
               {/* Hardware Remote Control Bar */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3">
                   Quick Navigation & Device Controls ({activeDevice ? activeDevice.model : 'No Target'})
                 </div>
                 <div className="flex flex-wrap gap-2.5" role="toolbar" aria-label="Device quick navigation controls">
                   <button
                     onClick={() => handleSendKeyevent('3', 'Home')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Send Home keyevent to Android device"
                   >
                     <span aria-hidden="true">🏠</span>
@@ -1692,7 +1927,7 @@ export default function App() {
                   <button
                     onClick={() => handleSendKeyevent('4', 'Back')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Send Back keyevent to Android device"
                   >
                     <span aria-hidden="true">⬅</span>
@@ -1702,7 +1937,7 @@ export default function App() {
                   <button
                     onClick={() => handleSendKeyevent('187', 'App Switch')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Send App Switcher keyevent to Android device"
                   >
                     <span aria-hidden="true">🗂</span>
@@ -1712,7 +1947,7 @@ export default function App() {
                   <button
                     onClick={() => handleSendKeyevent('26', 'Power')}
                     disabled={!isDeviceReady}
-                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] text-amber-300 focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] text-[#B45309] focus-visible:ring-2 focus-visible:ring-[#B45309] cursor-pointer ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Send Power toggle keyevent to Android device"
                   >
                     <span aria-hidden="true">⚡</span>
@@ -1722,7 +1957,7 @@ export default function App() {
                   <button
                     onClick={handleTakeScreenshot}
                     disabled={!isDeviceReady || isCapturing}
-                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] ml-auto text-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-400 cursor-pointer flex items-center gap-1.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`glass-button text-xs py-2 px-3.5 min-h-[40px] ml-auto text-[#0F766E] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer flex items-center gap-1.5 ${!isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label="Take high-resolution screen capture"
                   >
                     <Camera className="w-3.5 h-3.5" aria-hidden="true" />
@@ -1737,28 +1972,36 @@ export default function App() {
           {activeTab === 'camera' && (
             <div className="space-y-4" role="region" aria-label="Camera Studio">
               {/* Primary Camera Control Card */}
-              <div className="glass-panel p-6 relative overflow-hidden">
-                <div className="absolute right-0 top-0 w-96 h-96 bg-gradient-to-bl from-rose-500/10 via-pink-500/5 to-transparent pointer-events-none rounded-full blur-3xl"></div>
-
+              <div className="glass-panel p-6">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                        <Video className="w-5 h-5 text-rose-400" aria-hidden="true" />
+                      <h2 className="text-xl font-bold tracking-tight text-[#202936] flex items-center gap-2">
+                        <Video className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
                         <span>Camera Studio</span>
                       </h2>
                       {isCameraRunning ? (
-                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 shadow-sm shadow-rose-500/20" role="status">
-                          <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" aria-hidden="true"></span>
+                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-[#DCFCE7] text-[#15803D] border border-[#15803D]/30 flex items-center gap-1.5 shadow-xs" role="status">
+                          <span className="w-2 h-2 rounded-full bg-[#15803D] animate-pulse" aria-hidden="true"></span>
                           <span>Streaming Active ({formatSeconds(cameraSessionDuration)})</span>
                         </span>
+                      ) : isReconnectingCamera || cameraStatus === 'reconnecting' ? (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-[#FEF3C7] text-[#B45309] border border-[#B45309]/30 flex items-center gap-1.5 shadow-xs" role="status">
+                          <RefreshCw className="w-3 h-3 animate-spin text-[#B45309]" aria-hidden="true" />
+                          <span>Reconnecting...</span>
+                        </span>
+                      ) : cameraPreempted || cameraStatus === 'interrupted' ? (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-[#FEF3C7] text-[#B45309] border border-[#B45309]/30 flex items-center gap-1.5 shadow-xs" role="status">
+                          <AlertCircle className="w-3.5 h-3.5 text-[#B45309]" aria-hidden="true" />
+                          <span>Camera Interrupted</span>
+                        </span>
                       ) : (
-                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700" role="status">
+                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[#F3F6F8] text-[#667085] border border-[#D9DEE5]" role="status">
                           Camera Idle
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-300 mt-1">
+                    <p className="text-xs text-[#667085] mt-1">
                       Direct low-latency Android camera preview via scrcpy Camera2 Direct3D11 streaming. Zero APK required.
                     </p>
                   </div>
@@ -1767,26 +2010,26 @@ export default function App() {
                     <button
                       onClick={() => selectedSerial && refreshCameraCapabilities(selectedSerial)}
                       disabled={isQueryingCameras || !selectedSerial}
-                      className="glass-button p-2 text-slate-200 hover:text-white min-h-[38px] flex items-center gap-1.5 text-xs font-semibold"
+                      className="glass-button p-2 text-[#202936] hover:bg-[#F3F6F8] min-h-[38px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
                       title="Refresh Camera Hardware Capabilities"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isQueryingCameras ? 'animate-spin text-rose-400' : ''}`} aria-hidden="true" />
+                      <RefreshCw className={`w-3.5 h-3.5 ${isQueryingCameras ? 'animate-spin text-[#0F766E]' : ''}`} aria-hidden="true" />
                       <span>{isQueryingCameras ? 'Scanning Cameras...' : 'Query Sensors'}</span>
                     </button>
 
                     <button
                       onClick={() => api?.openPath?.(getCapturesFolder ? '' : '')}
-                      className="glass-button p-2 text-slate-200 hover:text-white min-h-[38px] flex items-center gap-1.5 text-xs font-semibold"
+                      className="glass-button p-2 text-[#202936] hover:bg-[#F3F6F8] min-h-[38px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
                       title="Open Captures Directory"
                     >
-                      <Folder className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
+                      <Folder className="w-3.5 h-3.5 text-[#0F766E]" aria-hidden="true" />
                       <span>Captures</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Studio Transport Mode Selector (Phase 6) */}
-                <div className="flex items-center gap-2 mt-5 p-1 rounded-xl bg-slate-900/90 border border-slate-800 w-fit" role="radiogroup" aria-label="Camera Studio Transport Mode">
+                <div className="flex items-center gap-2 mt-5 p-1 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] w-fit" role="radiogroup" aria-label="Camera Studio Transport Mode">
                   <button
                     id="mode-scrcpy"
                     onClick={() => setCameraMode('scrcpy')}
@@ -1794,8 +2037,8 @@ export default function App() {
                     aria-checked={cameraMode === 'scrcpy'}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
                       cameraMode === 'scrcpy'
-                        ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25 ring-1 ring-rose-400/50'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        ? 'bg-[#0F766E] text-white shadow-xs'
+                        : 'text-[#667085] hover:text-[#202936] hover:bg-white'
                     }`}
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-300" />
@@ -1809,13 +2052,13 @@ export default function App() {
                     aria-checked={cameraMode === 'companion'}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
                       cameraMode === 'companion'
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25 ring-1 ring-indigo-400/50'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        ? 'bg-[#0F766E] text-white shadow-xs'
+                        : 'text-[#667085] hover:text-[#202936] hover:bg-white'
                     }`}
                   >
-                    <Smartphone className="w-3.5 h-3.5 text-sky-400" />
+                    <Smartphone className="w-3.5 h-3.5" />
                     <span>Camera Companion App</span>
-                    <span className="text-[10px] bg-indigo-400/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-400/30">
+                    <span className="text-[10px] bg-[#DDF4EF] text-[#0F766E] px-1.5 py-0.5 rounded border border-[#0F766E]/20">
                       Phase 6
                     </span>
                   </button>
@@ -1823,24 +2066,24 @@ export default function App() {
 
                 {/* Preflight & Capability Warnings */}
                 {cameraCaps && !cameraCaps.transportSupported && (
-                  <div className="mt-4 p-4 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-1" role="alert">
-                    <div className="font-bold flex items-center gap-2 text-amber-300">
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div className="mt-4 p-4 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-[#B45309] text-xs space-y-1" role="alert">
+                    <div className="font-bold flex items-center gap-2 text-[#B45309]">
+                      <AlertCircle className="w-4 h-4 text-[#B45309] shrink-0" />
                       <span>Transport Limitation: Android 12+ Required</span>
                     </div>
-                    <p className="text-slate-300">
+                    <p className="text-[#667085]">
                       {cameraCaps.notes[0] || 'scrcpy camera mirroring requires Android 12 (API 31) or higher. Device OS version is unsupported.'}
                     </p>
                   </div>
                 )}
 
                 {!isDeviceReady && (
-                  <div className="mt-4 p-4 rounded-xl bg-slate-900/60 border border-slate-700 text-xs space-y-1" role="alert">
-                    <div className="font-bold text-amber-300 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4" />
+                  <div className="mt-4 p-4 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-xs space-y-1" role="alert">
+                    <div className="font-bold text-[#B45309] flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-[#B45309]" />
                       <span>Device Not Ready</span>
                     </div>
-                    <p className="text-slate-300">
+                    <p className="text-[#667085]">
                       {activeDevice?.guidance || 'Please connect an Android device via USB and accept the RSA authorization prompt on the screen.'}
                     </p>
                   </div>
@@ -1848,25 +2091,372 @@ export default function App() {
 
                 {/* Live Feedback Banner */}
                 {cameraLiveFeedback && (
-                  <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2 transition-all">
-                    <Info className="w-4 h-4 text-rose-400 shrink-0" />
+                  <div className="mt-4 p-3 rounded-xl bg-[#DDF4EF] border border-[#0F766E]/30 text-[#0F766E] text-xs flex items-center gap-2 transition-all">
+                    <Info className="w-4 h-4 text-[#0F766E] shrink-0" />
                     <span>{cameraLiveFeedback}</span>
                   </div>
                 )}
 
                 {/* SCRCPY NATIVE DIRECT3D11 MODE CONTROLS */}
                 {cameraMode === 'scrcpy' && (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
+                  <div className="space-y-6 mt-6">
+                    {/* Live Video Preview Card (16:9 Responsive Viewport with Expand/Minimize) */}
+                    <div className="glass-panel p-5 space-y-4">
+                      {/* Preview Card Header */}
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <Video className="w-4 h-4 text-[#0F766E]" />
+                          <h3 className="text-sm font-bold text-[#202936]">Live Camera Preview Viewport</h3>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1]" title="Camera mode streams sensor video directly. Use Screen Mirroring Studio for interactive touchscreen and app control.">
+                            Sensor Stream Only
+                          </span>
+                          {isCameraRunning ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#DCFCE7] text-[#15803D] border border-[#15803D]/30 flex items-center gap-1.5" role="status">
+                              <span className="w-2 h-2 rounded-full bg-[#15803D] animate-pulse"></span>
+                              <span>Live ({formatSeconds(cameraSessionDuration)})</span>
+                            </span>
+                          ) : isReconnectingCamera || cameraStatus === 'reconnecting' ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#FEF3C7] text-[#B45309] border border-[#B45309]/30 flex items-center gap-1.5" role="status">
+                              <RefreshCw className="w-3 h-3 animate-spin text-[#B45309]" />
+                              <span>Reconnecting ({cameraReconnectAttempts}/5)...</span>
+                            </span>
+                          ) : cameraPreempted || cameraStatus === 'interrupted' ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#FEF3C7] text-[#B45309] border border-[#B45309]/30 flex items-center gap-1.5" role="status">
+                              <AlertCircle className="w-3 h-3 text-[#B45309]" />
+                              <span>Interrupted by OS</span>
+                            </span>
+                          ) : cameraStatus === 'error' ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#FEE2E2] text-[#B91C1C] border border-[#B91C1C]/30 flex items-center gap-1.5" role="status">
+                              <AlertCircle className="w-3 h-3 text-[#B91C1C]" />
+                              <span>Stream Failed</span>
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#F3F6F8] text-[#667085] border border-[#D9DEE5]" role="status">
+                              Standby
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setActiveTab('mirror')}
+                            className="glass-button px-2.5 py-1.5 text-[#202936] hover:bg-[#F3F6F8] min-h-[32px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                            title="Switch to Screen Mirroring Studio for phone control and apps"
+                          >
+                            <Smartphone className="w-3.5 h-3.5 text-[#0F766E]" />
+                            <span>Mirroring Studio</span>
+                          </button>
+
+                          {isCameraRunning && (
+                            <button
+                              onClick={handleFocusCameraWindow}
+                              className="glass-button px-2.5 py-1.5 text-[#202936] hover:bg-[#F3F6F8] min-h-[32px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                              title="Bring Direct3D11 streaming window to foreground"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-[#0F766E]" />
+                              <span>Focus Window</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setShowCameraDiagnostics(!showCameraDiagnostics)}
+                            className={`glass-button px-2.5 py-1.5 min-h-[32px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                              showCameraDiagnostics ? 'bg-[#0F766E] text-white' : 'text-[#202936] hover:bg-[#F3F6F8]'
+                            }`}
+                            title="Toggle Session Diagnostics & Logcat/Stderr"
+                          >
+                            <Terminal className="w-3.5 h-3.5" />
+                            <span>Diagnostics</span>
+                            {cameraRecentStderr.length > 0 && (
+                              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200 text-amber-900 font-bold">
+                                {cameraRecentStderr.length}
+                              </span>
+                            )}
+                          </button>
+
+                          <button
+                            id="btn-toggle-expand-preview"
+                            onClick={() => setCameraPreviewExpanded(!cameraPreviewExpanded)}
+                            className="glass-button px-2.5 py-1.5 text-[#202936] hover:bg-[#F3F6F8] min-h-[32px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                            title={cameraPreviewExpanded ? 'Minimize Preview' : 'Expand Preview'}
+                          >
+                            {cameraPreviewExpanded ? (
+                              <>
+                                <Minimize2 className="w-3.5 h-3.5 text-[#0F766E]" />
+                                <span>Minimize Preview</span>
+                              </>
+                            ) : (
+                              <>
+                                <Maximize2 className="w-3.5 h-3.5 text-[#0F766E]" />
+                                <span>Expand Preview</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 16:9 Responsive Viewport Container */}
+                      <div
+                        className={`relative w-full rounded-2xl overflow-hidden border border-[#D9DEE5] bg-[#F8FAFC] flex flex-col items-center justify-center transition-all duration-300 ${
+                          cameraPreviewExpanded
+                            ? 'aspect-video min-h-[440px] max-h-[640px]'
+                            : 'aspect-video min-h-[260px] max-h-[380px]'
+                        }`}
+                      >
+                        {/* Optical Viewfinder Corner Brackets */}
+                        <div className="absolute top-3.5 left-3.5 w-4 h-4 border-t-2 border-l-2 border-[#0F766E]/40 pointer-events-none rounded-tl-sm z-10" />
+                        <div className="absolute top-3.5 right-3.5 w-4 h-4 border-t-2 border-r-2 border-[#0F766E]/40 pointer-events-none rounded-tr-sm z-10" />
+                        <div className="absolute bottom-3.5 left-3.5 w-4 h-4 border-b-2 border-l-2 border-[#0F766E]/40 pointer-events-none rounded-bl-sm z-10" />
+                        <div className="absolute bottom-3.5 right-3.5 w-4 h-4 border-b-2 border-r-2 border-[#0F766E]/40 pointer-events-none rounded-br-sm z-10" />
+
+                        {/* VIEWPORT BODY: IDLE */}
+                        {!isCameraRunning && !isReconnectingCamera && !cameraPreempted && cameraStatus !== 'starting' && cameraStatus !== 'error' && (
+                          <div className="text-center p-6 space-y-3 z-10">
+                            <div className="w-14 h-14 rounded-2xl bg-[#DDF4EF] border border-[#0F766E]/20 mx-auto flex items-center justify-center text-[#0F766E] shadow-sm">
+                              <Camera className="w-7 h-7" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-[#202936]">Camera Preview Idle</h4>
+                              <p className="text-xs text-[#667085] mt-0.5 max-w-md mx-auto">
+                                Low-latency Direct3D11 streaming through scrcpy Camera2 mode.
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
+                              <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D9DEE5] text-[11px] font-semibold text-[#202936] shadow-xs">
+                                Lens: Camera {selectedCameraId}
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D9DEE5] text-[11px] font-semibold text-[#202936] shadow-xs">
+                                {selectedResolution}
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D9DEE5] text-[11px] font-semibold text-[#202936] shadow-xs">
+                                {selectedFps} FPS
+                              </span>
+                              <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D9DEE5] text-[11px] font-semibold text-[#202936] shadow-xs">
+                                Zoom: {cameraZoom.toFixed(1)}x
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VIEWPORT BODY: STARTING / RECONNECTING */}
+                        {(cameraStatus === 'starting' || isReconnectingCamera || cameraStatus === 'reconnecting') && (
+                          <div className="text-center p-6 space-y-3 z-10">
+                            <div className="w-14 h-14 rounded-2xl bg-[#FEF3C7] border border-[#B45309]/30 mx-auto flex items-center justify-center text-[#B45309] shadow-sm">
+                              <RefreshCw className="w-7 h-7 animate-spin" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-[#202936]">
+                                {cameraStatus === 'reconnecting' ? 'Reconnecting Camera Stream...' : 'Initializing Camera Sensor...'}
+                              </h4>
+                              <p className="text-xs text-[#667085] mt-0.5">
+                                Establishing Direct3D11 feed for Camera {selectedCameraId} ({selectedResolution} @ {selectedFps} FPS)...
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VIEWPORT BODY: LIVE RUNNING */}
+                        {isCameraRunning && (
+                          <div className="w-full h-full relative flex flex-col justify-between p-4 z-10 bg-radial from-transparent to-black/5">
+                            {/* Top HUD */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 bg-black/70 backdrop-blur-xs text-white px-3 py-1.5 rounded-xl text-xs font-mono">
+                                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                                <span className="font-bold text-red-400">REC / LIVE</span>
+                                <span className="text-[#D9DEE5]">|</span>
+                                <span>{formatSeconds(cameraSessionDuration)}</span>
+                              </div>
+
+                              <div className="flex items-center gap-2 bg-black/70 backdrop-blur-xs text-white px-3 py-1.5 rounded-xl text-xs font-mono">
+                                <span>Camera {selectedCameraId}</span>
+                                <span className="text-[#D9DEE5]">|</span>
+                                <span>{selectedResolution}</span>
+                                <span className="text-[#D9DEE5]">|</span>
+                                <span className="text-emerald-400 font-bold">{selectedFps} FPS</span>
+                              </div>
+                            </div>
+
+                            {/* Center Reticle */}
+                            <div className="flex flex-col items-center justify-center pointer-events-none">
+                              <div className="relative w-20 h-20 flex items-center justify-center">
+                                <div className="absolute inset-0 border border-[#0F766E]/40 rounded-full animate-pulse"></div>
+                                <div className="w-3 h-0.5 bg-[#0F766E]/60"></div>
+                                <div className="w-0.5 h-3 bg-[#0F766E]/60 absolute"></div>
+                              </div>
+                              <span className="text-[10px] font-mono text-[#0F766E] uppercase tracking-wider mt-1 font-bold">
+                                Direct3D11 Active
+                              </span>
+                            </div>
+
+                            {/* Bottom HUD */}
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-[11px] font-mono font-bold">
+                                  {cameraZoom.toFixed(1)}x Zoom
+                                </span>
+                                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold ${
+                                  cameraTorch ? 'bg-amber-500 text-white' : 'bg-black/70 backdrop-blur-xs text-white'
+                                }`}>
+                                  Torch: {cameraTorch ? 'ON' : 'OFF'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={handleFocusCameraWindow}
+                                  className="px-3 py-1.5 rounded-lg bg-black/80 hover:bg-black text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                >
+                                  <ExternalLink className="w-3 h-3 text-[#0F766E]" />
+                                  <span>Bring Window to Front</span>
+                                </button>
+                                <button
+                                  onClick={handleStopCamera}
+                                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
+                                >
+                                  <Square className="w-3 h-3 fill-current" />
+                                  <span>Stop</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VIEWPORT BODY: INTERRUPTED (PREEMPTED BY HYPEROS) */}
+                        {!isCameraRunning && (cameraPreempted || cameraStatus === 'interrupted') && (
+                          <div className="text-center p-6 max-w-lg space-y-3 z-10 bg-amber-50/80 rounded-2xl border border-[#B45309]/30 m-4 shadow-sm">
+                            <div className="w-12 h-12 rounded-xl bg-[#FEF3C7] border border-[#B45309]/40 mx-auto flex items-center justify-center text-[#B45309]">
+                              <AlertCircle className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-[#B45309]">Camera Stream Interrupted by Android OS</h4>
+                              <p className="text-xs text-[#92400E] mt-1 leading-relaxed">
+                                The device screen was woken or unlocked (e.g. Xiaomi Face Unlock on double-tap), evicting scrcpy's Camera2 client. Your device is still securely connected via ADB.
+                              </p>
+                            </div>
+                            <div className="pt-1 flex flex-col sm:flex-row items-center justify-center gap-2">
+                              <button
+                                id="btn-reconnect-camera-viewport"
+                                onClick={handleReconnectCamera}
+                                disabled={isReconnectingCamera}
+                                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#B45309] hover:bg-[#92400E] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${isReconnectingCamera ? 'animate-spin' : ''}`} />
+                                <span>{isReconnectingCamera ? 'Reconnecting...' : `Reconnect Stream${cameraReconnectAttempts > 0 ? ` (${cameraReconnectAttempts}/5)` : ''}`}</span>
+                              </button>
+
+                              <button
+                                onClick={() => setShowCameraDiagnostics(!showCameraDiagnostics)}
+                                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white border border-[#D9DEE5] text-[#202936] hover:bg-[#F3F6F8] font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <Terminal className="w-3.5 h-3.5 text-[#0F766E]" />
+                                <span>View Log Details</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VIEWPORT BODY: ERROR */}
+                        {!isCameraRunning && !cameraPreempted && cameraStatus === 'error' && (
+                          <div className="text-center p-6 max-w-lg space-y-3 z-10 bg-red-50/80 rounded-2xl border border-red-300 m-4 shadow-sm">
+                            <div className="w-12 h-12 rounded-xl bg-red-100 border border-red-300 mx-auto flex items-center justify-center text-red-600">
+                              <AlertCircle className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-red-800">Camera Preview Launch Failed</h4>
+                              <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                                {cameraRecentStderr[cameraRecentStderr.length - 1] || 'Unable to open camera sensor. Please ensure no other application is using the camera.'}
+                              </p>
+                            </div>
+                            <div className="pt-1 flex items-center justify-center gap-2">
+                              <button
+                                onClick={handleStartCamera}
+                                className="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>Retry Launch</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Expandable Diagnostics Drawer */}
+                      {showCameraDiagnostics && (
+                        <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#D9DEE5] space-y-3 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Terminal className="w-4 h-4 text-[#0F766E]" />
+                              <span className="text-xs font-bold text-[#202936]">Camera Studio Diagnostics & Recent Stderr</span>
+                            </div>
+                            <button
+                              onClick={handleCopyCameraDiagnostics}
+                              className="px-2.5 py-1 rounded-lg bg-white border border-[#D9DEE5] text-[#202936] hover:bg-[#F3F6F8] text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            >
+                              {diagnosticsCopied ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-700">Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-[#0F766E]" />
+                                  <span>Copy Diagnostics</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div className="p-2 rounded-lg bg-white border border-[#D9DEE5]">
+                              <span className="text-[10px] text-[#667085] uppercase block font-bold">Serial</span>
+                              <span className="font-mono text-[#202936] truncate block">{selectedSerial || 'None'}</span>
+                            </div>
+                            <div className="p-2 rounded-lg bg-white border border-[#D9DEE5]">
+                              <span className="text-[10px] text-[#667085] uppercase block font-bold">Sensor / Lens</span>
+                              <span className="font-mono text-[#202936] block">Camera {selectedCameraId}</span>
+                            </div>
+                            <div className="p-2 rounded-lg bg-white border border-[#D9DEE5]">
+                              <span className="text-[10px] text-[#667085] uppercase block font-bold">Exit Code / Reason</span>
+                              <span className="font-mono text-[#202936] block">
+                                {cameraExitCode !== null ? cameraExitCode : 'None'} ({cameraExitReason || 'none'})
+                              </span>
+                            </div>
+                            <div className="p-2 rounded-lg bg-white border border-[#D9DEE5]">
+                              <span className="text-[10px] text-[#667085] uppercase block font-bold">Retries</span>
+                              <span className="font-mono text-[#202936] block">{cameraReconnectAttempts}/5 attempts</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-[11px] font-bold text-[#667085] block mb-1">Recent Stderr Logs ({cameraRecentStderr.length} lines):</span>
+                            <div className="p-3 rounded-lg bg-[#1E293B] text-slate-200 font-mono text-[11px] max-h-40 overflow-y-auto space-y-0.5 leading-relaxed">
+                              {cameraRecentStderr.length > 0 ? (
+                                cameraRecentStderr.map((line, idx) => (
+                                  <div key={idx} className={line.includes('error') || line.includes('failed') || line.includes('disconnected') ? 'text-rose-400' : 'text-slate-300'}>
+                                    {line}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-slate-400 italic">No stderr logs recorded yet.</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Lower Grid: Stream Configuration & Controls */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Left Column: Stream Configuration & Sensor Selection */}
                   <div className="lg:col-span-7 space-y-5">
                     {/* Camera Sensor Selector (Physical Lens Switching) */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label htmlFor="camera-select" className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Camera className="w-3.5 h-3.5 text-rose-400" />
+                        <label htmlFor="camera-select" className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Optical Lens / Camera Sensor</span>
                         </label>
-                        <span className="text-[11px] text-slate-400">Physical Lens Switching</span>
+                        <span className="text-[11px] text-[#667085]">Physical Lens Switching</span>
                       </div>
 
                       {cameraCaps && cameraCaps.cameras.length > 0 ? (
@@ -1882,18 +2472,18 @@ export default function App() {
                             }
                           }}
                           disabled={isCameraRunning}
-                          className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer disabled:opacity-50"
+                          className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer disabled:opacity-50 shadow-xs"
                         >
                           {cameraCaps.cameras.map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900 text-slate-200">
+                            <option key={c.id} value={c.id} className="bg-white text-[#202936]">
                               Camera {c.id} — {c.facing.toUpperCase()} {c.maxResolution ? `(${c.maxResolution} Max)` : ''} {c.id === '0' ? '• Main Lens' : c.id === '1' ? '• Front Selfie' : c.id === '2' ? '• Ultrawide' : c.id === '3' ? '• Macro' : ''}
                             </option>
                           ))}
                         </select>
                       ) : (
-                        <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+                        <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs text-[#667085] flex items-center justify-between">
                           <span>{isQueryingCameras ? 'Probing camera sensors...' : 'Camera 0 (Default Back Camera)'}</span>
-                          <span className="text-[10px] uppercase font-bold text-slate-500">Auto-Detect</span>
+                          <span className="text-[10px] uppercase font-bold text-[#84909E]">Auto-Detect</span>
                         </div>
                       )}
                     </div>
@@ -1902,7 +2492,7 @@ export default function App() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Resolution Selector */}
                       <div>
-                        <label htmlFor="camera-resolution-select" className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-resolution-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
                           Capture Resolution
                         </label>
                         <select
@@ -1910,10 +2500,10 @@ export default function App() {
                           value={selectedResolution}
                           onChange={(e) => setSelectedResolution(e.target.value)}
                           disabled={isCameraRunning}
-                          className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer disabled:opacity-50"
+                          className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-semibold text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer disabled:opacity-50 shadow-xs"
                         >
                           {cameraCaps?.cameras.find(c => c.id === selectedCameraId)?.supportedSizes?.map((size) => (
-                            <option key={size} value={size} className="bg-slate-900 text-slate-200">
+                            <option key={size} value={size} className="bg-white text-[#202936]">
                               {size} {size === '1920x1080' ? '(FHD)' : size === '1280x720' ? '(HD)' : size === '3840x2160' ? '(4K)' : ''}
                             </option>
                           )) || (
@@ -1929,7 +2519,7 @@ export default function App() {
 
                       {/* Frame Rate (FPS) Selector */}
                       <div>
-                        <label htmlFor="camera-fps-select" className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-fps-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
                           Target Frame Rate
                         </label>
                         <select
@@ -1937,10 +2527,10 @@ export default function App() {
                           value={selectedFps}
                           onChange={(e) => setSelectedFps(parseInt(e.target.value, 10))}
                           disabled={isCameraRunning}
-                          className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer disabled:opacity-50"
+                          className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-semibold text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer disabled:opacity-50 shadow-xs"
                         >
                           {cameraCaps?.cameras.find(c => c.id === selectedCameraId)?.fpsList?.map((fps) => (
-                            <option key={fps} value={fps} className="bg-slate-900 text-slate-200">
+                            <option key={fps} value={fps} className="bg-white text-[#202936]">
                               {fps} FPS {fps === 30 ? '(Standard)' : fps === 60 ? '(High)' : ''}
                             </option>
                           )) || (
@@ -1957,7 +2547,7 @@ export default function App() {
                     {/* Aspect Ratio & High Speed */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label htmlFor="camera-ar-select" className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-ar-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
                           Aspect Ratio
                         </label>
                         <select
@@ -1965,7 +2555,7 @@ export default function App() {
                           value={cameraAspectRatio}
                           onChange={(e) => setCameraAspectRatio(e.target.value)}
                           disabled={isCameraRunning}
-                          className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer disabled:opacity-50"
+                          className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-semibold text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer disabled:opacity-50 shadow-xs"
                         >
                           <option value="auto">Auto (Sensor Native)</option>
                           <option value="16:9">16:9 (Widescreen Video)</option>
@@ -1975,13 +2565,13 @@ export default function App() {
                       </div>
 
                       <div className="flex flex-col justify-end">
-                        <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-xs font-semibold text-slate-200 cursor-pointer hover:bg-slate-900">
+                        <label className="flex items-center gap-2 p-2 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs font-semibold text-[#202936] cursor-pointer hover:bg-white">
                           <input
                             type="checkbox"
                             checked={cameraHighSpeed}
                             onChange={(e) => setCameraHighSpeed(e.target.checked)}
                             disabled={isCameraRunning}
-                            className="rounded border-slate-700 text-rose-500 focus:ring-rose-400 w-4 h-4"
+                            className="rounded border-[#D9DEE5] text-[#0F766E] focus:ring-[#0F766E] w-4 h-4 accent-[#0F766E]"
                           />
                           <span>High-Speed Capture (120 FPS)</span>
                         </label>
@@ -1989,27 +2579,75 @@ export default function App() {
                     </div>
 
                     {/* PC-Side Recording Toggle */}
-                    <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-xs font-bold text-slate-200 cursor-pointer">
+                        <label className="flex items-center gap-2 text-xs font-bold text-[#202936] cursor-pointer">
                           <input
                             id="record-camera-checkbox"
                             type="checkbox"
                             checked={recordCameraSession}
                             onChange={(e) => setRecordCameraSession(e.target.checked)}
                             disabled={isCameraRunning}
-                            className="rounded border-slate-700 text-rose-500 focus:ring-rose-400 w-4 h-4"
+                            className="rounded border-[#D9DEE5] text-[#0F766E] focus:ring-[#0F766E] w-4 h-4 accent-[#0F766E]"
                           />
                           <span>Record Camera Stream to MP4 on PC</span>
                         </label>
-                        <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
                           Hardware MP4
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400">
-                        Saves lossless hardware-encoded video directly to the local <code className="text-slate-200 font-mono">Captures/</code> folder with zero dropped frames.
+                      <p className="text-[11px] text-[#667085]">
+                        Saves lossless hardware-encoded video directly to the local <code className="text-[#202936] font-mono">Captures/</code> folder with zero dropped frames.
                       </p>
                     </div>
+
+                    {/* Auto-Reconnect Toggle for Xiaomi / HyperOS Preemption */}
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-xs font-bold text-[#202936] cursor-pointer">
+                          <input
+                            id="camera-auto-reconnect-checkbox"
+                            type="checkbox"
+                            checked={cameraAutoReconnect}
+                            onChange={(e) => setCameraAutoReconnect(e.target.checked)}
+                            className="rounded border-[#D9DEE5] text-[#0F766E] focus:ring-[#0F766E] w-4 h-4 accent-[#0F766E]"
+                          />
+                          <span>Auto-Reconnect on Screen Wake / Face Unlock</span>
+                        </label>
+                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
+                          HyperOS Shield
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#667085]">
+                        Automatically recovers the stream if Xiaomi HyperOS evicts the camera when waking the screen (max 5 retries with rate-limiting).
+                      </p>
+                    </div>
+
+                    {/* Preemption Notice and One-Click Reconnect Banner */}
+                    {cameraPreempted && !isCameraRunning && (
+                      <div className="p-3.5 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-[#B45309] text-xs space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-semibold text-[#B45309]">Camera Interrupted by Android OS</span>
+                            <p className="text-[11px] text-[#B45309]/90 mt-0.5">
+                              The phone's screen was woken or unlocked (e.g. Face Unlock), causing Android to evict background camera clients. The device is still connected to ADB.
+                            </p>
+                          </div>
+                        </div>
+                        {canReconnectCamera && (
+                          <button
+                            id="btn-reconnect-camera"
+                            onClick={handleReconnectCamera}
+                            disabled={isReconnectingCamera}
+                            className="w-full py-2 px-3 rounded-lg bg-[#B45309] hover:bg-[#92400E] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                          >
+                            <RotateCcw className={`w-3.5 h-3.5 ${isReconnectingCamera ? 'animate-spin' : ''}`} />
+                            <span>{isReconnectingCamera ? 'Reconnecting...' : `Reconnect Camera${cameraReconnectAttempts > 0 ? ` (${cameraReconnectAttempts}/5)` : ''}`}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Start / Stop Stream Action Button */}
                     <div>
@@ -2018,7 +2656,7 @@ export default function App() {
                           id="btn-toggle-camera"
                           onClick={handleStartCamera}
                           disabled={!isDeviceReady || (cameraCaps !== null && !cameraCaps.transportSupported)}
-                          className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-rose-600 via-rose-500 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-600/25 flex items-center justify-center gap-2.5 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-rose-400"
+                          className="w-full py-3.5 px-6 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2.5 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                           aria-label="Start Camera Preview"
                         >
                           <Play className="w-4 h-4 fill-current" aria-hidden="true" />
@@ -2028,10 +2666,10 @@ export default function App() {
                         <button
                           id="btn-toggle-camera"
                           onClick={handleStopCamera}
-                          className="w-full py-3.5 px-6 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-slate-700 flex items-center justify-center gap-2.5 cursor-pointer transition-all focus-visible:ring-2 focus-visible:ring-rose-400 shadow-md"
+                          className="w-full py-3.5 px-6 rounded-xl bg-[#B91C1C] hover:bg-[#991B1B] text-white font-bold text-sm border border-[#B91C1C] flex items-center justify-center gap-2.5 cursor-pointer transition-all focus-visible:ring-2 focus-visible:ring-[#B91C1C] shadow-md"
                           aria-label="Stop Camera Preview"
                         >
-                          <Square className="w-4 h-4 fill-current text-rose-400" aria-hidden="true" />
+                          <Square className="w-4 h-4 fill-current text-white" aria-hidden="true" />
                           <span>Stop Camera Preview</span>
                         </button>
                       )}
@@ -2043,17 +2681,17 @@ export default function App() {
                     {/* Digital Zoom Control Card */}
                     <div className="glass-panel p-4 space-y-3.5">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                          <Sliders className="w-3.5 h-3.5 text-rose-400" />
+                        <label className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Digital Zoom Control</span>
                         </label>
-                        <span className="text-xs font-mono font-bold text-rose-300 bg-rose-500/10 px-2.5 py-0.5 rounded border border-rose-500/20" id="camera-zoom-badge">
+                        <span className="text-xs font-mono font-bold text-[#0F766E] bg-[#DDF4EF] px-2.5 py-0.5 rounded border border-[#0F766E]/20" id="camera-zoom-badge">
                           {cameraZoom.toFixed(1)}x
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-slate-400">
-                        Adjust focal crop within the active sensor. Verified sensor range: <span className="text-slate-200 font-mono">1.0x – 10.0x</span>.
+                      <p className="text-[11px] text-[#667085]">
+                        Adjust focal crop within the active sensor. Verified sensor range: <span className="text-[#202936] font-mono">1.0x – 10.0x</span>.
                       </p>
 
                       {/* Zoom Buttons (+ / -) */}
@@ -2062,11 +2700,11 @@ export default function App() {
                           id="btn-zoom-out"
                           onClick={() => handleZoomChange('out')}
                           disabled={!isCameraRunning}
-                          className="glass-button py-2 px-3 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          className="glass-button py-2 px-3 text-xs font-semibold text-[#202936] flex items-center justify-center gap-1.5 disabled:opacity-50"
                           title="Zoom Out (-0.5x)"
                           aria-label="Zoom camera out"
                         >
-                          <ZoomOut className="w-3.5 h-3.5 text-rose-400" />
+                          <ZoomOut className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Zoom Out (-0.5x)</span>
                         </button>
 
@@ -2074,11 +2712,11 @@ export default function App() {
                           id="btn-zoom-in"
                           onClick={() => handleZoomChange('in')}
                           disabled={!isCameraRunning}
-                          className="glass-button py-2 px-3 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          className="glass-button py-2 px-3 text-xs font-semibold text-[#202936] flex items-center justify-center gap-1.5 disabled:opacity-50"
                           title="Zoom In (+0.5x)"
                           aria-label="Zoom camera in"
                         >
-                          <ZoomIn className="w-3.5 h-3.5 text-rose-400" />
+                          <ZoomIn className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Zoom In (+0.5x)</span>
                         </button>
                       </div>
@@ -2094,10 +2732,10 @@ export default function App() {
                           value={cameraZoom}
                           onChange={(e) => setCameraZoom(parseFloat(e.target.value))}
                           disabled={!isCameraRunning}
-                          className="w-full accent-rose-500 cursor-pointer disabled:opacity-50"
+                          className="w-full accent-[#0F766E] cursor-pointer disabled:opacity-50"
                           aria-label="Camera digital zoom slider"
                         />
-                        <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-1">
+                        <div className="flex justify-between text-[10px] text-[#84909E] font-mono mt-1">
                           <span>1.0x (Wide)</span>
                           <span>2.5x</span>
                           <span>5.0x</span>
@@ -2116,10 +2754,10 @@ export default function App() {
                                 handleZoomChange(preset > cameraZoom ? 'in' : 'out');
                               }
                             }}
-                            className={`flex-1 py-1 rounded text-[11px] font-mono font-bold transition-all ${
+                            className={`flex-1 py-1 rounded text-[11px] font-mono font-bold transition-all cursor-pointer ${
                               cameraZoom === preset
-                                ? 'bg-rose-500 text-white shadow-sm'
-                                : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                                ? 'bg-[#0F766E] text-white shadow-xs'
+                                : 'bg-[#F3F6F8] text-[#202936] hover:bg-white border border-[#D9DEE5]'
                             }`}
                           >
                             {preset.toFixed(0)}x
@@ -2131,11 +2769,11 @@ export default function App() {
                     {/* Torch & Flashlight Card */}
                     <div className="glass-panel p-4 flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                          <Flashlight className="w-3.5 h-3.5 text-amber-400" />
+                        <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <Flashlight className="w-3.5 h-3.5 text-[#B45309]" />
                           <span>Camera Torch (Flash)</span>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
+                        <p className="text-[11px] text-[#667085] mt-0.5">
                           Controls the rear camera LED torch in real-time.
                         </p>
                       </div>
@@ -2146,8 +2784,8 @@ export default function App() {
                         disabled={!isCameraRunning}
                         className={`py-2 px-3.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
                           cameraTorch
-                            ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25 ring-2 ring-amber-400/50'
-                            : 'bg-slate-900 border border-slate-700 text-slate-300 hover:text-white disabled:opacity-50'
+                            ? 'bg-[#B45309] text-white shadow-xs'
+                            : 'glass-button text-[#202936] disabled:opacity-50'
                         }`}
                         aria-label="Toggle camera torch"
                       >
@@ -2168,45 +2806,46 @@ export default function App() {
                     {/* Snapshots & Captures Info */}
                     <div className="glass-panel p-4 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                          <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Snapshots & Captures</span>
                         </span>
-                        <span className="text-[10px] uppercase font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
                           Verified Status
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-300 leading-relaxed">
-                        Continuous PC recording is <strong className="text-emerald-300">verified</strong> via the MP4 recording toggle. Direct single-frame PNG capture during live Camera2 streaming is unsupported by scrcpy's CLI transport; full photo capture will be provided via the dedicated CameraX companion APK.
+                      <p className="text-[11px] text-[#667085] leading-relaxed">
+                        Continuous PC recording is <strong className="text-[#15803D]">verified</strong> via the MP4 recording toggle. Direct single-frame PNG capture during live Camera2 streaming is unsupported by scrcpy's CLI transport; full photo capture will be provided via the dedicated CameraX companion APK.
                       </p>
                     </div>
 
                     {/* In-App Keyboard Shortcuts Reference */}
                     <div className="glass-panel p-4 space-y-2.5">
-                      <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <Key className="w-3.5 h-3.5 text-indigo-400" />
+                      <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                        <Key className="w-3.5 h-3.5 text-[#0F766E]" />
                         <span>Live Preview Shortcuts</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
-                        <div className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-300 flex justify-between">
+                        <div className="p-2 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#202936] flex justify-between">
                           <span>Alt + Up</span>
-                          <span className="text-rose-300">Zoom In</span>
+                          <span className="text-[#0F766E] font-semibold">Zoom In</span>
                         </div>
-                        <div className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-300 flex justify-between">
+                        <div className="p-2 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#202936] flex justify-between">
                           <span>Alt + Down</span>
-                          <span className="text-rose-300">Zoom Out</span>
+                          <span className="text-[#0F766E] font-semibold">Zoom Out</span>
                         </div>
-                        <div className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-300 flex justify-between">
+                        <div className="p-2 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#202936] flex justify-between">
                           <span>Alt + T</span>
-                          <span className="text-amber-300">Torch ON</span>
+                          <span className="text-[#B45309] font-semibold">Torch ON</span>
                         </div>
-                        <div className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-300 flex justify-between">
+                        <div className="p-2 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#202936] flex justify-between">
                           <span>Alt + Shift + T</span>
-                          <span className="text-slate-400">Torch OFF</span>
+                          <span className="text-[#667085] font-semibold">Torch OFF</span>
                         </div>
                       </div>
                     </div>
                   </div>
+                </div>
                 </div>
                 )}
 
@@ -2214,23 +2853,23 @@ export default function App() {
                 {cameraMode === 'companion' && (
                   <div className="space-y-6 mt-6">
                     {/* Companion Status & Connection Bar */}
-                    <div className="glass-panel p-5 border border-indigo-500/30">
+                    <div className="glass-panel p-5">
                       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                         <div>
                           <div className="flex items-center gap-2.5">
-                            <Smartphone className="w-5 h-5 text-indigo-400" />
-                            <h3 className="text-base font-bold text-white">AndroScrn Companion App Connection</h3>
+                            <Smartphone className="w-5 h-5 text-[#0F766E]" />
+                            <h3 className="text-base font-bold text-[#202936]">AndroScrn Companion App Connection</h3>
                             <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
                               companionPaired
-                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                ? 'bg-[#DCFCE7] text-[#15803D] border-[#15803D]/30'
                                 : companionChallengeActive
-                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                                ? 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]/30'
+                                : 'bg-[#F3F6F8] text-[#667085] border-[#D9DEE5]'
                             }`}>
                               {companionPaired ? 'Paired & Streaming' : companionChallengeActive ? 'Awaiting PIN Verification' : 'Disconnected'}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-400 mt-1">
+                          <p className="text-xs text-[#667085] mt-1">
                             Requires AndroScrn Companion APK installed on phone. Provides full-res photo capture, lens flip, digital zoom, and live MJPEG streaming over USB loopback.
                           </p>
                         </div>
@@ -2252,7 +2891,7 @@ export default function App() {
                             <button
                               id="btn-companion-disconnect"
                               onClick={handleCompanionDisconnect}
-                              className="py-2 px-3.5 rounded-xl font-bold text-xs bg-slate-900 border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="glass-button text-xs py-2 px-3.5 text-[#B91C1C] border-[#B91C1C]/30 hover:bg-[#FEE2E2] transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                               <Power className="w-3.5 h-3.5" />
                               <span>Disconnect</span>
@@ -2263,9 +2902,9 @@ export default function App() {
 
                       {/* Pairing PIN Input Card (shown when challenge is active) */}
                       {companionChallengeActive && !companionPaired && (
-                        <div id="companion-pin-card" className="mt-5 p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/40 space-y-3">
-                          <div className="flex items-center gap-2 text-indigo-300 text-xs font-bold">
-                            <Shield className="w-4 h-4 text-indigo-400" />
+                        <div id="companion-pin-card" className="mt-5 p-4 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 space-y-3">
+                          <div className="flex items-center gap-2 text-[#B45309] text-xs font-bold">
+                            <Shield className="w-4 h-4 text-[#B45309]" />
                             <span>Pairing Challenge Active: Enter the 6-Digit PIN displayed on phone</span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -2277,7 +2916,7 @@ export default function App() {
                               value={companionPinInput}
                               onChange={(e) => setCompanionPinInput(e.target.value.replace(/\D/g, ''))}
                               placeholder="000000"
-                              className="w-36 bg-slate-900 border border-indigo-400/50 rounded-xl px-4 py-2.5 text-center text-lg font-mono font-bold tracking-widest text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                              className="w-36 bg-white border border-[#D9DEE5] rounded-xl px-4 py-2.5 text-center text-lg font-mono font-bold tracking-widest text-[#202936] focus:outline-none focus:ring-2 focus:ring-[#0F766E]"
                             />
                             <button
                               id="btn-companion-submit-pin"
@@ -2294,14 +2933,14 @@ export default function App() {
 
                       {/* Error / Success Feedback */}
                       {companionError && (
-                        <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                        <div className="mt-4 p-3 rounded-xl bg-[#FEE2E2] border border-[#B91C1C]/30 text-[#B91C1C] text-xs flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-[#B91C1C]" />
                           <span>{companionError}</span>
                         </div>
                       )}
                       {companionSuccessMsg && (
-                        <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                        <div className="mt-4 p-3 rounded-xl bg-[#DCFCE7] border border-[#15803D]/30 text-[#15803D] text-xs flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-[#15803D]" />
                           <span>{companionSuccessMsg}</span>
                         </div>
                       )}
@@ -2314,21 +2953,21 @@ export default function App() {
                         <div className="glass-panel p-4 flex flex-col h-full">
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              <Camera className="w-4 h-4 text-indigo-400" />
-                              <span className="text-xs font-bold text-white uppercase tracking-wider">In-App Live Preview Feed</span>
+                              <Camera className="w-4 h-4 text-[#0F766E]" />
+                              <span className="text-xs font-bold text-[#202936] uppercase tracking-wider">In-App Live Preview Feed</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300">
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#667085]">
                                 Port Forward: 127.0.0.1:8080
                               </span>
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#DDF4EF] border border-[#0F766E]/20 text-[#0F766E]">
                                 MJPEG Low Latency (~15ms)
                               </span>
                             </div>
                           </div>
 
                           {/* Video Box */}
-                          <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
+                          <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-950 border border-[#D9DEE5] flex items-center justify-center">
                             {companionPaired ? (
                               <img
                                 id="companion-live-preview"
@@ -2338,11 +2977,11 @@ export default function App() {
                               />
                             ) : (
                               <div className="text-center p-8 space-y-3">
-                                <div className="w-16 h-16 mx-auto rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600">
+                                <div className="w-16 h-16 mx-auto rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
                                   <Camera className="w-8 h-8" />
                                 </div>
-                                <div className="text-xs font-bold text-slate-400">Companion Camera Feed Inactive</div>
-                                <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                                <div className="text-xs font-bold text-slate-300">Companion Camera Feed Inactive</div>
+                                <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
                                   Click "Connect to Companion" above to begin authenticated USB loopback streaming.
                                 </p>
                               </div>
@@ -2435,34 +3074,34 @@ export default function App() {
                       {/* Right Column: Companion Remote Controls */}
                       <div className="lg:col-span-4 space-y-4">
                         {/* Remote Shutter / Still Snapshot Card */}
-                        <div className="glass-panel p-4 space-y-3 border border-indigo-500/20">
+                        <div className="glass-panel p-4 space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                              <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                            <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                              <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                               <span>Full-Res Still Capture</span>
                             </span>
-                            <span className="text-[10px] uppercase font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                            <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
                               CameraX
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-400">
+                          <p className="text-[11px] text-[#667085]">
                             Captures uncompressed 48MP/12MP photo directly on sensor and transfers it instantly to desktop without interrupting live stream.
                           </p>
                           <button
                             id="btn-companion-snapshot"
                             onClick={handleCompanionSnapshot}
                             disabled={!companionPaired || companionLoading}
-                            className="w-full glass-button glass-button-primary text-xs py-3 px-4 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-indigo-600/20"
+                            className="w-full glass-button glass-button-primary text-xs py-3 px-4 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-sm"
                           >
-                            <Camera className="w-4 h-4 text-cyan-300" />
+                            <Camera className="w-4 h-4 text-white" />
                             <span>{companionLoading ? 'Capturing Still Photo...' : 'Capture Full-Res Photo'}</span>
                           </button>
                         </div>
 
                         {/* Physical Lens Flip & Torch Controls */}
                         <div className="glass-panel p-4 space-y-3">
-                          <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                            <Sliders className="w-3.5 h-3.5 text-rose-400" />
+                          <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                            <Sliders className="w-3.5 h-3.5 text-[#0F766E]" />
                             <span>Optics & Hardware Controls</span>
                           </div>
 
@@ -2472,9 +3111,9 @@ export default function App() {
                               id="btn-companion-flip"
                               onClick={handleCompanionFlipLens}
                               disabled={!companionPaired}
-                              className="p-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 hover:border-slate-500 flex flex-col items-center justify-center gap-1 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all"
+                              className="glass-button p-3 flex flex-col items-center justify-center gap-1 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all text-[#202936]"
                             >
-                              <RotateCcw className="w-4 h-4 text-indigo-400" />
+                              <RotateCcw className="w-4 h-4 text-[#0F766E]" />
                               <span>{companionFacing === 'back' ? 'Switch to Front' : 'Switch to Back'}</span>
                             </button>
 
@@ -2485,8 +3124,8 @@ export default function App() {
                               disabled={!companionPaired}
                               className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all ${
                                 companionTorch
-                                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/25 ring-2 ring-amber-400/50'
-                                  : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-slate-500'
+                                  ? 'bg-[#B45309] text-white border-[#B45309] shadow-xs'
+                                  : 'glass-button text-[#202936]'
                               }`}
                             >
                               {companionTorch ? (
@@ -2507,11 +3146,11 @@ export default function App() {
                         {/* Live Smooth Zoom Slider */}
                         <div className="glass-panel p-4 space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                              <ZoomIn className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                              <ZoomIn className="w-3.5 h-3.5 text-[#0F766E]" />
                               <span>Digital Zoom</span>
                             </span>
-                            <span className="text-xs font-mono font-bold text-indigo-300">
+                            <span className="text-xs font-mono font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
                               {companionZoom.toFixed(1)}x
                             </span>
                           </div>
@@ -2526,9 +3165,9 @@ export default function App() {
                             value={companionZoom}
                             onChange={(e) => handleCompanionZoom(parseFloat(e.target.value))}
                             disabled={!companionPaired}
-                            className="w-full accent-indigo-500 bg-slate-900 h-2 rounded-lg cursor-pointer disabled:opacity-50"
+                            className="w-full accent-[#0F766E] bg-[#D9DEE5] h-2 rounded-lg cursor-pointer disabled:opacity-50"
                           />
-                          <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                          <div className="flex justify-between text-[10px] font-mono text-[#84909E]">
                             <span>1.0x (Wide)</span>
                             <span>2.0x</span>
                             <span>4.0x</span>
@@ -2537,12 +3176,12 @@ export default function App() {
                         </div>
 
                         {/* Architecture Details Card */}
-                        <div className="glass-panel p-4 space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                          <div className="font-bold text-white flex items-center gap-1.5">
-                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <div className="glass-panel p-4 space-y-2 text-[11px] text-[#667085] leading-relaxed">
+                          <div className="font-bold text-[#202936] flex items-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-[#15803D]" />
                             <span>Security & Privacy Architecture</span>
                           </div>
-                          <ul className="list-disc list-inside space-y-1 text-slate-400">
+                          <ul className="list-disc list-inside space-y-1 text-[#667085]">
                             <li>Loopback only (`127.0.0.1:8080`) — no open Wi-Fi ports.</li>
                             <li>6-digit challenge PIN with brute-force lockout (3 attempts).</li>
                             <li>Camera watermark & active indicator visible on phone.</li>
@@ -2555,17 +3194,17 @@ export default function App() {
                 )}
 
                 {/* LAB & INSPECTION STUDIO SUITE (Phase 7.1) */}
-                <div className="mt-8 glass-panel p-6 border border-sky-500/30 space-y-6">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="mt-8 glass-panel p-6 space-y-6">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-[#D9DEE5] pb-4">
                     <div>
                       <div className="flex items-center gap-2.5">
-                        <Grid className="w-5 h-5 text-sky-400" />
-                        <h3 className="text-base font-bold text-white">Lab & Optical Inspection Tools</h3>
-                        <span className="text-[10px] font-bold uppercase bg-sky-500/10 text-sky-300 px-2 py-0.5 rounded border border-sky-500/20">
+                        <Grid className="w-5 h-5 text-[#0F766E]" />
+                        <h3 className="text-base font-bold text-[#202936]">Lab & Optical Inspection Tools</h3>
+                        <span className="text-[10px] font-bold uppercase bg-[#DDF4EF] text-[#0F766E] px-2 py-0.5 rounded border border-[#0F766E]/20">
                           Phase 7.1 Active
                         </span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[#667085] mt-1">
                         Precision alignment reticles, non-destructive overlays, side-by-side golden sample comparison, and automated timelapse recording.
                       </p>
                     </div>
@@ -2574,38 +3213,38 @@ export default function App() {
                       <button
                         id="btn-export-annotated"
                         onClick={handleExportAnnotated}
-                        className="glass-button text-xs py-2 px-3.5 flex items-center gap-1.5 cursor-pointer border border-sky-500/40 text-sky-200 hover:text-white"
+                        className="glass-button text-xs py-2 px-3.5 flex items-center gap-1.5 cursor-pointer border border-[#0F766E]/40 text-[#0F766E] hover:bg-[#DDF4EF]"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                        <Sparkles className="w-3.5 h-3.5 text-[#0F766E]" />
                         <span>Export Annotated Copy</span>
                       </button>
                     </div>
                   </div>
 
                   {annotatedExportSuccess && (
-                    <div id="annotated-export-notice" className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <div id="annotated-export-notice" className="p-3 rounded-xl bg-[#DCFCE7] border border-[#15803D]/30 text-[#15803D] text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-[#15803D]" />
                       <span>{annotatedExportSuccess}</span>
                     </div>
                   )}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Column 1: Inspection Overlays & Reticles */}
-                    <div className="space-y-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-200 uppercase tracking-wider">
-                        <Crosshair className="w-4 h-4 text-sky-400" />
+                    <div className="space-y-4 p-4 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
+                      <div className="flex items-center gap-2 text-xs font-bold text-[#202936] uppercase tracking-wider">
+                        <Crosshair className="w-4 h-4 text-[#0F766E]" />
                         <span>Alignment Reticles & Grids</span>
                       </div>
 
                       <div>
-                        <label htmlFor="inspection-overlay-select" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                        <label htmlFor="inspection-overlay-select" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
                           Overlay Pattern
                         </label>
                         <select
                           id="inspection-overlay-select"
                           value={inspectionOverlay}
                           onChange={(e) => setInspectionOverlay(e.target.value as any)}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-100 outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                          className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-semibold text-[#202936] outline-none focus:ring-2 focus:ring-[#0F766E] cursor-pointer"
                         >
                           <option value="none">None (Clean Viewport)</option>
                           <option value="grid_thirds">Rule of Thirds (3x3 Grid)</option>
@@ -2618,15 +3257,16 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="inspection-color-select" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                          <label htmlFor="inspection-color-select" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
                             Color
                           </label>
                           <select
                             id="inspection-color-select"
                             value={overlayColor}
                             onChange={(e) => setOverlayColor(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 outline-none cursor-pointer"
+                            className="w-full bg-white border border-[#D9DEE5] rounded-xl px-2.5 py-1.5 text-xs text-[#202936] outline-none cursor-pointer"
                           >
+                            <option value="#0F766E">Deep Teal</option>
                             <option value="#38bdf8">Sky Blue</option>
                             <option value="#10b981">Emerald Green</option>
                             <option value="#f43f5e">Rose Red</option>
@@ -2636,7 +3276,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label htmlFor="inspection-opacity-slider" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                          <label htmlFor="inspection-opacity-slider" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
                             Opacity ({Math.round(overlayOpacity * 100)}%)
                           </label>
                           <input
@@ -2647,7 +3287,7 @@ export default function App() {
                             step="0.05"
                             value={overlayOpacity}
                             onChange={(e) => setOverlayOpacity(parseFloat(e.target.value))}
-                            className="w-full accent-sky-400 bg-slate-900 h-2 rounded cursor-pointer"
+                            className="w-full accent-[#0F766E] bg-[#D9DEE5] h-2 rounded cursor-pointer"
                           />
                         </div>
                       </div>
@@ -2659,9 +3299,9 @@ export default function App() {
                             type="checkbox"
                             checked={overlayShowTimestamp}
                             onChange={(e) => setOverlayShowTimestamp(e.target.checked)}
-                            className="rounded text-sky-500 bg-slate-900 border-slate-700"
+                            className="rounded text-[#0F766E] accent-[#0F766E] border-[#D9DEE5]"
                           />
-                          <span className="text-slate-300 text-[11px]">Timestamp Watermark</span>
+                          <span className="text-[#202936] text-[11px]">Timestamp Watermark</span>
                         </label>
 
                         <label className="flex items-center gap-1.5 cursor-pointer">
@@ -2670,28 +3310,28 @@ export default function App() {
                             type="checkbox"
                             checked={overlayShowCoords}
                             onChange={(e) => setOverlayShowCoords(e.target.checked)}
-                            className="rounded text-sky-500 bg-slate-900 border-slate-700"
+                            className="rounded text-[#0F766E] accent-[#0F766E] border-[#D9DEE5]"
                           />
-                          <span className="text-slate-300 text-[11px]">Uncalibrated Px</span>
+                          <span className="text-[#202936] text-[11px]">Uncalibrated Px</span>
                         </label>
                       </div>
                     </div>
 
                     {/* Column 2: Side-by-Side Reference Comparison */}
-                    <div className="space-y-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="space-y-4 p-4 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-200 uppercase tracking-wider">
-                          <Layers className="w-4 h-4 text-indigo-400" />
+                        <div className="flex items-center gap-2 text-xs font-bold text-[#202936] uppercase tracking-wider">
+                          <Layers className="w-4 h-4 text-[#0F766E]" />
                           <span>Golden Sample Compare</span>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          refCompEnabled ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'
+                          refCompEnabled ? 'bg-[#DDF4EF] text-[#0F766E]' : 'bg-[#D9DEE5] text-[#667085]'
                         }`}>
                           {refCompEnabled ? 'Active' : 'Off'}
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-slate-400">
+                      <p className="text-[11px] text-[#667085]">
                         Compare live feed against a reference golden master to detect assembly defects, label shifts, or component drift.
                       </p>
 
@@ -2701,8 +3341,8 @@ export default function App() {
                           onClick={() => setRefCompEnabled(!refCompEnabled)}
                           className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                             refCompEnabled
-                              ? 'bg-indigo-600 border-indigo-400 text-white shadow-md'
-                              : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500'
+                              ? 'bg-[#0F766E] border-[#0F766E] text-white shadow-xs'
+                              : 'glass-button text-[#202936]'
                           }`}
                         >
                           {refCompEnabled ? 'Disable Comparison Mode' : 'Enable Reference Comparison'}
@@ -2710,14 +3350,14 @@ export default function App() {
 
                         {refCompEnabled && (
                           <div className="space-y-2 pt-2">
-                            <label htmlFor="ref-comp-mode-select" className="block text-[11px] font-semibold text-slate-400">
+                            <label htmlFor="ref-comp-mode-select" className="block text-[11px] font-semibold text-[#84909E]">
                               Comparison Layout
                             </label>
                             <select
                               id="ref-comp-mode-select"
                               value={refCompMode}
                               onChange={(e) => setRefCompMode(e.target.value as any)}
-                              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 outline-none cursor-pointer"
+                              className="w-full bg-white border border-[#D9DEE5] rounded-xl px-2.5 py-1.5 text-xs text-[#202936] outline-none cursor-pointer"
                             >
                               <option value="side_by_side">Side-by-Side Dual View</option>
                               <option value="split_vertical">Vertical Split Screen</option>
@@ -2725,7 +3365,7 @@ export default function App() {
                             </select>
 
                             <div>
-                              <label htmlFor="ref-comp-opacity-slider" className="block text-[11px] font-semibold text-slate-400 mb-1">
+                              <label htmlFor="ref-comp-opacity-slider" className="block text-[11px] font-semibold text-[#84909E] mb-1">
                                 Blend Ratio ({Math.round(refCompOpacity * 100)}%)
                               </label>
                               <input
@@ -2736,7 +3376,7 @@ export default function App() {
                                 step="0.05"
                                 value={refCompOpacity}
                                 onChange={(e) => setRefCompOpacity(parseFloat(e.target.value))}
-                                className="w-full accent-indigo-400 bg-slate-900 h-2 rounded cursor-pointer"
+                                className="w-full accent-[#0F766E] bg-[#D9DEE5] h-2 rounded cursor-pointer"
                               />
                             </div>
                           </div>
@@ -2745,14 +3385,14 @@ export default function App() {
                     </div>
 
                     {/* Column 3: Scheduled Timelapse Engine */}
-                    <div className="space-y-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="space-y-4 p-4 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-200 uppercase tracking-wider">
-                          <Clock className="w-4 h-4 text-amber-400" />
+                        <div className="flex items-center gap-2 text-xs font-bold text-[#202936] uppercase tracking-wider">
+                          <Clock className="w-4 h-4 text-[#B45309]" />
                           <span>Timelapse Scheduler</span>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          timelapseRunning ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-slate-800 text-slate-400'
+                          timelapseRunning ? 'bg-[#FEF3C7] text-[#B45309] animate-pulse' : 'bg-[#D9DEE5] text-[#667085]'
                         }`}>
                           {timelapseRunning ? `Frame ${timelapseCurrentFrame}/${timelapseFrames}` : 'Idle'}
                         </span>
@@ -2760,7 +3400,7 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="timelapse-interval-input" className="block text-[11px] font-semibold text-slate-400 mb-1">
+                          <label htmlFor="timelapse-interval-input" className="block text-[11px] font-semibold text-[#84909E] mb-1">
                             Interval (sec)
                           </label>
                           <input
@@ -2771,12 +3411,12 @@ export default function App() {
                             value={timelapseInterval}
                             onChange={(e) => setTimelapseInterval(Math.max(1, parseInt(e.target.value) || 1))}
                             disabled={timelapseRunning}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-mono outline-none disabled:opacity-50"
+                            className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-1.5 text-xs text-[#202936] font-mono outline-none disabled:opacity-50"
                           />
                         </div>
 
                         <div>
-                          <label htmlFor="timelapse-frames-input" className="block text-[11px] font-semibold text-slate-400 mb-1">
+                          <label htmlFor="timelapse-frames-input" className="block text-[11px] font-semibold text-[#84909E] mb-1">
                             Total Frames
                           </label>
                           <input
@@ -2787,7 +3427,7 @@ export default function App() {
                             value={timelapseFrames}
                             onChange={(e) => setTimelapseFrames(Math.max(1, parseInt(e.target.value) || 1))}
                             disabled={timelapseRunning}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-mono outline-none disabled:opacity-50"
+                            className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-1.5 text-xs text-[#202936] font-mono outline-none disabled:opacity-50"
                           />
                         </div>
                       </div>
@@ -2797,7 +3437,7 @@ export default function App() {
                           <button
                             id="btn-start-timelapse"
                             onClick={handleStartTimelapse}
-                            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 transition-all"
+                            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[#0F766E] hover:bg-[#115E59] text-white flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-all"
                           >
                             <Clock className="w-4 h-4 fill-current" />
                             <span>Start Timelapse Capture</span>
@@ -2806,7 +3446,7 @@ export default function App() {
                           <button
                             id="btn-stop-timelapse"
                             onClick={handleStopTimelapse}
-                            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-900 border border-amber-500/50 text-amber-300 hover:bg-amber-500/10 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold glass-button text-[#B45309] border-[#B45309]/50 hover:bg-[#FEF3C7] flex items-center justify-center gap-2 cursor-pointer transition-all"
                           >
                             <Square className="w-4 h-4 fill-current" />
                             <span>Stop Timelapse Session</span>
@@ -2815,7 +3455,7 @@ export default function App() {
                       </div>
 
                       {timelapseStatusMsg && (
-                        <div className="text-[10px] text-slate-400 font-mono mt-1">
+                        <div className="text-[10px] text-[#667085] font-mono mt-1">
                           {timelapseStatusMsg}
                         </div>
                       )}
@@ -2823,9 +3463,9 @@ export default function App() {
                   </div>
 
                   {/* Calibration & Non-Destructive Integrity Notice */}
-                  <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                  <div className="p-3.5 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <ShieldCheck className="w-4 h-4 text-[#15803D] shrink-0" />
                       <span><strong>Non-Destructive Integrity Guarantee:</strong> Live overlays are rendered in the presentation layer. Original raw camera sensor captures remain bit-identical unless "Export Annotated Copy" is explicitly selected. Measurements are uncalibrated relative pixels.</span>
                     </div>
                   </div>
@@ -2843,25 +3483,25 @@ export default function App() {
               {/* 1-Click Wireless Handoff Card */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Wifi className="w-5 h-5 text-indigo-400" />
-                  <h3 className="text-base font-bold text-white">1-Click Wireless Handoff</h3>
+                  <Wifi className="w-5 h-5 text-[#0F766E]" />
+                  <h3 className="text-base font-bold text-[#202936]">1-Click Wireless Handoff</h3>
                 </div>
-                <p className="text-xs text-slate-400 mb-4">
+                <p className="text-xs text-[#667085] mb-4">
                   Connect your phone via USB cable once, enable TCP/IP port 5555 with one click, then unplug the cable and mirror over Wi-Fi.
                 </p>
 
-                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-semibold text-slate-200">
-                      Target USB Device: <span className="text-indigo-400">{activeDevice ? `${activeDevice.model} (${activeDevice.serial})` : 'None'}</span>
+                    <div className="text-xs font-semibold text-[#202936]">
+                      Target USB Device: <span className="text-[#0F766E]">{activeDevice ? `${activeDevice.model} (${activeDevice.serial})` : 'None'}</span>
                     </div>
-                    {handoffStatus && <div className="text-[11px] text-cyan-400 mt-1">{handoffStatus}</div>}
+                    {handoffStatus && <div className="text-[11px] text-[#0F766E] mt-1">{handoffStatus}</div>}
                   </div>
 
                   <button
                     onClick={handle1ClickHandoff}
                     disabled={!isDeviceReady || activeDevice?.transportType === 'wifi'}
-                    className={`glass-button glass-button-primary text-xs py-2 px-4 ${
+                    className={`glass-button glass-button-primary text-xs py-2 px-4 focus-visible:ring-2 focus-visible:ring-[#0F766E] ${
                       !isDeviceReady || activeDevice?.transportType === 'wifi' ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
@@ -2873,10 +3513,10 @@ export default function App() {
               {/* Hotspot Auto-Connect Card */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Smartphone className="w-5 h-5 text-cyan-400" aria-hidden="true" />
-                  <h3 className="text-base font-bold text-white">Phone Hotspot Gateway Connect</h3>
+                  <Smartphone className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
+                  <h3 className="text-base font-bold text-[#202936]">Phone Hotspot Gateway Connect</h3>
                 </div>
-                <p className="text-xs text-slate-300 mb-4">
+                <p className="text-xs text-[#667085] mb-4">
                   When your laptop joins your phone's Wi-Fi hotspot, your phone acts as the default gateway (typically 192.168.43.1).
                 </p>
 
@@ -2887,12 +3527,12 @@ export default function App() {
                     type="text"
                     value={hotspotGateway || '192.168.43.1'}
                     onChange={e => setHotspotGateway(e.target.value)}
-                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-100 w-48 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    className="bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs font-mono text-[#202936] w-48 outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                     placeholder="Gateway IP (192.168.43.1)"
                   />
                   <button
                     onClick={handleHotspotConnect}
-                    className="glass-button text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button text-xs py-2 px-4 min-h-[38px] text-[#202936] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     aria-label="Connect to hotspot gateway IP"
                   >
                     <span>Connect to Hotspot Gateway</span>
@@ -2909,7 +3549,7 @@ export default function App() {
                         }
                       }
                     }}
-                    className="glass-button text-xs py-2 px-3 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button text-xs py-2 px-3 min-h-[38px] text-[#202936] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     title="Auto-detect hotspot gateway IP from network interfaces"
                     aria-label="Auto-detect hotspot gateway IP"
                   >
@@ -2918,12 +3558,12 @@ export default function App() {
                 </div>
 
                 {devices.filter(d => d.transportType === 'wifi').length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-300">
+                  <div className="mt-3 pt-3 border-t border-[#D9DEE5] flex items-center justify-between text-xs text-[#202936]">
                     <div className="flex items-center gap-2">
-                      <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                      <Wifi className="w-3.5 h-3.5 text-[#0F766E]" />
                       <span>Active Wi-Fi Device:</span>
                       {devices.filter(d => d.transportType === 'wifi').map(d => (
-                        <span key={d.serial} className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40 text-cyan-200 font-mono text-[11px]">
+                        <span key={d.serial} className="px-2 py-0.5 rounded bg-[#DDF4EF] border border-[#0F766E]/30 text-[#0F766E] font-mono text-[11px]">
                           {d.serial}
                         </span>
                       ))}
@@ -2933,7 +3573,7 @@ export default function App() {
                         const wifiDev = devices.find(d => d.transportType === 'wifi');
                         if (wifiDev) handleDisconnectWifiDevice(wifiDev.serial);
                       }}
-                      className="text-xs text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 px-3 py-1 rounded-lg border border-rose-500/30 transition-colors cursor-pointer"
+                      className="text-xs text-[#B91C1C] hover:text-white bg-[#FEE2E2] hover:bg-[#B91C1C] px-3 py-1 rounded-lg border border-[#B91C1C]/30 transition-colors cursor-pointer"
                     >
                       Disconnect Wi-Fi Device
                     </button>
@@ -2944,10 +3584,10 @@ export default function App() {
               {/* Android 11+ PIN Pairing Wizard */}
               <div className="glass-panel p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Shield className="w-5 h-5 text-indigo-400" aria-hidden="true" />
-                  <h3 className="text-base font-bold text-white">Android 11+ Wireless Pairing (PIN)</h3>
+                  <Shield className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
+                  <h3 className="text-base font-bold text-[#202936]">Android 11+ Wireless Pairing (PIN)</h3>
                 </div>
-                <p className="text-xs text-slate-300 mb-4">
+                <p className="text-xs text-[#667085] mb-4">
                   Under Developer Options &gt; Wireless Debugging &gt; "Pair device with pairing code", enter the 6-digit PIN and pairing port.
                 </p>
 
@@ -2960,7 +3600,7 @@ export default function App() {
                       value={pairIp}
                       onChange={e => setPairIp(e.target.value)}
                       placeholder="Device IP (e.g. 192.168.1.50)"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                      className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                     />
                   </div>
                   <div>
@@ -2971,7 +3611,7 @@ export default function App() {
                       value={pairPort}
                       onChange={e => setPairPort(e.target.value)}
                       placeholder="Pairing Port (e.g. 37000)"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                      className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                     />
                   </div>
                   <div>
@@ -2983,12 +3623,12 @@ export default function App() {
                       onChange={e => setPairPin(e.target.value)}
                       placeholder="6-Digit PIN (e.g. 123456)"
                       maxLength={6}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 font-mono tracking-widest outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                      className="w-full bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs text-[#202936] font-mono tracking-widest outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]"
                     />
                   </div>
                   <button
                     onClick={handlePairWireless}
-                    className="glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     aria-label="Pair device via wireless debugging PIN"
                   >
                     <span>Pair Device</span>
@@ -3007,8 +3647,8 @@ export default function App() {
             <div className="space-y-4">
               <div className="glass-panel p-5 flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-white">Session Captures & Recordings</h3>
-                  <p className="text-xs text-slate-300 mt-0.5">
+                  <h3 className="text-base font-bold text-[#202936]">Session Captures & Recordings</h3>
+                  <p className="text-xs text-[#667085] mt-0.5">
                     Real PNG frame captures and MP4 video recordings saved to the portable Captures/ directory.
                   </p>
                 </div>
@@ -3017,7 +3657,7 @@ export default function App() {
                   <button
                     onClick={handleTakeScreenshot}
                     disabled={!isDeviceReady || isCapturing}
-                    className={`glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
+                    className={`glass-button glass-button-primary text-xs py-2 px-4 min-h-[38px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
                       !isDeviceReady ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                     aria-label="Take high-resolution screen capture"
@@ -3033,7 +3673,7 @@ export default function App() {
                         setAlertBanner({ type: 'info', message: 'Captures list refreshed.' });
                       }
                     }}
-                    className="glass-button text-xs py-2 px-3 min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button text-xs py-2 px-3 min-h-[38px] min-w-[38px] flex items-center justify-center text-[#202936] hover:bg-[#F3F6F8] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     aria-label="Refresh captures list"
                     title="Refresh captures list"
                   >
@@ -3044,7 +3684,7 @@ export default function App() {
 
               {/* Captures List */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3">
                   Recorded Media Files ({captures.length})
                 </div>
 
@@ -3053,15 +3693,15 @@ export default function App() {
                     {captures.map(c => (
                       <div
                         key={c.id}
-                        className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-all text-xs"
+                        className="flex items-center justify-between p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#84909E] transition-all text-xs"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-300" aria-hidden="true">
+                          <div className="w-8 h-8 rounded-lg bg-[#DDF4EF] border border-[#0F766E]/20 flex items-center justify-center text-[#0F766E]" aria-hidden="true">
                             {c.type === 'screenshot' ? <Camera className="w-4 h-4" /> : <Video className="w-4 h-4" />}
                           </div>
                           <div>
-                            <div className="font-semibold text-slate-200">{c.name}</div>
-                            <div className="text-[11px] text-slate-400">
+                            <div className="font-semibold text-[#202936]">{c.name}</div>
+                            <div className="text-[11px] text-[#667085]">
                               {c.timestamp} · {(c.sizeBytes / 1024).toFixed(1)} KB
                             </div>
                           </div>
@@ -3074,10 +3714,10 @@ export default function App() {
                                 api.openPath(c.path);
                               }
                             }}
-                            className="glass-button py-1.5 px-3 text-[11px] min-h-[32px] flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                            className="glass-button py-1.5 px-3 text-[11px] min-h-[32px] flex items-center gap-1 text-[#202936] hover:bg-[#F3F6F8] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                             aria-label={`Open ${c.name} in system viewer`}
                           >
-                            <Folder className="w-3 h-3 text-slate-400" aria-hidden="true" />
+                            <Folder className="w-3 h-3 text-[#667085]" aria-hidden="true" />
                             <span>Open</span>
                           </button>
                         </div>
@@ -3085,7 +3725,7 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-10 text-slate-400 text-xs">
+                  <div className="text-center py-10 text-[#84909E] text-xs">
                     No screenshots or recordings captured yet. Use "Take High-Res Screenshot" above or enable "Record Video Stream" in the Mirror tab.
                   </div>
                 )}
@@ -3100,14 +3740,14 @@ export default function App() {
               <div className="glass-panel p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-indigo-400" />
-                    <h3 className="text-base font-bold text-white">System Diagnostics & Environment</h3>
+                    <Activity className="w-5 h-5 text-[#0F766E]" />
+                    <h3 className="text-base font-bold text-[#202936]">System Diagnostics & Environment</h3>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCopyDiagnosticReport}
-                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] text-indigo-300 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] text-[#0F766E] hover:bg-[#DDF4EF] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                       aria-label="Copy sanitized system diagnostic report to clipboard"
                     >
                       <Copy className="w-3.5 h-3.5" aria-hidden="true" />
@@ -3116,7 +3756,7 @@ export default function App() {
 
                     <button
                       onClick={handleExportDiagnosticReport}
-                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                      className="glass-button text-xs py-1.5 px-3 min-h-[36px] text-[#202936] hover:bg-[#F3F6F8] flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                       aria-label="Export diagnostic report to text file"
                     >
                       <FileText className="w-3.5 h-3.5" aria-hidden="true" />
@@ -3126,32 +3766,32 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-4 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="text-[10px] uppercase font-bold text-slate-400">ADB Engine</div>
-                    <div className="font-semibold text-slate-100 mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
-                    <div className="font-mono text-[9px] text-slate-400 truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
+                    <div className="text-[10px] uppercase font-bold text-[#84909E]">ADB Engine</div>
+                    <div className="font-semibold text-[#202936] mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
+                    <div className="font-mono text-[9px] text-[#667085] truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="text-[10px] uppercase font-bold text-slate-400">scrcpy Engine</div>
-                    <div className="font-semibold text-slate-100 mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
-                    <div className="font-mono text-[9px] text-slate-400 truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
+                    <div className="text-[10px] uppercase font-bold text-[#84909E]">scrcpy Engine</div>
+                    <div className="font-semibold text-[#202936] mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
+                    <div className="font-mono text-[9px] text-[#667085] truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="text-[10px] uppercase font-bold text-slate-400">Connected Devices</div>
-                    <div className="font-semibold text-slate-100 mt-1">{devices.length} Detected</div>
-                    <div className="text-[10px] text-slate-300 mt-1">
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
+                    <div className="text-[10px] uppercase font-bold text-[#84909E]">Connected Devices</div>
+                    <div className="font-semibold text-[#202936] mt-1">{devices.length} Detected</div>
+                    <div className="text-[10px] text-[#667085] mt-1">
                       {devices.filter(d => d.state === 'device').length} authorized / ready
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="text-[10px] uppercase font-bold text-slate-400">Mirroring Session</div>
-                    <div className="font-semibold text-slate-100 mt-1">
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
+                    <div className="text-[10px] uppercase font-bold text-[#84909E]">Mirroring Session</div>
+                    <div className="font-semibold text-[#202936] mt-1">
                       {isMirroring ? 'ACTIVE' : 'IDLE'}
                     </div>
-                    <div className="text-[10px] text-slate-300 mt-1">
+                    <div className="text-[10px] text-[#667085] mt-1">
                       PID: {systemInfo?.mirrorStatus?.pid || 'None'}
                     </div>
                   </div>
@@ -3162,13 +3802,13 @@ export default function App() {
               <div className="glass-panel p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-xs font-semibold" role="tablist" aria-label="Log source selector">
+                    <div className="flex items-center bg-[#F3F6F8] rounded-lg p-0.5 border border-[#D9DEE5] text-xs font-semibold" role="tablist" aria-label="Log source selector">
                       <button
                         onClick={() => setLogSource('device')}
                         role="tab"
                         aria-selected={logSource === 'device'}
-                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
-                          logSource === 'device' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
+                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
+                          logSource === 'device' ? 'bg-[#0F766E] text-white shadow-xs' : 'text-[#667085] hover:text-[#202936]'
                         }`}
                         aria-label="View device logcat output"
                       >
@@ -3178,8 +3818,8 @@ export default function App() {
                         onClick={() => setLogSource('app')}
                         role="tab"
                         aria-selected={logSource === 'app'}
-                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer ${
-                          logSource === 'app' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
+                        className={`px-3 py-1.5 rounded-md transition-all min-h-[32px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
+                          logSource === 'app' ? 'bg-[#0F766E] text-white shadow-xs' : 'text-[#667085] hover:text-[#202936]'
                         }`}
                         aria-label="View application runtime log output"
                       >
@@ -3187,8 +3827,8 @@ export default function App() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs focus-within:ring-2 focus-within:ring-indigo-400">
-                      <Search className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                    <div className="flex items-center gap-2 bg-white border border-[#D9DEE5] rounded-lg px-2.5 py-1 text-xs focus-within:ring-2 focus-within:ring-[#0F766E]">
+                      <Search className="w-3.5 h-3.5 text-[#84909E]" aria-hidden="true" />
                       <label htmlFor="log-filter-input" className="sr-only">Filter logs</label>
                       <input
                         id="log-filter-input"
@@ -3196,7 +3836,7 @@ export default function App() {
                         value={logFilter}
                         onChange={e => setLogFilter(e.target.value)}
                         placeholder="Filter logs..."
-                        className="bg-transparent text-xs text-slate-100 outline-none w-48"
+                        className="bg-transparent text-xs text-[#202936] outline-none w-48"
                       />
                     </div>
                   </div>
@@ -3206,7 +3846,7 @@ export default function App() {
                       if (logSource === 'device') refreshLogcat();
                       else refreshSystemInfo();
                     }}
-                    className="glass-button text-xs py-1.5 px-3 min-h-[32px] flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"
+                    className="glass-button text-xs py-1.5 px-3 min-h-[32px] flex items-center gap-1 text-[#202936] hover:bg-[#F3F6F8] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
                     aria-label="Refresh logs"
                   >
                     <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
@@ -3215,25 +3855,25 @@ export default function App() {
                 </div>
 
                 {/* Log Terminal Screen */}
-                <div className="glass-panel p-4 bg-slate-950 font-mono text-xs overflow-y-auto max-h-[420px] space-y-1">
+                <div className="glass-panel p-4 bg-[#F3F6F8] border border-[#D9DEE5] font-mono text-xs overflow-y-auto max-h-[420px] space-y-1">
                   {logSource === 'device' ? (
                     logs.length > 0 ? (
                       logs
                         .filter(l => (logFilter ? l.message.toLowerCase().includes(logFilter.toLowerCase()) || l.tag?.toLowerCase().includes(logFilter.toLowerCase()) : true))
                         .map((l, i) => (
-                          <div key={i} className="flex items-start gap-2 hover:bg-slate-900/50 py-0.5 px-1 rounded text-[11px]">
-                            <span className="text-slate-500 text-[10px] select-none">{l.timestamp}</span>
+                          <div key={i} className="flex items-start gap-2 hover:bg-white py-0.5 px-1 rounded text-[11px] transition-colors">
+                            <span className="text-[#84909E] text-[10px] select-none">{l.timestamp}</span>
                             <span className={`px-1 rounded text-[9px] font-bold ${
-                              l.level === 'E' ? 'bg-rose-500/20 text-rose-400' : l.level === 'W' ? 'bg-amber-500/20 text-amber-400' : 'bg-indigo-500/20 text-indigo-300'
+                              l.level === 'E' ? 'bg-[#FEE2E2] text-[#B91C1C]' : l.level === 'W' ? 'bg-[#FEF3C7] text-[#B45309]' : 'bg-[#DDF4EF] text-[#0F766E]'
                             }`}>
                               {l.level}
                             </span>
-                            <span className="text-slate-400 font-semibold text-[10px] select-none">[{l.tag}]</span>
-                            <span className="text-slate-200 break-all">{l.message}</span>
+                            <span className="text-[#0F766E] font-semibold text-[10px] select-none">[{l.tag}]</span>
+                            <span className="text-[#202936] break-all">{l.message}</span>
                           </div>
                         ))
                     ) : (
-                      <div className="text-slate-500 text-center py-12">
+                      <div className="text-[#84909E] text-center py-12">
                         {selectedSerial ? 'No logcat lines received. Verify device is connected and authorized.' : 'Connect an Android device to inspect device logcat stream.'}
                       </div>
                     )
@@ -3242,12 +3882,12 @@ export default function App() {
                       systemInfo.recentAppLogs
                         .filter(l => (logFilter ? l.toLowerCase().includes(logFilter.toLowerCase()) : true))
                         .map((line, i) => (
-                          <div key={i} className="text-slate-300 py-0.5 text-[11px] hover:bg-slate-900/50 rounded px-1">
+                          <div key={i} className="text-[#202936] py-0.5 text-[11px] hover:bg-white rounded px-1 transition-colors">
                             {line}
                           </div>
                         ))
                     ) : (
-                      <div className="text-slate-500 text-center py-12">
+                      <div className="text-[#84909E] text-center py-12">
                         Application runtime logs empty.
                       </div>
                     )
@@ -3261,19 +3901,19 @@ export default function App() {
           {activeTab === 'workflow' && (
             <div className="glass-panel p-6 space-y-6">
               {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#D9DEE5]">
                 <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-indigo-400" />
-                    Automated Workflow & Gesture Sequencer
+                  <h3 className="text-base font-bold text-[#202936] flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-[#0F766E]" />
+                    Automated Workflow &amp; Gesture Sequencer
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-[#667085] mt-1">
                     Execute validated sequences of touchscreen gestures, key events, and visual assertions on target Android devices.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border ${
-                    isDeviceReady ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    isDeviceReady ? 'bg-[#DCFCE7] border-[#15803D]/30 text-[#15803D]' : 'bg-[#FEF3C7] border-[#B45309]/30 text-[#B45309]'
                   }`}>
                     {isDeviceReady ? `Target Ready: ${activeDevice?.model || selectedSerial}` : 'No Authorized Target'}
                   </span>
@@ -3282,27 +3922,27 @@ export default function App() {
 
               {/* Preset Selector & Controls */}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center bg-slate-900 rounded-xl p-1 border border-slate-800 text-xs font-semibold">
+                <div className="flex items-center bg-[#F3F6F8] rounded-xl p-1 border border-[#D9DEE5] text-xs font-semibold">
                   <button
                     onClick={() => handleSelectWorkflowPreset('sanity')}
                     className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                      workflowPreset === 'sanity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                      workflowPreset === 'sanity' ? 'bg-[#0F766E] text-white shadow-sm' : 'text-[#667085] hover:text-[#202936]'
                     }`}
                   >
-                    Sanity & Navigation
+                    Sanity &amp; Navigation
                   </button>
                   <button
                     onClick={() => handleSelectWorkflowPreset('gestures')}
                     className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                      workflowPreset === 'gestures' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                      workflowPreset === 'gestures' ? 'bg-[#0F766E] text-white shadow-sm' : 'text-[#667085] hover:text-[#202936]'
                     }`}
                   >
-                    Touch & Gestures
+                    Touch &amp; Gestures
                   </button>
                   <button
                     onClick={() => handleSelectWorkflowPreset('custom')}
                     className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                      workflowPreset === 'custom' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                      workflowPreset === 'custom' ? 'bg-[#0F766E] text-white shadow-sm' : 'text-[#667085] hover:text-[#202936]'
                     }`}
                   >
                     Custom Steps
@@ -3314,31 +3954,31 @@ export default function App() {
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'tap', params: { x: 500, y: 500 }, description: 'Tap (500, 500)' }])}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                        className="px-2.5 py-1.5 bg-white hover:bg-[#F3F6F8] text-[#202936] text-[11px] rounded-lg border border-[#D9DEE5] hover:border-[#0F766E]/40 transition-colors cursor-pointer"
                       >
                         + Tap
                       </button>
                       <button
                         onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'swipe', params: { x: 500, y: 1000, x2: 500, y2: 300, durationMs: 300 }, description: 'Swipe Up' }])}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                        className="px-2.5 py-1.5 bg-white hover:bg-[#F3F6F8] text-[#202936] text-[11px] rounded-lg border border-[#D9DEE5] hover:border-[#0F766E]/40 transition-colors cursor-pointer"
                       >
                         + Swipe
                       </button>
                       <button
                         onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'keyevent', params: { keycode: 3 }, description: 'Press HOME' }])}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                        className="px-2.5 py-1.5 bg-white hover:bg-[#F3F6F8] text-[#202936] text-[11px] rounded-lg border border-[#D9DEE5] hover:border-[#0F766E]/40 transition-colors cursor-pointer"
                       >
                         + Key
                       </button>
                       <button
                         onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'wait', params: { waitMs: 1000 }, description: 'Wait 1000ms' }])}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                        className="px-2.5 py-1.5 bg-white hover:bg-[#F3F6F8] text-[#202936] text-[11px] rounded-lg border border-[#D9DEE5] hover:border-[#0F766E]/40 transition-colors cursor-pointer"
                       >
                         + Wait
                       </button>
                       <button
                         onClick={() => setWorkflowSteps(prev => [...prev, { id: `s_${Date.now()}`, action: 'screenshot', params: { label: 'custom_step' }, description: 'Take Screenshot' }])}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] rounded-lg border border-slate-700/60 transition-colors cursor-pointer"
+                        className="px-2.5 py-1.5 bg-white hover:bg-[#F3F6F8] text-[#202936] text-[11px] rounded-lg border border-[#D9DEE5] hover:border-[#0F766E]/40 transition-colors cursor-pointer"
                       >
                         + Screenshot
                       </button>
@@ -3350,7 +3990,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={handleCancelWorkflow}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600/80 hover:bg-rose-600 text-white cursor-pointer transition-colors shadow-sm"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#B91C1C] hover:bg-[#991B1B] text-white cursor-pointer transition-colors shadow-sm"
                         title="Cancel running workflow"
                       >
                         <Square className="w-3.5 h-3.5 fill-current" />
@@ -3362,8 +4002,8 @@ export default function App() {
                       disabled={!isDeviceReady || workflowRunning || workflowSteps.length === 0}
                       className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all ${
                         !isDeviceReady || workflowRunning || workflowSteps.length === 0
-                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/40'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 cursor-pointer border border-emerald-500/40'
+                          ? 'bg-[#F3F6F8] text-[#84909E] cursor-not-allowed border border-[#D9DEE5]'
+                          : 'bg-[#0F766E] hover:bg-[#115E59] text-white shadow-md shadow-[#0F766E]/20 cursor-pointer border border-[#0F766E]'
                       }`}
                     >
                       {workflowRunning ? (
@@ -3383,43 +4023,43 @@ export default function App() {
               </div>
 
               {/* Step Sequence Table */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <div className="bg-white border border-[#D9DEE5] rounded-xl overflow-hidden shadow-xs">
+                <div className="px-4 py-2.5 bg-[#F3F6F8] border-b border-[#D9DEE5] flex items-center justify-between text-xs font-semibold text-[#667085] uppercase tracking-wider">
                   <span>Step Sequence ({workflowSteps.length} Operations)</span>
                   {workflowPreset === 'custom' && workflowSteps.length > 0 && (
                     <button
                       onClick={() => setWorkflowSteps([])}
-                      className="text-[11px] text-rose-400 hover:text-rose-300 normal-case font-normal cursor-pointer"
+                      className="text-[11px] text-[#B91C1C] hover:text-[#991B1B] normal-case font-medium cursor-pointer"
                     >
                       Clear All Steps
                     </button>
                   )}
                 </div>
 
-                <div className="divide-y divide-slate-800/80 max-h-72 overflow-y-auto font-mono text-xs">
+                <div className="divide-y divide-[#D9DEE5] max-h-72 overflow-y-auto font-mono text-xs">
                   {workflowSteps.map((step, idx) => (
-                    <div key={idx} className="px-4 py-2.5 flex items-center justify-between hover:bg-slate-850/50 transition-colors">
+                    <div key={idx} className="px-4 py-2.5 flex items-center justify-between hover:bg-[#F3F6F8]/60 transition-colors">
                       <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 shrink-0">
+                        <span className="w-6 h-6 rounded-full bg-[#F3F6F8] border border-[#D9DEE5] flex items-center justify-center text-[10px] font-bold text-[#202936] shrink-0">
                           {idx + 1}
                         </span>
                         <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${
-                          step.action === 'tap' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
-                          step.action === 'swipe' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' :
-                          step.action === 'keyevent' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
-                          step.action === 'input_text' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                          step.action === 'wait' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
-                          step.action === 'screenshot' ? 'bg-pink-500/15 text-pink-400 border border-pink-500/30' :
-                          'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
+                          step.action === 'tap' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                          step.action === 'swipe' ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30' :
+                          step.action === 'keyevent' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                          step.action === 'input_text' ? 'bg-[#DCFCE7] text-[#15803D] border border-[#15803D]/30' :
+                          step.action === 'wait' ? 'bg-[#FEF3C7] text-[#B45309] border border-[#B45309]/30' :
+                          step.action === 'screenshot' ? 'bg-pink-50 text-pink-700 border border-pink-200' :
+                          'bg-slate-100 text-[#202936] border border-[#D9DEE5]'
                         }`}>
                           {step.action}
                         </span>
-                        <span className="text-slate-300 font-sans text-xs">
+                        <span className="text-[#202936] font-sans text-xs">
                           {step.description || step.action}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-4 text-[11px] text-slate-400">
+                      <div className="flex items-center gap-4 text-[11px] text-[#667085]">
                         <span>
                           {step.action === 'tap' && `x: ${step.params?.x ?? 500}, y: ${step.params?.y ?? 500}`}
                           {step.action === 'swipe' && `(${step.params?.x ?? 300},${step.params?.y ?? 800}) → (${step.params?.x2 ?? 300},${step.params?.y2 ?? 200}) [${step.params?.durationMs ?? 300}ms]`}
@@ -3431,7 +4071,7 @@ export default function App() {
                         {workflowPreset === 'custom' && (
                           <button
                             onClick={() => setWorkflowSteps(prev => prev.filter((_, i) => i !== idx))}
-                            className="text-slate-500 hover:text-rose-400 transition-colors p-1 cursor-pointer"
+                            className="text-[#84909E] hover:text-[#B91C1C] transition-colors p-1 cursor-pointer"
                             title="Delete step"
                             aria-label={`Delete step ${idx + 1}`}
                           >
@@ -3459,49 +4099,49 @@ export default function App() {
                 return (
                   <div className={`p-4 rounded-xl border ${
                     isSuccess
-                      ? 'bg-emerald-950/20 border-emerald-500/30'
-                      : 'bg-rose-950/20 border-rose-500/30'
+                      ? 'bg-[#DCFCE7]/40 border-[#15803D]/30'
+                      : 'bg-[#FEE2E2]/60 border-[#B91C1C]/30'
                   } space-y-3`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         {isSuccess ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                          <CheckCircle2 className="w-5 h-5 text-[#15803D]" />
                         ) : (
-                          <AlertCircle className="w-5 h-5 text-rose-400" />
+                          <AlertCircle className="w-5 h-5 text-[#B91C1C]" />
                         )}
                         <div>
-                          <h4 className="text-xs font-bold text-white">
+                          <h4 className="text-xs font-bold text-[#202936]">
                             {isSuccess ? 'Workflow Completed Successfully' : 'Workflow Execution Stopped'}
                           </h4>
-                          <p className="text-[11px] text-slate-400">
+                          <p className="text-[11px] text-[#667085]">
                             {completedStepsCount} of {workflowSteps.length} steps executed
                             {!isSuccess && workflowResult.error ? ` • ${workflowResult.error}` : ''}
                           </p>
                         </div>
                       </div>
                       {totalDuration !== undefined && (
-                        <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-slate-400" />
+                        <span className="text-xs font-mono text-[#667085] flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-[#667085]" />
                           {(totalDuration / 1000).toFixed(2)}s
                         </span>
                       )}
                     </div>
 
                     {reportSteps.length > 0 && (
-                      <div className="bg-slate-950/60 rounded-lg p-3 border border-slate-800/80 space-y-1.5 font-mono text-[11px]">
+                      <div className="bg-white rounded-lg p-3 border border-[#D9DEE5] space-y-1.5 font-mono text-[11px]">
                         {reportSteps.map((st: any, i: number) => {
                           const isStepOk = st.status === 'passed' || st.success === true;
                           return (
-                            <div key={i} className="flex items-center justify-between text-slate-300 py-0.5">
+                            <div key={i} className="flex items-center justify-between text-[#202936] py-0.5">
                               <span className="flex items-center gap-2">
                                 {isStepOk ? (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-[#15803D] shrink-0" />
                                 ) : (
-                                  <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                  <AlertCircle className="w-3.5 h-3.5 text-[#B91C1C] shrink-0" />
                                 )}
                                 <span>Step {i + 1}: {st.action}</span>
                               </span>
-                              <span className={isStepOk ? 'text-emerald-400' : 'text-rose-400'}>
+                              <span className={isStepOk ? 'text-[#15803D]' : 'text-[#B91C1C]'}>
                                 {isStepOk ? (st.durationMs ? `${st.durationMs}ms` : 'PASS') : (st.error || 'FAIL')}
                               </span>
                             </div>
@@ -3519,24 +4159,24 @@ export default function App() {
           {activeTab === 'ai' && (
             <div className="glass-panel p-6 space-y-6" id="mcp-security-center">
               {/* Header & Status */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#D9DEE5]">
                 <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <ShieldAlert className="w-5 h-5 text-indigo-400" aria-hidden="true" />
-                    AI Agent & MCP Security Center
+                  <h3 className="text-base font-bold text-[#202936] flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
+                    AI Agent &amp; MCP Security Center
                   </h3>
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p className="text-xs text-[#667085] mt-1">
                     Control bridge for external AI agents communicating via the Model Context Protocol (MCP).
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs">
-                    <span className={`w-2 h-2 rounded-full ${mcpStatus.connectedMcpProcesses > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
-                    <span className="text-slate-300">
-                      Pipe: <span className="text-indigo-300 font-mono text-[11px]">\\.\pipe\androscrn-mcp-control</span>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F3F6F8] border border-[#D9DEE5] text-xs">
+                    <span className={`w-2 h-2 rounded-full ${mcpStatus.connectedMcpProcesses > 0 ? 'bg-[#15803D] animate-pulse' : 'bg-[#84909E]'}`} />
+                    <span className="text-[#202936]">
+                      Pipe: <span className="text-[#0F766E] font-mono text-[11px]">\\.\pipe\androscrn-mcp-control</span>
                     </span>
-                    <span className="text-slate-500">|</span>
-                    <span className="text-slate-300 font-semibold">
+                    <span className="text-[#D9DEE5]">|</span>
+                    <span className="text-[#202936] font-semibold">
                       {mcpStatus.connectedMcpProcesses} client{mcpStatus.connectedMcpProcesses === 1 ? '' : 's'}
                     </span>
                   </div>
@@ -3544,19 +4184,19 @@ export default function App() {
               </div>
 
               {/* Emergency Kill Switch Banner */}
-              <div className="p-4 rounded-xl bg-rose-950/30 border-2 border-rose-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-rose-950/20">
+              <div className="p-4 rounded-xl bg-[#FEE2E2]/60 border-2 border-[#B91C1C]/40 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-rose-300 font-bold text-sm">
-                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" aria-hidden="true" />
+                  <div className="flex items-center gap-2 text-[#B91C1C] font-bold text-sm">
+                    <ShieldAlert className="w-4 h-4 text-[#B91C1C] shrink-0" aria-hidden="true" />
                     <span>Emergency Revocation (Kill Switch)</span>
                   </div>
-                  <p className="text-xs text-rose-200/80 leading-relaxed max-w-xl">
+                  <p className="text-xs text-[#B91C1C]/90 leading-relaxed max-w-xl">
                     Instantly invalidates all active AI session tokens across all running MCP instances and denies any further privileged operations.
                   </p>
                 </div>
                 <button
                   onClick={handleRevokeAllSessions}
-                  className="px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-md shadow-rose-600/30 focus-visible:ring-2 focus-visible:ring-rose-400 cursor-pointer shrink-0 transition-all active:scale-95"
+                  className="px-4 py-2.5 rounded-lg bg-[#B91C1C] hover:bg-[#991B1B] text-white font-bold text-xs flex items-center gap-2 shadow-md shadow-[#B91C1C]/20 focus-visible:ring-2 focus-visible:ring-[#B91C1C] cursor-pointer shrink-0 transition-all active:scale-95"
                   id="btn-revoke-all-mcp"
                   aria-label="Revoke all active AI sessions immediately"
                 >
@@ -3568,13 +4208,13 @@ export default function App() {
               {/* Active Sessions List */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                    <Key className="w-4 h-4 text-indigo-400" aria-hidden="true" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#667085] flex items-center gap-2">
+                    <Key className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
                     Active AI Sessions ({mcpStatus.activeSessions?.length || 0})
                   </h4>
                   <button
                     onClick={refreshMcpStatus}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-0.5 cursor-pointer"
+                    className="text-xs text-[#0F766E] hover:text-[#115E59] flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-[#0F766E] rounded px-1.5 py-0.5 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3" /> Refresh
                   </button>
@@ -3585,23 +4225,23 @@ export default function App() {
                     {mcpStatus.activeSessions.map((session) => (
                       <div
                         key={session.sessionId}
-                        className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-4 text-xs"
+                        className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] flex items-center justify-between gap-4 text-xs shadow-xs"
                         id={`session-item-${session.sessionId}`}
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-white">{session.clientName || 'AI-Client'}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                            <span className="font-semibold text-[#202936]">{session.clientName || 'AI-Client'}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 font-mono">
                               Tier {session.tiers?.join(', ') || '3'}
                             </span>
                           </div>
-                          <div className="text-slate-400 text-[11px] font-mono">
+                          <div className="text-[#667085] text-[11px] font-mono">
                             ID: {session.sessionId.slice(0, 18)}... | Expires: {new Date(session.expiresAt).toLocaleTimeString()}
                           </div>
                         </div>
                         <button
                           onClick={() => handleRevokeSession(session.sessionId)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/40 text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-400"
+                          className="px-3 py-1.5 rounded-lg bg-white hover:bg-[#FEE2E2] text-[#667085] hover:text-[#B91C1C] border border-[#D9DEE5] hover:border-[#B91C1C]/40 text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#B91C1C]"
                           id={`btn-revoke-session-${session.sessionId}`}
                           aria-label={`Revoke session for ${session.clientName || session.sessionId}`}
                         >
@@ -3611,7 +4251,7 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-400 text-xs" id="empty-active-sessions">
+                  <div className="p-6 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-center text-[#667085] text-xs" id="empty-active-sessions">
                     No active AI agent sessions. External agents must request and receive human pairing approval before acquiring tokens.
                   </div>
                 )}
@@ -3620,15 +4260,15 @@ export default function App() {
               {/* Live AI Action Audit Log */}
               <div className="space-y-3 pt-2" id="mcp-action-audit-section">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-indigo-400" aria-hidden="true" />
-                    Live Action Audit Log (Token-Free & Redacted)
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#667085] flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
+                    Live Action Audit Log (Token-Free &amp; Redacted)
                   </h4>
-                  <span className="text-[11px] text-slate-500 font-mono">
+                  <span className="text-[11px] text-[#84909E] font-mono">
                     Last {mcpStatus.recentAudits?.length || 0} events
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[#667085]">
                   Audits every Tier 3 input operation (<code>tap</code>, <code>swipe</code>, <code>keyevent</code>, <code>input_text</code>) in real time. Authentication tokens and sensitive text contents are strictly omitted.
                 </p>
 
@@ -3636,35 +4276,35 @@ export default function App() {
                   <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1" id="mcp-action-audit-list">
                     {mcpStatus.recentAudits.map((item) => {
                       const statusBadgeClass = {
-                        PENDING: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-                        SUCCESS: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-                        FAILED: 'bg-rose-500/10 border-rose-500/30 text-rose-400',
-                        REJECTED: 'bg-purple-500/10 border-purple-500/30 text-purple-400'
-                      }[item.status] || 'bg-slate-800 text-slate-300';
+                        PENDING: 'bg-[#FEF3C7] border-[#B45309]/30 text-[#B45309]',
+                        SUCCESS: 'bg-[#DCFCE7] border-[#15803D]/30 text-[#15803D]',
+                        FAILED: 'bg-[#FEE2E2] border-[#B91C1C]/30 text-[#B91C1C]',
+                        REJECTED: 'bg-purple-50 border-purple-200 text-purple-700'
+                      }[item.status] || 'bg-[#F3F6F8] text-[#202936] border border-[#D9DEE5]';
 
                       return (
                         <div
                           key={item.id}
-                          className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                          className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                           id={`audit-item-${item.id}`}
                         >
                           <div className="flex flex-wrap items-center gap-2">
                             <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${statusBadgeClass}`}>
                               {item.status}
                             </span>
-                            <span className="font-mono text-indigo-300 font-semibold">{item.action}</span>
-                            <span className="text-slate-500 text-[11px]">by</span>
-                            <span className="text-white font-medium">{item.clientName}</span>
-                            <span className="text-slate-500 text-[11px]">on</span>
-                            <span className="font-mono text-slate-300 text-[11px]">{item.serial}</span>
+                            <span className="font-mono text-[#0F766E] font-semibold">{item.action}</span>
+                            <span className="text-[#84909E] text-[11px]">by</span>
+                            <span className="text-[#202936] font-medium">{item.clientName}</span>
+                            <span className="text-[#84909E] text-[11px]">on</span>
+                            <span className="font-mono text-[#667085] text-[11px]">{item.serial}</span>
                           </div>
-                          <div className="flex items-center gap-3 text-slate-400 text-[11px]">
+                          <div className="flex items-center gap-3 text-[#667085] text-[11px]">
                             {item.details && (
-                              <span className="text-slate-300 font-mono text-[10px] bg-slate-950/80 px-1.5 py-0.5 rounded border border-slate-800">
+                              <span className="text-[#202936] font-mono text-[10px] bg-white px-1.5 py-0.5 rounded border border-[#D9DEE5]">
                                 {item.details}
                               </span>
                             )}
-                            <span className="text-slate-500 font-mono text-[10px]">
+                            <span className="text-[#84909E] font-mono text-[10px]">
                               {new Date(item.timestamp).toLocaleTimeString()}
                             </span>
                           </div>
@@ -3673,7 +4313,7 @@ export default function App() {
                     })}
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-400 text-xs" id="empty-action-audits">
+                  <div className="p-6 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-center text-[#667085] text-xs" id="empty-action-audits">
                     No input actions executed yet. Once an authorized AI agent invokes <code>tap</code>, <code>swipe</code>, <code>keyevent</code>, or <code>input_text</code>, execution events will appear here in real time.
                   </div>
                 )}
@@ -3681,24 +4321,24 @@ export default function App() {
 
               {/* Permission Matrix Reference */}
               <div className="space-y-3 pt-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#667085] flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
                   Pairing-First Permission Matrix
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1">
-                    <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                      <Unlock className="w-3.5 h-3.5" /> Tier 0–2: Read-Only Telemetry & Screen
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
+                    <div className="font-semibold text-[#15803D] flex items-center gap-1.5">
+                      <Unlock className="w-3.5 h-3.5" /> Tier 0–2: Read-Only Telemetry &amp; Screen
                     </div>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-[#667085]">
                       <code>list_devices</code>, <code>get_device_info</code>, <code>get_diagnostics</code>, <code>capture_screenshot</code>, and redacted <code>get_logcat</code>. Unconditional observation.
                     </p>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1">
-                    <div className="font-semibold text-amber-300 flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5" /> Tier 3–4: Mutating Actions & Administration
+                  <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
+                    <div className="font-semibold text-[#B45309] flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" /> Tier 3–4: Mutating Actions &amp; Administration
                     </div>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-[#667085]">
                       Touch injection, keyevents, shell commands, APK installation. Strictly requires 6-digit PIN handshake or desktop 1-click human approval.
                     </p>
                   </div>
@@ -3707,55 +4347,302 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 7: ABOUT & LICENSES */}
+          {/* TAB 7: ABOUT & LEGAL GOVERNANCE */}
           {activeTab === 'about' && (
-            <div className="glass-panel p-6 space-y-4">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Shield className="w-4 h-4 text-indigo-400" />
-                About AndroScrn & Open Source Licensing
-              </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                AndroScrn is an independent Windows-first desktop application for Android screen mirroring, wireless connectivity, and automation.
-              </p>
+            <div className="glass-panel p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#D9DEE5] pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-[#202936] flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-[#0F766E]" />
+                    About AndroScrn &amp; Governance
+                  </h3>
+                  <p className="text-xs text-[#667085] mt-1">
+                    Independent, local-first Android engineering workbench for Windows.
+                  </p>
+                </div>
 
-              {/* Architecture Notice */}
-              <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-slate-300 space-y-1.5">
-                <div className="font-semibold text-indigo-300">Architecture Designation: Provisional Electron Distribution</div>
-                <div className="text-[11px] text-slate-400 leading-relaxed">
-                  The approved target product baseline is Tauri 2 + Rust + React/TypeScript with an MCP stdio server.
-                  This standalone build is packaged as an Electron 31 distribution due to host toolchain constraints (no local Rust compiler).
+                {/* Sub-Tab Navigation Pills */}
+                <div className="inline-flex p-1 bg-[#F3F6F8] border border-[#D9DEE5] rounded-xl gap-1" role="tablist" aria-label="About sub-navigation">
+                  <button
+                    onClick={() => setAboutSubTab('licenses')}
+                    role="tab"
+                    aria-selected={aboutSubTab === 'licenses'}
+                    id="btn-subtab-licenses"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      aboutSubTab === 'licenses'
+                        ? 'bg-[#0F766E] text-white shadow-sm'
+                        : 'text-[#667085] hover:text-[#202936]'
+                    }`}
+                  >
+                    Overview &amp; Licenses
+                  </button>
+                  <button
+                    onClick={() => setAboutSubTab('privacy')}
+                    role="tab"
+                    aria-selected={aboutSubTab === 'privacy'}
+                    id="btn-subtab-privacy"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      aboutSubTab === 'privacy'
+                        ? 'bg-[#0F766E] text-white shadow-sm'
+                        : 'text-[#667085] hover:text-[#202936]'
+                    }`}
+                  >
+                    Privacy Policy
+                  </button>
+                  <button
+                    onClick={() => setAboutSubTab('terms')}
+                    role="tab"
+                    aria-selected={aboutSubTab === 'terms'}
+                    id="btn-subtab-terms"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      aboutSubTab === 'terms'
+                        ? 'bg-[#0F766E] text-white shadow-sm'
+                        : 'text-[#667085] hover:text-[#202936]'
+                    }`}
+                  >
+                    Terms of Use
+                  </button>
+                  <button
+                    onClick={() => setAboutSubTab('submission')}
+                    role="tab"
+                    aria-selected={aboutSubTab === 'submission'}
+                    id="btn-subtab-submission"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      aboutSubTab === 'submission'
+                        ? 'bg-[#0F766E] text-white shadow-sm'
+                        : 'text-[#667085] hover:text-[#202936]'
+                    }`}
+                  >
+                    Store Readiness
+                  </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-slate-200">scrcpy (v5.0.1)</div>
-                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Genymobile · Apache License 2.0</div>
-                  <div className="text-slate-500 text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
-                </div>
+              {/* SUBTAB 1: OVERVIEW & LICENSES */}
+              {aboutSubTab === 'licenses' && (
+                <div className="space-y-4">
+                  {/* Architecture Notice */}
+                  <div className="p-3.5 rounded-xl bg-[#DDF4EF]/40 border border-[#0F766E]/20 text-xs text-[#202936] space-y-1.5">
+                    <div className="font-semibold text-[#0F766E] flex items-center gap-2">
+                      <Info className="w-3.5 h-3.5 text-[#0F766E]" />
+                      Architecture Designation: Provisional Electron Distribution
+                    </div>
+                    <div className="text-[11px] text-[#667085] leading-relaxed">
+                      The approved target product baseline is Tauri 2 + Rust + React/TypeScript with an MCP stdio server.
+                      This standalone build is packaged as an Electron 31 distribution due to host toolchain constraints (no local Rust compiler).
+                    </div>
+                  </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-slate-200">Android Debug Bridge (ADB v1.0.41)</div>
-                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Google AOSP · Apache License 2.0</div>
-                  <div className="text-slate-500 text-[10px] mt-1">Platform Tools v37.0.1</div>
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">scrcpy (v5.0.1)</div>
+                      <div className="text-[#667085] text-[11px] mt-1">Copyright © Genymobile · Apache License 2.0</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
+                    </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-slate-200">Electron & Chromium</div>
-                  <div className="text-slate-400 text-[11px] mt-1">Copyright © Electron Contributors · MIT License</div>
-                  <div className="text-slate-500 text-[10px] mt-1">Runtime Version v31.7.7</div>
-                </div>
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">Android Debug Bridge (ADB v1.0.41)</div>
+                      <div className="text-[#667085] text-[11px] mt-1">Copyright © Google AOSP · Apache License 2.0</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">Platform Tools v37.0.1</div>
+                    </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-slate-200">REA (Reverse Engineer Anything)</div>
-                  <div className="text-slate-400 text-[11px] mt-1">Copyright © morluto · MIT License</div>
-                  <div className="text-slate-500 text-[10px] mt-1">Research & Architecture Reference</div>
-                </div>
-              </div>
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">Electron &amp; Chromium</div>
+                      <div className="text-[#667085] text-[11px] mt-1">Copyright © Electron Contributors · MIT License</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">Runtime Version v31.7.7</div>
+                    </div>
 
-              <div className="p-3 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-slate-400">
-                AndroScrn is released under the <strong className="text-indigo-300">MIT License</strong>. All device communication is local and private. No cloud telemetry is transmitted.
-              </div>
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">REA (Reverse Engineer Anything)</div>
+                      <div className="text-[#667085] text-[11px] mt-1">Copyright © morluto · MIT License</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">Research &amp; Architecture Reference</div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">Tesseract.js OCR (v7.0.0)</div>
+                      <div className="text-[#667085] text-[11px] mt-1">Copyright © Tesseract Contributors · Apache 2.0</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">WebAssembly local OCR engine, zero network calls</div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
+                      <div className="font-semibold text-[#202936]">Android Companion</div>
+                      <div className="text-[#667085] text-[11px] mt-1">CameraX (Apache 2.0) &amp; NanoHTTPD (BSD-3)</div>
+                      <div className="text-[#84909E] text-[10px] mt-1">Loopback 127.0.0.1:8080 streaming helper</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-xs text-[#667085]">
+                    AndroScrn is released under the <strong className="text-[#0F766E]">MIT License</strong>. All device communication is local and private. No cloud telemetry is transmitted.
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 2: PRIVACY POLICY */}
+              {aboutSubTab === 'privacy' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-[#DDF4EF]/40 border border-[#0F766E]/20 text-xs text-[#202936]">
+                    <div className="font-semibold text-[#0F766E] flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#0F766E]" />
+                      Strict Local-First Architecture — Complete Data Sovereignty
+                    </div>
+                    <div className="text-[11px] text-[#667085] mt-1">
+                      AndroScrn operates without remote servers, tracking services, or analytics SDKs. All processing stays on your local hardware.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936] flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-[#0F766E]" />
+                        Device Telemetry &amp; Log Redaction
+                      </div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Device serials, models, and OS levels are held in volatile desktop memory only. When diagnostic bundles are exported, sensitive serial numbers, IP/MAC addresses, and Wi-Fi SSIDs are automatically masked by the redaction engine.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936] flex items-center gap-1.5">
+                        <Smartphone className="w-3.5 h-3.5 text-[#0F766E]" />
+                        Screen Mirroring &amp; Local Captures
+                      </div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Display frames are hardware-decoded directly to the desktop via Direct3D11. Screenshots and video recordings are saved exclusively in your local Windows user directory. No video data leaves your PC.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936] flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-[#0F766E]" />
+                        Offline OCR &amp; Document Intelligence
+                      </div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Document scanning uses an embedded WebAssembly instance of Tesseract OCR with bundled offline English training data. Tested and verified with zero outbound network requests.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936] flex items-center gap-1.5">
+                        <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
+                        Android Companion Privacy &amp; Anti-Covert Banner
+                      </div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Companion binds strictly to loopback 127.0.0.1:8080 over ADB tunnel. Pairing uses a 6-digit random PIN displayed on the phone (60s TTL). High-res stills are deleted immediately after reading. A persistent LIVE FEED ACTIVE banner prevents covert capture.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
+                    <span>Maintainer Privacy Contact: <strong className="text-[#202936]">[MAINTAINER_CONTACT_PLACEHOLDER: privacy@androscrn.org]</strong></span>
+                    <span className="text-[#84909E]">Document: docs/privacy-policy.md</span>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 3: TERMS OF USE */}
+              {aboutSubTab === 'terms' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-[#FEF3C7]/40 border border-[#B45309]/30 text-xs text-[#202936]">
+                    <div className="font-semibold text-[#B45309] flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-[#B45309]" />
+                      Responsible Usage &amp; Device Ownership Terms
+                    </div>
+                    <div className="text-[11px] text-[#667085] mt-1">
+                      AndroScrn provides direct hardware control and automation tools. Use of the software requires compliance with these principles.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936]">Authorized Device Ownership</div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        You agree to only connect, inspect, mirror, or automate devices that you own or for which you have received express, documented authorization from the rightful owner or administrator.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936]">Prohibited Activities</div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Unauthorized surveillance, clandestine camera capture, MDM or kiosk lock circumvention without consent, and distribution of malicious payloads are strictly prohibited.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936]">Supervised AI Automation</div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Automated input actions execute real physical or virtual events on connected hardware. Operators maintain complete supervisory responsibility and must monitor active routines. Emergency Revoke is always available.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
+                      <div className="font-semibold text-[#202936]">Warranty Disclaimer &amp; Liability Limit</div>
+                      <p className="text-[#667085] text-[11px] leading-relaxed">
+                        Software is provided "AS IS" under the MIT License without warranty of any kind. Maintainers and contributors assume no liability for data loss, hardware disruptions, or improper device usage.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
+                    <span>Maintainer Legal Contact: <strong className="text-[#202936]">[MAINTAINER_CONTACT_PLACEHOLDER: legal@androscrn.org]</strong></span>
+                    <span className="text-[#84909E]">Document: docs/terms-of-use.md</span>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 4: ANDROID STORE READINESS */}
+              {aboutSubTab === 'submission' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-[#DCFCE7]/40 border border-[#15803D]/30 text-xs text-[#202936]">
+                    <div className="font-semibold text-[#15803D] flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#15803D]" />
+                      Google Play Store &amp; F-Droid Submission Readiness
+                    </div>
+                    <div className="text-[11px] text-[#667085] mt-1">
+                      AndroScrn Companion (com.androscrn.companion) audit status for Android store compliance.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
+                      <div className="text-[#15803D] font-semibold text-[11px]">DATA SAFETY</div>
+                      <div className="text-[#202936] font-bold">Zero Data Collected</div>
+                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
+                        Questionnaire responses: No data collected, no data shared with third parties. Ephemeral in-memory frame processing only.
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
+                      <div className="text-[#0F766E] font-semibold text-[11px]">TARGET PLATFORM</div>
+                      <div className="text-[#202936] font-bold">Target SDK 34 (Android 14)</div>
+                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
+                        Fully compliant with Google Play target API requirements. Min SDK 26 (Android 8.0 Oreo). 64-bit architecture neutral.
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
+                      <div className="text-[#0F766E] font-semibold text-[11px]">USER ACCOUNTS</div>
+                      <div className="text-[#202936] font-bold">Policy Exempt</div>
+                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
+                        No user account creation or cloud login infrastructure. Google Play account deletion requirement is non-applicable.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs text-[#202936] space-y-1.5">
+                    <div className="font-semibold text-[#202936]">Permissions Justification &amp; Prominent Disclosure:</div>
+                    <div className="text-[11px] text-[#667085] leading-relaxed">
+                      • <span className="font-mono text-[#0F766E]">android.permission.CAMERA</span>: Foreground CameraX capture; requested dynamically with in-app explanation.<br/>
+                      • <span className="font-mono text-[#0F766E]">android.permission.INTERNET</span>: Bound strictly to loopback <span className="font-mono">127.0.0.1:8080</span> for ADB port-forwarding.<br/>
+                      • <span className="font-mono text-[#0F766E]">android.permission.ACCESS_NETWORK_STATE</span>: Local interface inspection.
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
+                    <span>AAB Release Signing Guide &amp; Store Metadata Ready</span>
+                    <span className="text-[#84909E]">Document: docs/android-submission-readiness.md</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>

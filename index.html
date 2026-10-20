@@ -52,6 +52,7 @@
           <li><a href="#use-cases" class="nav-link">Use Cases</a></li>
           <li><a href="#roadmap" class="nav-link">Roadmap</a></li>
           <li><a href="#faq" class="nav-link">FAQ</a></li>
+          <li><a href="#about" class="nav-link">About & Legal</a></li>
         </ul>
       </nav>
 
@@ -1165,6 +1166,367 @@ npm run build:portable</code>
         </div>
       </div>
     </section>
+    <!-- Section M: About & Legal Governance -->
+    <section id="about" class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">ABOUT &amp; LEGAL</span>
+          <h2 class="section-title">About AndroScrn &amp; Governance</h2>
+          <p class="section-subtitle">
+            An open-source, local-first engineering workbench built on privacy, verifiable security, and transparent device stewardship.
+          </p>
+        </div>
+
+        <!-- Sub-Navigation Pill Tabs -->
+        <div class="about-tabs-container">
+          <div class="about-tabs" role="tablist" aria-label="About and Legal Sections">
+            <button class="about-tab-btn active" role="tab" id="tab-about-mission" aria-selected="true" aria-controls="about-panel-mission">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <span>About &amp; Mission</span>
+            </button>
+            <button class="about-tab-btn" role="tab" id="tab-about-privacy" aria-selected="false" aria-controls="about-panel-privacy">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              <span>Privacy Policy</span>
+            </button>
+            <button class="about-tab-btn" role="tab" id="tab-about-terms" aria-selected="false" aria-controls="about-panel-terms">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <span>Terms of Use</span>
+            </button>
+            <button class="about-tab-btn" role="tab" id="tab-about-licenses" aria-selected="false" aria-controls="about-panel-licenses">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              <span>Open-Source Licenses</span>
+            </button>
+            <button class="about-tab-btn" role="tab" id="tab-about-submission" aria-selected="false" aria-controls="about-panel-submission">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+              <span>Android Store Readiness</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Panel 1: About & Mission -->
+        <div id="about-panel-mission" class="about-panel active" role="tabpanel" aria-labelledby="tab-about-mission">
+          <div class="grid grid-3" style="margin-bottom: 24px;">
+            <div class="legal-card">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <span class="legal-badge-pill legal-badge-local">Data Sovereignty</span>
+              </div>
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">100% Local-First</h3>
+              <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                Built from the ground up with zero cloud telemetry, zero remote tracking SDKs, and zero account dependencies. All video streaming, OCR, and ADB diagnostic flows execute strictly on your local PC and connected devices.
+              </p>
+            </div>
+
+            <div class="legal-card">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <span class="legal-badge-pill legal-badge-verified">Direct3D11 Engine</span>
+              </div>
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">High-Performance Mirroring</h3>
+              <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                Leverages Genymobile’s battle-tested <span class="mono">scrcpy 5.0.1</span> engine paired with hardware-accelerated video decoding on Windows, delivering sub-35ms display latency and high frame-rate rendering.
+              </p>
+            </div>
+
+            <div class="legal-card">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <span class="legal-badge-pill legal-badge-local">Guarded Automation</span>
+              </div>
+              <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Model Context Protocol</h3>
+              <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                Enables local AI coding agents to inspect UI trees and automate testing through an isolated Windows Named Pipe (<span class="mono">\\.\pipe\androscrn-mcp-*</span>) featuring human-in-the-loop pairing and one-click emergency revocation.
+              </p>
+            </div>
+          </div>
+
+          <div class="card" style="background: var(--bg-surface-2); border-left: 4px solid var(--accent-cyan); padding: 24px;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Creator &amp; Community Stewardship</h3>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+              AndroScrn is an open-source project created and maintained by <strong>Sukesh Periyasamy</strong> alongside community contributors. We believe developer tools should be transparent, fully auditable, and respectful of hardware boundaries. The software is released under the permissive <strong>MIT License</strong>.
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+              <a href="https://github.com/sukeshperiyasamy/Androscrn" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                <span>View on GitHub</span>
+              </a>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/architecture.md" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">
+                <span>Read Architecture Spec</span>
+              </a>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/roadmap.md" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">
+                <span>View Project Roadmap</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Privacy Policy -->
+        <div id="about-panel-privacy" class="about-panel" role="tabpanel" aria-labelledby="tab-about-privacy">
+          <div class="legal-card" style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">Privacy Policy Highlights</h3>
+              <div style="display: flex; gap: 8px;">
+                <span class="legal-badge-pill legal-badge-verified">Zero Telemetry</span>
+                <span class="legal-badge-pill legal-badge-local">Localhost Only</span>
+              </div>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+              AndroScrn enforces a strict local-first privacy standard. We do not collect, transmit, sell, or analyze your device data, screen contents, camera streams, or personal documents.
+            </p>
+
+            <div class="table-responsive" style="margin-bottom: 20px;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Data Category</th>
+                    <th>Desktop Workbench Practice</th>
+                    <th>Android Companion Practice</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Device Telemetry</strong></td>
+                    <td>Held strictly in volatile desktop RAM; auto-redacted in diagnostic exports (masks serials, MACs, Wi-Fi SSIDs).</td>
+                    <td>Does not query or transmit device identifiers. Binds exclusively to loopback <span class="mono">127.0.0.1</span>.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Screen Mirroring</strong></td>
+                    <td>Decoded directly onto desktop surface via Direct3D11; captures saved only to user-chosen Windows folders.</td>
+                    <td>Standard Android display capture managed via system ADB server.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Camera Sensor Feed</strong></td>
+                    <td>Displays live stream on PC; captures saved to user directory. No cloud routing.</td>
+                    <td>MJPEG stream in RAM; full-res stills saved to app cache and <strong>deleted immediately</strong> (<span class="mono">tempFile.delete()</span>).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>OCR &amp; Document Text</strong></td>
+                    <td>Local WebAssembly Tesseract OCR (<span class="mono">@tesseract.js-data/eng</span>); strictly zero network requests verified.</td>
+                    <td>Not applicable (OCR runs 100% on desktop host).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pairing &amp; Auth Tokens</strong></td>
+                    <td>Tokens stored in memory; revoked with 1 click in Security Center.</td>
+                    <td>Out-of-band 6-digit PIN on phone screen (60s TTL); 64-char volatile bearer token; 3-try lockout.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Anti-Covert Protections</strong></td>
+                    <td>Active camera status clearly indicated in UI header.</td>
+                    <td>Prominent, permanent <span class="mono">LIVE FEED ACTIVE</span> banner displayed on phone screen.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">
+                Contact maintainer for privacy questions: <span class="mono">[MAINTAINER_CONTACT_PLACEHOLDER: privacy@androscrn.org]</span>
+              </span>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/privacy-policy.md" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                <span>Read Full Privacy Policy (docs/privacy-policy.md)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Terms of Use -->
+        <div id="about-panel-terms" class="about-panel" role="tabpanel" aria-labelledby="tab-about-terms">
+          <div class="legal-card" style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">Terms of Use &amp; Responsible Device Usage</h3>
+              <span class="legal-badge-pill legal-badge-verified">MIT Licensed</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">
+              AndroScrn provides direct low-level ADB control, video streaming, and automation capabilities. Use of the software is subject to these operational guidelines:
+            </p>
+
+            <div class="grid grid-2" style="margin-bottom: 20px;">
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Authorized Ownership Required</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                  You agree to only connect, mirror, inspect, or automate devices that you legally own or for which you have explicit, documented permission from the rightful owner or device administrator.
+                </p>
+              </div>
+
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Prohibited Activities</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                  Unauthorized surveillance, clandestine camera capture, MDM or kiosk lock circumvention without authorization, and development or propagation of malware are strictly prohibited.
+                </p>
+              </div>
+
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Supervised Automation</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                  Automated input actions dispatched via MCP agents execute real touches and keypresses on your phone. You retain full supervisory responsibility and must monitor automated routines.
+                </p>
+              </div>
+
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Warranty &amp; Liability Disclaimers</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                  Software is provided "AS IS", without warranties of any kind. Under no circumstances shall the authors or contributors be liable for data loss, hardware damage, or business disruption.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">
+                Contact maintainer for legal inquiries: <span class="mono">[MAINTAINER_CONTACT_PLACEHOLDER: legal@androscrn.org]</span>
+              </span>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/terms-of-use.md" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                <span>Read Full Terms of Use (docs/terms-of-use.md)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 4: Open-Source Licenses & SBOM -->
+        <div id="about-panel-licenses" class="about-panel" role="tabpanel" aria-labelledby="tab-about-licenses">
+          <div class="legal-card" style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">Software Bill of Materials (SBOM) &amp; Open-Source Attributions</h3>
+              <span class="legal-badge-pill legal-badge-verified">Permissive &amp; Audited</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+              AndroScrn is released under the <strong>MIT License</strong>. It bundles and interfaces with battle-tested open-source components under clear legal separation and dynamic linking contracts:
+            </p>
+
+            <div class="table-responsive" style="margin-bottom: 20px;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Component</th>
+                    <th>Version</th>
+                    <th>Author / Vendor</th>
+                    <th>License</th>
+                    <th>Distribution Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>scrcpy</strong></td>
+                    <td>5.0.1</td>
+                    <td>Genymobile</td>
+                    <td>Apache 2.0</td>
+                    <td>Bundled Windows binary &amp; JAR (Direct3D11 streaming engine)</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Android ADB</strong></td>
+                    <td>1.0.41 (37.0.1)</td>
+                    <td>Google AOSP</td>
+                    <td>Apache 2.0</td>
+                    <td>Bundled platform-tools binary (device communication bridge)</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Electron</strong></td>
+                    <td>31.7.7</td>
+                    <td>OpenJS Foundation</td>
+                    <td>MIT</td>
+                    <td>Provisional desktop shell distribution</td>
+                  </tr>
+                  <tr>
+                    <td><strong>React</strong></td>
+                    <td>18.x / 19.x</td>
+                    <td>Meta Platforms</td>
+                    <td>MIT</td>
+                    <td>Frontend UI component architecture</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Tesseract.js</strong></td>
+                    <td>7.0.0</td>
+                    <td>Tesseract contributors</td>
+                    <td>Apache 2.0</td>
+                    <td>Bundled WebAssembly OCR engine (local document intelligence)</td>
+                  </tr>
+                  <tr>
+                    <td><strong>NanoHTTPD</strong></td>
+                    <td>2.3.1</td>
+                    <td>NanoHTTPD team</td>
+                    <td>BSD-3-Clause</td>
+                    <td>Android companion embedded loopback HTTP server</td>
+                  </tr>
+                  <tr>
+                    <td><strong>CameraX</strong></td>
+                    <td>1.3.3</td>
+                    <td>Google Android Jetpack</td>
+                    <td>Apache 2.0</td>
+                    <td>Android companion camera hardware abstraction</td>
+                  </tr>
+                  <tr>
+                    <td><strong>SDL3</strong></td>
+                    <td>3.4.18</td>
+                    <td>SDL Community</td>
+                    <td>zlib License</td>
+                    <td>Dynamic library for scrcpy window rendering</td>
+                  </tr>
+                  <tr>
+                    <td><strong>FFmpeg</strong></td>
+                    <td>63.x</td>
+                    <td>FFmpeg Project</td>
+                    <td>LGPL v2.1+</td>
+                    <td>Dynamically linked multimedia codec libraries</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">
+                See full notices and licensing terms in the project repository.
+              </span>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/dependencies-and-licenses.md" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                <span>View Full SBOM &amp; Licenses (docs/dependencies-and-licenses.md)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: Android Store Submission Readiness -->
+        <div id="about-panel-submission" class="about-panel" role="tabpanel" aria-labelledby="tab-about-submission">
+          <div class="legal-card" style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary);">Android Companion Submission Readiness (Google Play &amp; F-Droid)</h3>
+              <span class="legal-badge-pill legal-badge-verified">Audit Passed</span>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+              The companion app (<span class="mono">com.androscrn.companion</span>) is architected for strict compliance with Google Play Store Developer Policies:
+            </p>
+
+            <div class="grid grid-3" style="margin-bottom: 20px;">
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-emerald); text-transform: uppercase; margin-bottom: 4px;">Data Safety Declaration</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Zero Data Collected</div>
+                <p style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.5;">
+                  Fully declared as collecting zero personal data, zero analytics, and sharing zero data with third parties. All frame processing is ephemeral.
+                </p>
+              </div>
+
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; margin-bottom: 4px;">Platform Target</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Target SDK 34 (Android 14)</div>
+                <p style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.5;">
+                  Satisfies Google Play’s latest Target API requirements. Compatible back to Android 8.0 Oreo (minSdk 26). Architecture-neutral.
+                </p>
+              </div>
+
+              <div style="background: var(--bg-surface-2); padding: 18px; border-radius: var(--radius-md);">
+                <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-indigo); text-transform: uppercase; margin-bottom: 4px;">Account Deletion</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Policy Exempt</div>
+                <p style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.5;">
+                  Since AndroScrn does not support or require user account creation, Google Play’s account deletion mandate is verified non-applicable.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">
+                Detailed AAB release signing guide and Google Play questionnaire responses available.
+              </span>
+              <a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/android-submission-readiness.md" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                <span>View Android Readiness Guide (docs/android-submission-readiness.md)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Section L: Footer -->
@@ -1194,6 +1556,7 @@ npm run build:portable</code>
             <li><a href="#camera-studio" class="footer-link">Camera Studio</a></li>
             <li><a href="#architecture" class="footer-link">Architecture</a></li>
             <li><a href="#roadmap" class="footer-link">Roadmap</a></li>
+            <li><a href="#about" class="footer-link">About AndroScrn</a></li>
           </ul>
         </div>
 
@@ -1202,9 +1565,10 @@ npm run build:portable</code>
           <ul class="footer-links">
             <li><a href="#getting-started" class="footer-link">Getting Started</a></li>
             <li><a href="#security" class="footer-link">Security Model</a></li>
+            <li><a href="#about-privacy" class="footer-link">Privacy Policy</a></li>
+            <li><a href="#about-terms" class="footer-link">Terms of Use</a></li>
+            <li><a href="#about-submission" class="footer-link">Store Readiness</a></li>
             <li><a href="#faq" class="footer-link">FAQ</a></li>
-            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/architecture.md" target="_blank" rel="noopener noreferrer" class="footer-link">Architecture Spec</a></li>
-            <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/docs/security.md" target="_blank" rel="noopener noreferrer" class="footer-link">Security Spec</a></li>
           </ul>
         </div>
 
@@ -1212,6 +1576,7 @@ npm run build:portable</code>
           <h4>Community & Code</h4>
           <ul class="footer-links">
             <li><a href="https://github.com/sukeshperiyasamy/Androscrn" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub Repository</a></li>
+            <li><a href="#about-licenses" class="footer-link">Open-Source Licenses</a></li>
             <li><a href="https://github.com/sukeshperiyasamy/Androscrn/issues" target="_blank" rel="noopener noreferrer" class="footer-link">Issues & Feature Requests</a></li>
             <li><a href="https://github.com/sukeshperiyasamy/Androscrn/releases" target="_blank" rel="noopener noreferrer" class="footer-link">Releases</a></li>
             <li><a href="https://github.com/sukeshperiyasamy/Androscrn/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="footer-link">MIT License</a></li>

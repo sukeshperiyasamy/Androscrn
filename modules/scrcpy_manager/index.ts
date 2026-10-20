@@ -28,14 +28,20 @@ export interface ScrcpyProcessStatus {
   exitCode?: number | null;
   error?: string;
   lastError?: string;
+  inputControlBlocked?: boolean;
+  inputControlMessage?: string;
+  windowTitle?: string;
 }
 
 export class ScrcpyManager extends EventEmitter {
   private scrcpyExePath: string;
   private currentProcess: ChildProcess | null = null;
   private currentSerial: string | null = null;
+  private currentOptions: ScrcpyOptions | null = null;
   private lastExitCode: number | null = null;
   private lastError: string | null = null;
+  private inputControlBlocked = false;
+  private inputControlMessage: string | null = null;
   private isStarting = false;
 
   constructor(scrcpyExePath: string) {
@@ -183,6 +189,9 @@ export class ScrcpyManager extends EventEmitter {
 
     this.lastError = null;
     this.lastExitCode = null;
+    this.currentOptions = { ...options };
+    this.inputControlBlocked = false;
+    this.inputControlMessage = null;
 
     const args = this.buildArguments(options);
     const binDir = path.dirname(this.scrcpyExePath);
@@ -198,6 +207,7 @@ export class ScrcpyManager extends EventEmitter {
       this.currentSerial = options.serial || 'default';
 
       this.emit('started', { pid: child.pid, serial: this.currentSerial });
+      this.emit('statusChanged', this.getStatus());
 
       child.stdout?.on('data', (chunk) => {
         const text = chunk.toString();
@@ -207,6 +217,18 @@ export class ScrcpyManager extends EventEmitter {
       child.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
         this.lastError = text.trim();
+
+        // Detect OEM input injection restriction (e.g. Xiaomi HyperOS "USB debugging (Security Settings)")
+        if (/INJECT_EVENTS|SecurityException|USB debugging \(Security Settings\)/i.test(text)) {
+          this.inputControlBlocked = true;
+          this.inputControlMessage = 'Input injection restricted by device security: Enable "USB debugging (Security settings)" in Developer options on your phone.';
+          this.emit('inputBlocked', {
+            serial: this.currentSerial,
+            message: this.inputControlMessage
+          });
+          this.emit('statusChanged', this.getStatus());
+        }
+
         this.emit('log', { type: 'stderr', text });
       });
 
@@ -227,6 +249,7 @@ export class ScrcpyManager extends EventEmitter {
         // 1: Start failure (e.g. video encoder initialization error)
         // 2: Device disconnected while running
         this.emit('stopped', { code, serial: exitedSerial });
+        this.emit('statusChanged', this.getStatus());
 
         if (code === 2) {
           this.emit('disconnected', { serial: exitedSerial });
@@ -242,6 +265,7 @@ export class ScrcpyManager extends EventEmitter {
         }
         this.currentProcess = null;
         this.currentSerial = null;
+        this.emit('statusChanged', this.getStatus());
       });
 
       return { success: true, pid: child.pid };
@@ -250,6 +274,32 @@ export class ScrcpyManager extends EventEmitter {
       return { success: false, message: err.message };
     } finally {
       this.isStarting = false;
+    }
+  }
+
+  /**
+   * Focuses the native scrcpy interactive mirroring window on Windows
+   */
+  public focusMirrorWindow(): { success: boolean; message: string } {
+    if (!this.currentProcess || this.currentProcess.killed || this.currentProcess.exitCode !== null) {
+      return { success: false, message: 'Screen mirroring is not active.' };
+    }
+    const windowTitle = this.currentOptions?.windowTitle || 'AndroScrn Display';
+    try {
+      const psScript = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $wshell = New-Object -ComObject Wscript.Shell
+        if ($wshell.AppActivate('${windowTitle}')) {
+          # Window brought to foreground
+        }
+      `;
+      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      return { success: true, message: `Brought "${windowTitle}" to foreground.` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to focus mirror window: ${err.message}` };
     }
   }
 
@@ -263,6 +313,10 @@ export class ScrcpyManager extends EventEmitter {
       this.currentProcess.kill();
       this.currentProcess = null;
       this.currentSerial = null;
+      this.currentOptions = null;
+      this.inputControlBlocked = false;
+      this.inputControlMessage = null;
+      this.emit('statusChanged', this.getStatus());
       return true;
     } catch {
       return false;
@@ -279,7 +333,10 @@ export class ScrcpyManager extends EventEmitter {
       pid: isRunning ? this.currentProcess?.pid : undefined,
       targetSerial: this.currentSerial || undefined,
       exitCode: this.lastExitCode,
-      lastError: this.lastError || undefined
+      lastError: this.lastError || undefined,
+      inputControlBlocked: this.inputControlBlocked,
+      inputControlMessage: this.inputControlMessage || undefined,
+      windowTitle: this.currentOptions?.windowTitle || 'AndroScrn Display'
     };
   }
 }

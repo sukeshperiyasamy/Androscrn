@@ -396,16 +396,16 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
     <div className="space-y-4" data-testid="document-panel">
       <div className="glass-panel p-5">
         <div className="flex items-center gap-2 mb-2">
-          <ScanLine className="w-5 h-5 text-cyan-400" aria-hidden="true" />
-          <h3 className="text-base font-bold text-white">Document Scanner (local OCR)</h3>
+          <ScanLine className="w-5 h-5 text-[#0F766E]" aria-hidden="true" />
+          <h3 className="text-base font-bold text-[#202936]">Document Scanner (local OCR)</h3>
         </div>
-        <p className="text-xs text-slate-300 mb-3">
+        <p className="text-xs text-[#667085] mb-3">
           Import a photo or screenshot of a document, straighten it, and extract the text on this computer. Nothing is uploaded.
           Your original image is never changed; edits are made to a processed copy.
         </p>
 
         {ocrUnavailable && (
-          <div role="alert" className="mb-3 text-xs rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-100 px-3 py-2" data-testid="ocr-unavailable">
+          <div role="alert" className="mb-3 text-xs rounded-xl border border-[#B45309]/30 bg-[#FEF3C7] text-[#B45309] px-3 py-2" data-testid="ocr-unavailable">
             Text recognition is unavailable: {ocrStatus?.reason}. You can still crop and straighten images.
           </div>
         )}
@@ -430,7 +430,7 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
             value={captureChoice}
             onChange={e => { setCaptureChoice(e.target.value); importCapture(e.target.value); }}
             disabled={busy !== null || imageCaptures.length === 0}
-            className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 max-w-[240px] focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="bg-white border border-[#D9DEE5] rounded-xl px-3 py-2 text-xs text-[#202936] max-w-[240px] focus-visible:ring-2 focus-visible:ring-[#0F766E]"
           >
             <option value="">{imageCaptures.length === 0 ? 'No saved captures' : 'Import a saved capture…'}</option>
             {imageCaptures.map(c => (
@@ -441,24 +441,24 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
 
         <div role="status" aria-live="polite" className="mt-3 text-xs" data-testid="document-message">
           {message && (
-            <span className={message.kind === 'error' ? 'text-rose-300' : message.kind === 'success' ? 'text-emerald-300' : 'text-indigo-200'}>{message.text}</span>
+            <span className={message.kind === 'error' ? 'text-[#B91C1C]' : message.kind === 'success' ? 'text-[#15803D]' : 'text-[#0F766E]'}>{message.text}</span>
           )}
         </div>
       </div>
 
       {preview && (
         <div className="glass-panel p-5" data-testid="document-preview-panel">
-          <div className="text-xs font-semibold text-slate-100 mb-2">
-            {docName} <span className="text-slate-300 font-normal">· preview</span>
+          <div className="text-xs font-semibold text-[#202936] mb-2">
+            {docName} <span className="text-[#667085] font-normal">· preview</span>
           </div>
-          <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'auto' }} className="rounded-lg border border-slate-700 bg-slate-950">
+          <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'auto' }} className="rounded-lg border border-[#D9DEE5] bg-slate-950 shadow-xs">
             <img src={preview.dataUrl} alt={`Preview of ${docName}`} width={preview.width} height={preview.height} style={{ display: 'block', maxWidth: '100%', height: 'auto', userSelect: 'none' }} data-testid="document-preview-image" />
             {!isAdjustingCorners && corners && cropToPage && (
               <svg viewBox={`0 0 ${preview.width} ${preview.height}`} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }} aria-hidden="true" data-testid="document-boundary-svg">
                 <polygon
                   points={corners.map(c => `${c.x * preview.scale},${c.y * preview.scale}`).join(' ')}
-                  fill="rgba(34,211,238,0.12)"
-                  stroke="#22d3ee"
+                  fill="rgba(15,118,110,0.15)"
+                  stroke="#0F766E"
                   strokeWidth={3}
                 />
               </svg>
@@ -474,8 +474,8 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
               >
                 <polygon
                   points={draftCorners.map(c => `${c.x * preview.scale},${c.y * preview.scale}`).join(' ')}
-                  fill={cornerGeometryError ? 'rgba(244,63,94,0.18)' : 'rgba(34,211,238,0.18)'}
-                  stroke={cornerGeometryError ? '#f43f5e' : '#22d3ee'}
+                  fill={cornerGeometryError ? 'rgba(185,28,28,0.18)' : 'rgba(15,118,110,0.18)'}
+                  stroke={cornerGeometryError ? '#B91C1C' : '#0F766E'}
                   strokeWidth={3}
                   strokeDasharray={cornerGeometryError ? '6 4' : undefined}
                 />
@@ -483,7 +483,7 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
                   const cx = c.x * preview.scale;
                   const cy = c.y * preview.scale;
                   const isActive = activeCornerIndex === i;
-                  const strokeColor = isActive ? '#a855f7' : cornerGeometryError ? '#f43f5e' : '#22d3ee';
+                  const strokeColor = isActive ? '#0F766E' : cornerGeometryError ? '#B91C1C' : '#0F766E';
                   return (
                     <g
                       key={i}
@@ -543,11 +543,11 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
           {isAdjustingCorners ? (
             <div className="mt-3 space-y-2" data-testid="corner-adjustment-toolbar">
               {cornerGeometryError ? (
-                <div role="alert" className="text-xs text-rose-300 bg-rose-950/60 border border-rose-700/50 rounded-lg p-2.5" data-testid="corner-geometry-error">
+                <div role="alert" className="text-xs text-[#B91C1C] bg-[#FEE2E2] border border-[#B91C1C]/40 rounded-lg p-2.5" data-testid="corner-geometry-error">
                   {cornerGeometryError}
                 </div>
               ) : (
-                <p className="text-[11px] text-cyan-200 bg-cyan-950/40 border border-cyan-800/40 rounded-lg p-2" data-testid="corner-adjustment-help">
+                <p className="text-[11px] text-[#0F766E] bg-[#DDF4EF] border border-[#0F766E]/30 rounded-lg p-2" data-testid="corner-adjustment-help">
                   Drag any corner handle or select it and use arrow keys (Shift for 10px). Adjust the 4 corners to fit the document boundary.
                 </p>
               )}
@@ -595,9 +595,9 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
             </div>
           ) : (
             <>
-              <p className="text-[11px] text-slate-300 mt-2" data-testid="document-detection-note">{detectionNote}</p>
+              <p className="text-[11px] text-[#667085] mt-2" data-testid="document-detection-note">{detectionNote}</p>
 
-              <fieldset className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-200" disabled={controlsDisabled}>
+              <fieldset className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#202936]" disabled={controlsDisabled}>
                 <legend className="sr-only">Image adjustments</legend>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={cropToPage && !!corners} disabled={!corners} onChange={e => setCropToPage(e.target.checked)} />
@@ -657,9 +657,9 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
 
           {busy === 'ocr' && progress && (
             <div className="mt-3" data-testid="ocr-progress">
-              <div className="text-[11px] text-slate-300 mb-1">{progress.stage}</div>
-              <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.value * 100)} aria-label="OCR progress" style={{ height: 8, width: '100%', borderRadius: 4, background: '#1e293b', overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: '#22d3ee', transition: 'width 150ms', width: `${Math.round(progress.value * 100)}%` }} />
+              <div className="text-[11px] text-[#667085] mb-1">{progress.stage}</div>
+              <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress.value * 100)} aria-label="OCR progress" style={{ height: 8, width: '100%', borderRadius: 4, background: '#D9DEE5', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: '#0F766E', transition: 'width 150ms', width: `${Math.round(progress.value * 100)}%` }} />
               </div>
             </div>
           )}
@@ -667,17 +667,17 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
           {result && (
             <div className="mt-4 space-y-3">
               <div className="flex flex-wrap items-center gap-3 text-xs" data-testid="ocr-summary">
-                <span className="px-2 py-0.5 rounded border border-slate-600 text-slate-100">
+                <span className="px-2 py-0.5 rounded border border-[#D9DEE5] bg-[#F3F6F8] text-[#202936]">
                   Confidence: {result.meanConfidence === null ? 'not reported' : `${result.meanConfidence}%`}
                 </span>
-                <span className="text-slate-300">{result.wordCount} words · {result.lowConfidenceWords} low-confidence · {result.engine} ({result.language}) · {(result.durationMs / 1000).toFixed(1)} s</span>
+                <span className="text-[#667085]">{result.wordCount} words · {result.lowConfidenceWords} low-confidence · {result.engine} ({result.language}) · {(result.durationMs / 1000).toFixed(1)} s</span>
               </div>
               {result.lowConfidenceSample.length > 0 && (
-                <p className="text-[11px] text-amber-200" data-testid="low-confidence">
+                <p className="text-[11px] text-[#B45309] bg-[#FEF3C7] p-2 rounded-lg border border-[#B45309]/30" data-testid="low-confidence">
                   Please double-check: {result.lowConfidenceSample.map(w => `${w.text} (${w.confidence}%)`).join(', ')}
                 </p>
               )}
-              <label htmlFor="document-text" className="block text-xs font-semibold text-slate-100">Recognized text (editable)</label>
+              <label htmlFor="document-text" className="block text-xs font-semibold text-[#202936]">Recognized text (editable)</label>
               <textarea
                 id="document-text"
                 value={text}
@@ -685,17 +685,17 @@ export default function DocumentPanel({ api, selectedSerial, deviceReady, captur
                 onBlur={() => persistText(text)}
                 rows={10}
                 style={{ width: '100%' }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs font-mono text-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                className="w-full bg-[#F3F6F8] border border-[#D9DEE5] rounded-xl p-3 text-xs font-mono text-[#202936] outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus:bg-white transition-all"
               />
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" onClick={copyText} className="glass-button text-xs py-2 px-4 min-h-[34px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"><Copy className="w-4 h-4" aria-hidden="true" /><span>Copy text</span></button>
                 <button type="button" onClick={save} className="glass-button text-xs py-2 px-4 min-h-[34px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"><Save className="w-4 h-4" aria-hidden="true" /><span>Save to Captures/documents</span></button>
                 <button type="button" onClick={exportPdf} disabled={result.wordCount === 0} className="glass-button text-xs py-2 px-4 min-h-[34px] focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer"><FileDown className="w-4 h-4" aria-hidden="true" /><span>Export searchable PDF</span></button>
                 {savedDir && api?.openPath && (
-                  <button type="button" onClick={() => api.openPath(savedDir)} className="text-xs underline text-cyan-300 focus-visible:ring-2 focus-visible:ring-indigo-400 cursor-pointer">Open folder</button>
+                  <button type="button" onClick={() => api.openPath(savedDir)} className="text-xs underline text-[#0F766E] hover:text-[#115E59] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer">Open folder</button>
                 )}
               </div>
-              <p className="text-[11px] text-slate-300">
+              <p className="text-[11px] text-[#667085]">
                 The searchable PDF carries your reviewed text as an invisible layer over the original page image. Unchanged and corrected
                 words stay at their recognized positions; words you add are placed approximately next to their neighbours.
               </p>
