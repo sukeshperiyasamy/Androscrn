@@ -1,3 +1,4 @@
+import { gracefulStop } from './graceful-stop';
 import { ChildProcess, spawn, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -26,6 +27,8 @@ export interface ScrcpyOptions {
   newDisplay?: string;
   audioSource?: 'output' | 'playback' | 'mic';
   audioDup?: boolean;
+  noPowerOn?: boolean;
+  noClipboardAutosync?: boolean;
 }
 
 export interface ScrcpyProcessStatus {
@@ -50,6 +53,7 @@ export class ScrcpyManager extends EventEmitter {
   private inputControlBlocked = false;
   private inputControlMessage: string | null = null;
   private isStarting = false;
+  private currentSessionId = 0;
 
   constructor(scrcpyExePath: string) {
     super();
@@ -187,6 +191,14 @@ export class ScrcpyManager extends EventEmitter {
       args.push('--audio-dup');
     }
 
+    if (options.noPowerOn || (options.keyboardMode === 'uhid' && options.mouseMode === 'uhid' && options.noPowerOn !== false)) {
+      args.push('--no-power-on');
+    }
+
+    if (options.noClipboardAutosync) {
+      args.push('--no-clipboard-autosync');
+    }
+
     args.push(`--window-title=${options.windowTitle || 'AndroScrn Display'}`);
 
     return args;
@@ -200,8 +212,12 @@ export class ScrcpyManager extends EventEmitter {
       return { success: false, message: 'Screen mirroring launch already in progress.' };
     }
 
+    // Terminate existing active mirroring session to prevent duplicate windows or orphaned processes
     if (this.currentProcess && !this.currentProcess.killed && this.currentProcess.exitCode === null) {
-      return { success: false, message: 'A screen mirroring session is already active.' };
+      try {
+        gracefulStop(this.currentProcess);
+      } catch {}
+      this.currentProcess = null;
     }
 
     if (!fs.existsSync(this.scrcpyExePath)) {
@@ -227,6 +243,8 @@ export class ScrcpyManager extends EventEmitter {
     this.currentOptions = { ...options };
     this.inputControlBlocked = false;
     this.inputControlMessage = null;
+    this.currentSessionId++;
+    const sessionId = this.currentSessionId;
 
     const args = this.buildArguments(options);
     const binDir = path.dirname(this.scrcpyExePath);
@@ -245,16 +263,20 @@ export class ScrcpyManager extends EventEmitter {
       this.emit('statusChanged', this.getStatus());
 
       child.stdout?.on('data', (chunk) => {
+        if (this.currentSessionId !== sessionId) return;
         const text = chunk.toString();
         this.emit('log', { type: 'stdout', text });
       });
 
       child.stderr?.on('data', (chunk) => {
+        if (this.currentSessionId !== sessionId) return;
         const text = chunk.toString();
         this.lastError = text.trim();
 
         // Detect OEM input injection restriction (e.g. Xiaomi HyperOS "USB debugging (Security Settings)")
-        if (/INJECT_EVENTS|SecurityException|USB debugging \(Security Settings\)/i.test(text)) {
+        // When running in full UHID mode, remote keyboard/mouse operates via /dev/uhid and is not blocked by INJECT_EVENTS
+        const isUhid = this.currentOptions?.keyboardMode === 'uhid' && this.currentOptions?.mouseMode === 'uhid';
+        if (!isUhid && /INJECT_EVENTS|SecurityException|USB debugging \(Security Settings\)/i.test(text)) {
           this.inputControlBlocked = true;
           this.inputControlMessage = 'Input injection restricted by device security: Enable "USB debugging (Security settings)" in Developer options on your phone.';
           this.emit('inputBlocked', {
@@ -268,12 +290,12 @@ export class ScrcpyManager extends EventEmitter {
       });
 
       child.on('exit', (code) => {
+        if (this.currentSessionId !== sessionId) return;
         this.lastExitCode = code;
-        this.currentProcess = null;
-        this.currentSerial = null;
       });
 
       child.on('close', (code) => {
+        if (this.currentSessionId !== sessionId) return;
         const exitedSerial = this.currentSerial;
         this.lastExitCode = code;
         this.currentProcess = null;
@@ -292,6 +314,7 @@ export class ScrcpyManager extends EventEmitter {
       });
 
       child.on('error', (err) => {
+        if (this.currentSessionId !== sessionId) return;
         this.lastError = err.message;
         if (this.listenerCount('error') > 0) {
           this.emit('error', err);
@@ -360,7 +383,7 @@ export class ScrcpyManager extends EventEmitter {
     if (!this.currentProcess) return false;
 
     try {
-      this.currentProcess.kill();
+      gracefulStop(this.currentProcess);
       this.currentProcess = null;
       this.currentSerial = null;
       this.currentOptions = null;

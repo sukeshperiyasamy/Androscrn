@@ -127,6 +127,19 @@ interface SystemInfo {
   error?: string;
 }
 
+// Sensor maximums (e.g. 4000x3000) are rejected by many phones' video encoders, so scrcpy exits at startup
+// when --camera-size is set to them. Default to the largest advertised size that fits within 1920 px.
+function pickDefaultCameraSize(sizes: string[]): string | undefined {
+  const dims = (s: string) => s.split('x').map((n) => parseInt(n, 10));
+  const safe = sizes.filter((s) => Math.max(...dims(s)) <= 1920);
+  if (safe.includes('1920x1080')) return '1920x1080';
+  return safe[0] ?? sizes[sizes.length - 1];
+}
+
+function pickDefaultCameraFps(fpsList: number[]): number {
+  return fpsList.includes(30) ? 30 : fpsList[fpsList.length - 1];
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about'>('mirror');
   const [aboutSubTab, setAboutSubTab] = useState<'licenses' | 'privacy' | 'terms' | 'submission'>('licenses');
@@ -139,6 +152,24 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [aliasInput, setAliasInput] = useState('');
   const [editingAlias, setEditingAlias] = useState(false);
+
+  // Device Connection Retry State (Phase 5)
+  const [retryState, setRetryState] = useState<{
+    active: boolean;
+    attempt: number;
+    elapsedSeconds: number;
+    timeoutSeconds: number;
+    status: string;
+    message: string;
+    cmdPid?: number;
+  }>({
+    active: false,
+    attempt: 0,
+    elapsedSeconds: 0,
+    timeoutSeconds: 60,
+    status: 'idle',
+    message: ''
+  });
 
   // Mirroring State
   const [isMirroring, setIsMirroring] = useState(false);
@@ -278,13 +309,43 @@ export default function App() {
   ]);
 
   // Status Alerts
-  const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>({
+  const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>({
     type: 'info',
     message: 'Welcome to AndroScrn. Connect an Android phone via USB or Wi-Fi to begin.'
   });
 
   // Check IPC availability
   const api = (window as any).androscrnApi;
+
+  const refreshCaptures = async () => {
+    try {
+      if (api?.getCaptures) {
+        setCaptures(await api.getCaptures());
+      }
+    } catch {}
+  };
+
+  // Persisted preferences: restore once on mount, then save on change. Saving waits for the restore so the
+  // initial defaults never overwrite the stored values.
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  useEffect(() => {
+    if (!api?.getSettings) {
+      setSettingsLoaded(true);
+      return;
+    }
+    api.getSettings()
+      .then((s: any) => {
+        if (s?.qualityPreset) setQualityPreset(s.qualityPreset);
+        if (s?.inputMode) setInputMode(s.inputMode);
+      })
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || !api?.updateSettings) return;
+    api.updateSettings({ qualityPreset, inputMode }).catch(() => {});
+  }, [settingsLoaded, qualityPreset, inputMode]);
 
   // Connection help follows the selected device. Only the (serial, state) pair re-triggers a lookup,
   // so polling the same device does not rebuild or re-announce identical guidance.
@@ -571,8 +632,42 @@ export default function App() {
       if (typeof u === 'function') unsubs.push(u);
     }
 
+    if (api?.onConnectionRetryStatusChanged) {
+      const u = api.onConnectionRetryStatusChanged((status: any) => {
+        if (!status) return;
+        setRetryState(status);
+        if (status.status === 'unauthorized') {
+          setAlertBanner({
+            type: 'error',
+            message: 'Device unauthorized: Unlock your phone and tap "Allow USB debugging".'
+          });
+        } else if (status.status === 'timeout') {
+          setAlertBanner({
+            type: 'error',
+            message: `Connection retry timed out (${status.timeoutSeconds}s). Check USB connection or Developer Options.`
+          });
+        }
+      });
+      if (typeof u === 'function') unsubs.push(u);
+    }
+
+    if (api?.onConnectionRetryDeviceReady) {
+      const u = api.onConnectionRetryDeviceReady((readyDevices: any[]) => {
+        refreshDevices();
+        if (readyDevices && readyDevices.length > 0) {
+          setSelectedSerial(readyDevices[0].serial);
+          setAlertBanner({
+            type: 'success',
+            message: `Device ${readyDevices[0].model || readyDevices[0].serial} connected and authorized! Ready for mirroring.`
+          });
+        }
+      });
+      if (typeof u === 'function') unsubs.push(u);
+    }
+
     return () => {
       clearInterval(interval);
+      try { api?.cancelConnectionRetry?.(); } catch {}
       unsubs.forEach(cleanup => {
         try { cleanup(); } catch {}
       });
@@ -657,10 +752,10 @@ export default function App() {
       if (caps.cameras && caps.cameras.length > 0) {
         setSelectedCameraId(caps.cameras[0].id);
         if (caps.cameras[0].supportedSizes && caps.cameras[0].supportedSizes.length > 0) {
-          setSelectedResolution(caps.cameras[0].supportedSizes[0]);
+          setSelectedResolution(pickDefaultCameraSize(caps.cameras[0].supportedSizes)!);
         }
         if (caps.cameras[0].fpsList && caps.cameras[0].fpsList.length > 0) {
-          setSelectedFps(caps.cameras[0].fpsList[caps.cameras[0].fpsList.length - 1]);
+          setSelectedFps(pickDefaultCameraFps(caps.cameras[0].fpsList));
         }
       }
     } catch (err: any) {
@@ -1122,10 +1217,11 @@ export default function App() {
     }
   };
 
-  const handleSwitchToUhid = async () => {
-    setInputMode('uhid');
+  const handleInputModeChange = async (newMode: 'auto' | 'sdk' | 'uhid') => {
+    setInputMode(newMode);
     setInputControlBlocked(false);
     if (isMirroring && api?.stopMirroring && api?.startMirroring) {
+      setAlertBanner({ type: 'info', message: `Switching input control mode to ${newMode === 'uhid' ? 'UHID' : (newMode === 'sdk' ? 'SDK' : 'Auto')}...` });
       await api.stopMirroring();
       setTimeout(async () => {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1141,16 +1237,28 @@ export default function App() {
           windowBorderless,
           alwaysOnTop,
           captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
-          keyboardMode: 'uhid',
-          mouseMode: 'uhid',
+          keyboardMode: newMode === 'uhid' ? 'uhid' : (newMode === 'sdk' ? 'sdk' : undefined),
+          mouseMode: newMode === 'uhid' ? 'uhid' : (newMode === 'sdk' ? 'sdk' : undefined),
           recordPath: recordMirrorSession ? recordFilename : undefined
         });
-        setAlertBanner({ type: 'success', message: 'Switched to UHID Hardware Emulation mode. Laptop keyboard and mouse control enabled.' });
+        setAlertBanner({
+          type: 'success',
+          message: newMode === 'uhid'
+            ? 'Switched to UHID Hardware Emulation mode. Laptop keyboard and mouse control enabled.'
+            : `Switched input control mode to ${newMode === 'sdk' ? 'Standard SDK' : 'Auto'}.`
+        });
       }, 400);
     } else {
-      setAlertBanner({ type: 'info', message: 'Input mode set to UHID Hardware Emulation. Next session will use UHID mode.' });
+      setAlertBanner({
+        type: 'info',
+        message: newMode === 'uhid'
+          ? 'Input mode set to UHID Hardware Emulation. Next session will use UHID mode.'
+          : `Input control mode set to ${newMode === 'sdk' ? 'Standard SDK' : 'Auto'}.`
+      });
     }
   };
+
+  const handleSwitchToUhid = () => handleInputModeChange('uhid');
 
   const handle1ClickHandoff = async () => {
     if (!selectedSerial) {
@@ -1221,10 +1329,49 @@ export default function App() {
         setAlertBanner({ type: 'success', message: `Successfully disconnected wireless device ${serial}` });
         refreshDevices();
       } else {
-        setAlertBanner({ type: 'error', message: res.error || 'Failed to disconnect wireless device' });
+        setAlertBanner({ type: 'error', message: res.error || res.message || 'Failed to disconnect wireless device' });
       }
     } catch (err: any) {
       setAlertBanner({ type: 'error', message: err?.message || 'Error disconnecting wireless device' });
+    }
+  };
+
+  const handleStartConnectionRetry = async () => {
+    if (retryState.active) return;
+    setRetryState(prev => ({
+      ...prev,
+      active: true,
+      attempt: 1,
+      elapsedSeconds: 0,
+      status: 'discovering',
+      message: 'Launching live ADB diagnostics console...'
+    }));
+    try {
+      const res = await api?.startConnectionRetry?.({
+        timeoutSeconds: 60,
+        intervalSeconds: 2,
+        openConsole: true
+      });
+      if (res && !res.success) {
+        setAlertBanner({ type: 'error', message: res.message || 'Failed to start connection retry' });
+      }
+    } catch (err: any) {
+      setAlertBanner({ type: 'error', message: err?.message || 'Error starting connection retry' });
+    }
+  };
+
+  const handleCancelConnectionRetry = async () => {
+    try {
+      await api?.cancelConnectionRetry?.();
+      setRetryState(prev => ({
+        ...prev,
+        active: false,
+        status: 'cancelled',
+        message: 'Connection retry was cancelled.'
+      }));
+      setAlertBanner({ type: 'info', message: 'Connection retry cancelled.' });
+    } catch (err: any) {
+      setAlertBanner({ type: 'error', message: err?.message || 'Error cancelling retry' });
     }
   };
 
@@ -1447,7 +1594,7 @@ export default function App() {
 
               {activeDevice?.transportType === 'wifi' ? (
                 <>
-                  <Wifi className="w-3.5 h-3.5 text-[#0F766E] ml-1" title="Connected via Wi-Fi" aria-label="Connected via Wi-Fi" />
+                  <Wifi className="w-3.5 h-3.5 text-[#0F766E] ml-1" aria-label="Connected via Wi-Fi" />
                   <button
                     onClick={() => handleDisconnectWifiDevice(activeDevice.serial)}
                     className="text-[10px] text-[#B91C1C] hover:text-white bg-[#FEE2E2] hover:bg-[#B91C1C] px-1.5 py-0.5 rounded border border-[#B91C1C]/30 transition-colors cursor-pointer"
@@ -1458,7 +1605,7 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <Usb className="w-3.5 h-3.5 text-[#0F766E] ml-1" title="Connected via USB" aria-label="Connected via USB" />
+                <Usb className="w-3.5 h-3.5 text-[#0F766E] ml-1" aria-label="Connected via USB" />
               )}
 
               {activeDevice?.batteryLevel !== undefined && (
@@ -1468,9 +1615,36 @@ export default function App() {
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-[#B45309] bg-[#FEF3C7] border border-[#B45309]/30 px-3 py-1.5 rounded-xl" role="status">
-              <span className="status-pulse inactive" aria-hidden="true"></span>
-              <span>No devices detected</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-xs text-[#B45309] bg-[#FEF3C7] border border-[#B45309]/30 px-3 py-1.5 rounded-xl" role="status">
+                <span className={`status-pulse ${retryState.active ? 'active' : 'inactive'}`} aria-hidden="true"></span>
+                <span>
+                  {retryState.active
+                    ? `Searching (${Math.max(0, retryState.timeoutSeconds - retryState.elapsedSeconds)}s)`
+                    : 'No devices detected'}
+                </span>
+              </div>
+              {retryState.active ? (
+                <button
+                  onClick={handleCancelConnectionRetry}
+                  className="text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-2.5 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1"
+                  title="Cancel active retry loop"
+                  aria-label="Cancel active connection retry"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancel</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleStartConnectionRetry}
+                  className="glass-button text-[11px] font-semibold text-[#0F766E] bg-[#DDF4EF] hover:bg-[#cbf1e7] border border-[#0F766E]/40 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Launch live ADB diagnostics in visible CMD window & retry loop"
+                  aria-label="Try Again: Launch live ADB diagnostics in Windows CMD"
+                >
+                  <Terminal className="w-3.5 h-3.5 text-[#0F766E]" />
+                  <span>Try Again</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -1523,18 +1697,18 @@ export default function App() {
       <ConnectionHelp
         deviceLabel={helpTarget ? (helpTarget.alias || helpTarget.model) : 'device'}
         help={deviceHelp}
-        retrying={helpRetrying}
+        retrying={retryState.active || helpRetrying}
+        retryAttempt={retryState.attempt}
         onRetry={async () => {
-          setHelpRetrying(true);
-          try {
-            await refreshDevices();
-            if (api?.getDeviceHelp && selectedSerial) {
+          if (retryState.active) return;
+          await handleStartConnectionRetry();
+          if (api?.getDeviceHelp && selectedSerial) {
+            try {
               setDeviceHelp(await api.getDeviceHelp(selectedSerial));
-            }
-          } finally {
-            setHelpRetrying(false);
+            } catch {}
           }
         }}
+        onCancelRetry={handleCancelConnectionRetry}
       />
 
       {/* Pending AI Pairing Requests (Human-in-the-Loop Gatekeeper) */}
@@ -1859,14 +2033,53 @@ export default function App() {
 
                 {/* Device Status Guidance Bar if not ready */}
                 {!isDeviceReady && (
-                  <div className="mt-4 p-3 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-xs text-[#B45309] flex items-start gap-2.5" role="alert">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" aria-hidden="true" />
-                    <div>
-                      <div className="font-semibold text-[#B45309]">
-                        {devices.length === 0 ? 'No Android Device Connected' : `Device Status: ${activeDevice?.state.toUpperCase()}`}
+                  <div className="mt-4 p-4 rounded-xl bg-[#FEF3C7] border border-[#B45309]/30 text-xs text-[#B45309]" role="alert">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <Info className="w-5 h-5 shrink-0 mt-0.5 text-[#B45309]" aria-hidden="true" />
+                        <div>
+                          <div className="font-semibold text-sm text-[#B45309] flex items-center gap-2">
+                            <span>{devices.length === 0 ? 'No Android Device Connected' : `Device Status: ${activeDevice?.state.toUpperCase()}`}</span>
+                            {retryState.active && (
+                              <span className="text-[11px] font-normal px-2 py-0.5 bg-amber-200/80 rounded-full font-mono">
+                                Attempt #{retryState.attempt} · {Math.max(0, retryState.timeoutSeconds - retryState.elapsedSeconds)}s remaining
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-[#B45309]/90 mt-1 leading-relaxed">
+                            {retryState.active
+                              ? retryState.message
+                              : (activeDevice?.guidance || 'Connect an Android device via USB. Enable Developer Options & USB Debugging on your phone.')}
+                          </div>
+                          {retryState.active && (
+                            <div className="mt-2 text-[11px] text-[#0F766E] font-medium flex items-center gap-1.5">
+                              <Terminal className="w-3.5 h-3.5" />
+                              <span>Live Windows CMD diagnostics console is running on your desktop.</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-[#B45309]/90 mt-0.5">
-                        {activeDevice?.guidance || 'Connect an Android device via USB. Enable Developer Options & USB Debugging on your phone.'}
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {retryState.active ? (
+                          <button
+                            onClick={handleCancelConnectionRetry}
+                            className="px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            aria-label="Cancel connection retry"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Cancel Retry</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleStartConnectionRetry}
+                            className="px-3.5 py-1.5 rounded-lg border border-[#0F766E]/50 text-[#0F766E] bg-[#DDF4EF] hover:bg-[#c7f0e5] text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E]"
+                            aria-label="Try connection again with live CMD diagnostics"
+                          >
+                            <Terminal className="w-3.5 h-3.5" />
+                            <span>Try Again</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1972,7 +2185,7 @@ export default function App() {
                       <div className="font-semibold text-[#202936] mb-1">Input Control Mode</div>
                       <select
                         value={inputMode}
-                        onChange={e => setInputMode(e.target.value as any)}
+                        onChange={e => handleInputModeChange(e.target.value as any)}
                         className="w-full text-xs bg-white border border-[#D9DEE5] rounded-lg px-2 py-1 text-[#202936] cursor-pointer"
                         title="Select keyboard and mouse input injection method"
                       >
@@ -2112,7 +2325,10 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => api?.openPath?.(getCapturesFolder ? '' : '')}
+                      onClick={() => {
+                        const latest = captures[0]?.path;
+                        if (latest) api?.openPath?.(latest.replace(/[\\/][^\\/]*$/, ''));
+                      }}
                       className="glass-button p-2 text-[#202936] hover:bg-[#F3F6F8] min-h-[38px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
                       title="Open Captures Directory"
                     >
@@ -2562,7 +2778,7 @@ export default function App() {
                             setSelectedCameraId(newId);
                             const found = cameraCaps.cameras.find(c => c.id === newId);
                             if (found && found.supportedSizes.length > 0) {
-                              setSelectedResolution(found.supportedSizes[0]);
+                              setSelectedResolution(pickDefaultCameraSize(found.supportedSizes)!);
                             }
                           }}
                           disabled={isCameraRunning}

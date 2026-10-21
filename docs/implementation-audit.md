@@ -59,7 +59,7 @@ Following rigorous source code inspection of `apps/desktop/src/App.tsx` and `mod
 | **USB Device Discovery & State Guidance** | Real (`adb devices -l` parser with guidance generator) | Real (Reactive dropdown + state alert badge) | **Implemented and tested** |
 | **Multi-Device Scoping & Serial Isolation** | Real (`-s <serial>` argument enforcement) | Real (Scoped remote controls & queries) | **Implemented and tested** |
 | **Battery Level Query** | Real (`dumpsys battery` parser) | Real (Parsed & displayed in badge) | **Implemented but not tested on hardware** |
-| **Friendly Device Aliases** | Real (`Map<string, string>`) | Real (Persisted in state) | **Implemented and tested** |
+| **Friendly Device Aliases** | Real (`Map<string, string>`) | Real (persisted to settings.json since 2026-10-21; earlier builds kept aliases in memory only) | **Implemented and tested** |
 | **Screen Mirroring (scrcpy)** | Real (`child_process.spawn` + exit tracking + duplicate guard) | Real (Wired to `androscrnApi.startMirroring`) | **Implemented but not tested on hardware** (Scrcpy binary smoke tested) |
 | **Quality Preset Switching** | Real (`ScrcpyManager.buildArguments`) | Real (Wired to options payload) | **Implemented and tested** (1080p, 720p, bitrate flags) |
 | **Quick Remote Controls** | Real (`input keyevent` via ADB with `-s`) | Real (Home, Back, App Switch, Power) | **Implemented but not tested on hardware** |

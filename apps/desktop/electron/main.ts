@@ -15,6 +15,8 @@ import { buildDeviceHelp } from '../../../dist/modules/oem_guidance';
 import { DocumentWorkflow, TesseractOcrEngine, DocumentSession, DocumentError } from '../../../dist/modules/document_intelligence';
 import { parseSessionRequest, parseProcessRequest, parseTextRequest, parseCaptureName, toErrorPayload } from '../../../dist/modules/document_intelligence/ipc';
 import { generateSvgOverlay, TimelapseScheduler, createSnapshotMetadata } from '../../../dist/modules/lab_inspection';
+import { ConnectionRetryManager } from '../../../dist/modules/connection_retry';
+import { SettingsStore } from '../../../dist/modules/settings_store';
 
 let mainWindow: BrowserWindow | null = null;
 const timelapseScheduler = new TimelapseScheduler();
@@ -92,6 +94,26 @@ function resolveBinary(binaryName: string): string {
 const adbPath = resolveBinary('adb.exe');
 const scrcpyPath = resolveBinary('scrcpy.exe');
 
+function resolveScript(scriptName: string): string {
+  const exeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(exeDir, 'scripts', scriptName),
+    path.join(process.resourcesPath || '', 'scripts', scriptName),
+    path.join(app.getAppPath(), 'scripts', scriptName),
+    path.resolve(__dirname, '../../scripts', scriptName),
+    path.resolve(__dirname, '../../../scripts', scriptName),
+    path.resolve(process.cwd(), 'scripts', scriptName)
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0];
+}
+
+const retryScriptPath = resolveScript('adb-diagnostics.cmd');
+
 const deviceManager = new DeviceManager(adbPath);
 const connectionManager = new ConnectionManager(deviceManager);
 const scrcpyManager = new ScrcpyManager(scrcpyPath);
@@ -99,9 +121,32 @@ const diagnosticsManager = new DiagnosticsManager(deviceManager);
 const workflowEngine = new WorkflowEngine(deviceManager, diagnosticsManager);
 const cameraManager = new CameraManager(scrcpyPath, deviceManager);
 const companionClient = new CompanionClient(deviceManager);
+const connectionRetryManager = new ConnectionRetryManager(deviceManager, adbPath, retryScriptPath);
+
+// Durable user preferences (aliases, quality preset, input mode). Runtime session state is never stored.
+const settingsStore = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'));
+{
+  const loaded = settingsStore.load();
+  if (loaded.status === 'corrupt') {
+    appLog('WARN', 'Settings file was unreadable; defaults restored', { backup: loaded.backupPath });
+  } else if (loaded.status === 'repaired') {
+    appLog('WARN', 'Invalid settings values were reset to defaults', { fields: loaded.droppedFields });
+  }
+  for (const [serial, alias] of Object.entries(settingsStore.get().aliases)) {
+    deviceManager.setDeviceAlias(serial, alias);
+  }
+}
 
 cameraManager.on('statusChanged', (status) => {
   mainWindow?.webContents.send('camera-status-changed', status);
+});
+
+connectionRetryManager.on('statusChanged', (status) => {
+  mainWindow?.webContents.send('connection-retry-status-changed', status);
+});
+
+connectionRetryManager.on('deviceReady', (devices) => {
+  mainWindow?.webContents.send('connection-retry-device-ready', devices);
 });
 
 function getCapturesFolder(): string {
@@ -185,6 +230,7 @@ function createWindow() {
     try {
       scrcpyManager.stopMirroring();
       cameraManager.stopCamera();
+      connectionRetryManager.dispose();
     } catch {
       // ignore on close
     }
@@ -202,11 +248,44 @@ ipcMain.handle('get-devices', async () => {
   }
 });
 
+ipcMain.handle('start-connection-retry', async (_, options) => {
+  try {
+    appLog('INFO', 'Initiating connection retry session', options);
+    return await connectionRetryManager.startRetry(options || {});
+  } catch (err: any) {
+    appLog('ERROR', 'Error starting connection retry', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to start connection retry' };
+  }
+});
+
+ipcMain.handle('cancel-connection-retry', () => {
+  try {
+    appLog('INFO', 'Cancelling connection retry session');
+    return connectionRetryManager.cancelRetry();
+  } catch (err: any) {
+    appLog('ERROR', 'Error cancelling connection retry', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to cancel connection retry' };
+  }
+});
+
+ipcMain.handle('get-connection-retry-status', () => {
+  try {
+    return connectionRetryManager.getStatus();
+  } catch (err: any) {
+    return { active: false, status: 'error', error: err?.message };
+  }
+});
+
 ipcMain.handle('set-alias', (_, payload) => {
   try {
     const { serial, alias } = payload || {};
     if (!serial || typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) return false;
-    deviceManager.setDeviceAlias(serial, typeof alias === 'string' ? alias : '');
+    const res = settingsStore.setAlias(serial, typeof alias === 'string' ? alias : '');
+    if (!res.success) {
+      appLog('WARN', 'Alias not saved', res.message);
+      return false;
+    }
+    deviceManager.setDeviceAlias(serial, res.settings.aliases[serial] || '');
     return true;
   } catch (err: any) {
     appLog('ERROR', 'Error setting alias', err?.message || err);
@@ -214,10 +293,33 @@ ipcMain.handle('set-alias', (_, payload) => {
   }
 });
 
+ipcMain.handle('get-settings', () => {
+  const { qualityPreset, inputMode } = settingsStore.get();
+  return { qualityPreset, inputMode };
+});
+
+ipcMain.handle('update-settings', (_, patch) => {
+  try {
+    const res = settingsStore.update({ qualityPreset: patch?.qualityPreset, inputMode: patch?.inputMode });
+    if (!res.success) appLog('WARN', 'Settings update rejected', res.message);
+    return { success: res.success, message: res.message, settings: { qualityPreset: res.settings.qualityPreset, inputMode: res.settings.inputMode } };
+  } catch (err: any) {
+    appLog('ERROR', 'Error updating settings', err?.message || err);
+    return { success: false, message: err?.message || 'Failed to update settings' };
+  }
+});
+
 ipcMain.handle('start-mirroring', (_, options) => {
   try {
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
+    }
+    const targetSerial = options?.serial;
+    // Concurrency coordination: Stop conflicting Camera Studio session on device before starting mirroring
+    const camStatus = cameraManager.getStatus();
+    if (camStatus.running && (!targetSerial || camStatus.targetSerial === targetSerial)) {
+      appLog('INFO', `Stopping conflicting Camera Studio session on ${targetSerial || 'default'} before starting mirroring`);
+      cameraManager.stopCamera();
     }
     return scrcpyManager.startMirroring(options || {});
   } catch (err: any) {
@@ -345,6 +447,13 @@ ipcMain.handle('start-camera', (_, options) => {
       return { success: false, message: `scrcpy executable not found at: ${scrcpyPath}` };
     }
     const opts = options || {};
+    const targetSerial = opts.serial;
+    // Concurrency coordination: Stop conflicting Screen Mirroring session on device before starting camera
+    const mirrorStatus = scrcpyManager.getStatus();
+    if (mirrorStatus.running && (!targetSerial || mirrorStatus.targetSerial === targetSerial)) {
+      appLog('INFO', `Stopping conflicting Screen Mirroring session on ${targetSerial || 'default'} before starting camera`);
+      scrcpyManager.stopMirroring();
+    }
     // Auto-resolve recording folder if requested
     if (opts.record && !opts.recordPath) {
       const capturesFolder = getCapturesFolder();
@@ -369,6 +478,11 @@ ipcMain.handle('stop-camera', () => {
 
 ipcMain.handle('reconnect-camera', async () => {
   try {
+    const mirrorStatus = scrcpyManager.getStatus();
+    if (mirrorStatus.running) {
+      appLog('INFO', 'Stopping conflicting Screen Mirroring session before reconnecting camera');
+      scrcpyManager.stopMirroring();
+    }
     return await cameraManager.reconnectCamera();
   } catch (err: any) {
     appLog('ERROR', 'Error reconnecting camera session', err?.message || err);
