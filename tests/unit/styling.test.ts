@@ -30,7 +30,7 @@ export function runStylingTests(assert: AssertFn, skip: SkipFn) {
   const expectedSelectors: Array<[string, RegExp]> = [
     ['flex layout utility', /\.flex\{/],
     ['dark background utility', /\.bg-slate-950\{/],
-    ['arbitrary-value utility', /\.max-w-\\\[260px\\\]\{/],
+    ['arbitrary-value utility', /\.min-h-\\\[40px\\\]\{/],
     ['focus-visible variant', /\.focus-visible\\:ring-2:focus-visible/],
     ['screen-reader-only utility', /\.sr-only\{/],
     ['custom glass-panel component class', /\.glass-panel\{/]

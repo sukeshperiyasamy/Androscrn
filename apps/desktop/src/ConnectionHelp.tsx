@@ -69,13 +69,13 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry, o
 
   return (
     <section
-      className="mx-4 mt-3"
+      className="mx-3 mt-2"
       role="region"
       aria-label={`Connection help for ${deviceLabel}`}
       data-testid="connection-help"
     >
       <div className={`rounded-xl border px-4 py-2.5 text-xs ${tone}`}>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => setExpanded(v => !v)}
@@ -95,6 +95,8 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry, o
           </button>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Retrying only helps with a connection problem; tips for a working phone have nothing to retry. */}
+            {(hasConnectionIssue || retrying) && (
             <button
               type="button"
               onClick={onRetry}
@@ -105,6 +107,7 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry, o
               <RefreshCw className={`w-3 h-3 ${retrying ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>{retrying ? (retryAttempt ? `Checking #${retryAttempt}…` : 'Checking…') : 'Try Again'}</span>
             </button>
+            )}
             {retrying && onCancelRetry && (
               <button
                 type="button"

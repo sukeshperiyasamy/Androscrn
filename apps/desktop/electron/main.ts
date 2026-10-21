@@ -204,8 +204,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 960,
-    minHeight: 680,
+    minWidth: 800,
+    minHeight: 560,
     backgroundColor: '#FFFFFF',
     title: 'AndroScrn (Provisional Electron Distribution)',
     webPreferences: {

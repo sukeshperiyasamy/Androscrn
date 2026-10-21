@@ -180,7 +180,7 @@ export default function WirelessDiscoveryPanel({ api, onDevicesChanged }: Props)
                   <div className="text-[11px] text-[#667085]">
                     {ep.label} · {ep.kind === 'pairing' ? 'Pairing service' : 'Connection service'} · {STATUS_LABEL[ep.status]}
                   </div>
-                  <div className="text-[11px] text-[#84909E] mt-0.5">{ep.note}</div>
+                  <div className="text-[11px] text-[#667085] mt-0.5">{ep.note}</div>
                 </div>
 
                 {ep.kind === 'pairing' ? (

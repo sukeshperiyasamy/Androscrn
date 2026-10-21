@@ -46,7 +46,9 @@ import {
   Minimize2,
   Terminal,
   Check,
-  X
+  X,
+  PanelLeftOpen,
+  PanelLeftClose
 } from 'lucide-react';
 
 interface CameraDeviceInfo {
@@ -140,9 +142,74 @@ function pickDefaultCameraFps(fpsList: number[]): number {
   return fpsList.includes(30) ? 30 : fpsList[fpsList.length - 1];
 }
 
+/** True when two device lists would render identically (avoids re-rendering the app on every poll). */
+function sameDeviceList(a: AndroidDevice[], b: AndroidDevice[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((d, i) => JSON.stringify(d) === JSON.stringify(b[i]));
+}
+
+type TabId = 'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about';
+
+interface NavItemDef {
+  id: TabId;
+  label: string;
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
+}
+
+const NAV_SECTIONS: Array<{ title: string; items: NavItemDef[] }> = [
+  {
+    title: 'Device',
+    items: [
+      { id: 'mirror', label: 'Screen Mirroring', icon: Smartphone },
+      { id: 'camera', label: 'Camera Studio', icon: Video },
+      { id: 'wireless', label: 'Wireless & Hotspot', icon: Wifi },
+      { id: 'media', label: 'Media & Captures', icon: Camera },
+      { id: 'documents', label: 'Documents & OCR', icon: FileText },
+      { id: 'diagnostics', label: 'Diagnostics & Logs', icon: Activity }
+    ]
+  },
+  {
+    title: 'Automation (preview)',
+    items: [
+      { id: 'workflow', label: 'Workflow Runner', icon: Layers },
+      { id: 'ai', label: 'Local AI Assistant', icon: Bot }
+    ]
+  }
+];
+
+const ABOUT_NAV_ITEM: NavItemDef = { id: 'about', label: 'About & Licenses', icon: Shield };
+const ALL_NAV_IDS: TabId[] = [...NAV_SECTIONS.flatMap(sec => sec.items.map(i => i.id)), 'about'];
+
+/** Windows narrower than this show the navigation as an icon rail unless the user expanded it. */
+const NAV_AUTO_COLLAPSE_WIDTH = 1100;
+
+const NavItem = React.memo(function NavItem({ item, active, collapsed, onSelect }: { item: NavItemDef; active: boolean; collapsed: boolean; onSelect: (id: TabId) => void }) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item.id)}
+      role="tab"
+      id={`tab-${item.id}`}
+      aria-selected={active}
+      aria-controls="main-content"
+      tabIndex={active ? 0 : -1}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      className={`w-full flex items-center gap-3 rounded-lg text-[13px] font-medium transition-colors min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
+        collapsed ? 'justify-center px-0' : 'px-3'
+      } ${active ? 'bg-[#DDF4EF] text-[#0F766E] font-semibold' : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'}`}
+    >
+      <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
+      {!collapsed && <span className="truncate">{item.label}</span>}
+      {active && collapsed && <span className="sr-only">(current)</span>}
+    </button>
+  );
+});
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about'>('mirror');
-  const [aboutSubTab, setAboutSubTab] = useState<'licenses' | 'privacy' | 'terms' | 'submission'>('licenses');
+  const [activeTab, setActiveTab] = useState<TabId>('mirror');
+  const [aboutSubTab, setAboutSubTab] = useState<'licenses' | 'privacy' | 'terms'>('licenses');
   
   // Device State
   const [devices, setDevices] = useState<AndroidDevice[]>([]);
@@ -317,13 +384,19 @@ export default function App() {
   ]);
 
   // Status Alerts
-  const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>({
-    type: 'info',
-    message: 'Welcome to AndroScrn. Connect an Android phone via USB or Wi-Fi to begin.'
-  });
+  const [alertBanner, setAlertBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
 
   // Check IPC availability
   const api = (window as any).androscrnApi;
+
+  const isMirroringRef = React.useRef(false);
+  useEffect(() => {
+    isMirroringRef.current = isMirroring;
+  }, [isMirroring]);
+
+  useEffect(() => {
+    if (activeTab === 'media' || activeTab === 'documents' || activeTab === 'camera') refreshCaptures();
+  }, [activeTab]);
 
   const refreshCaptures = async () => {
     try {
@@ -335,6 +408,47 @@ export default function App() {
 
   // Persisted preferences: restore once on mount, then save on change. Saving waits for the restore so the
   // initial defaults never overwrite the stored values.
+  // Navigation rail: auto-collapses on narrow windows; an explicit user choice is remembered on this PC.
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const [navPreference, setNavPreferenceState] = useState<'auto' | 'expanded' | 'collapsed'>(() => {
+    try {
+      const v = localStorage.getItem('androscrn.nav');
+      return v === 'expanded' || v === 'collapsed' ? v : 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const setNavPreference = (v: 'auto' | 'expanded' | 'collapsed') => {
+    setNavPreferenceState(v);
+    try {
+      localStorage.setItem('androscrn.nav', v);
+    } catch {}
+  };
+  useEffect(() => {
+    let frame = 0;
+    const onResize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setWindowWidth(window.innerWidth));
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+  const navCollapsed = navPreference === 'collapsed' || (navPreference === 'auto' && windowWidth < NAV_AUTO_COLLAPSE_WIDTH);
+  const handleNavKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    // Move from the tab that has focus (which may differ from the selected one), falling back to the selection.
+    const focusedId = (document.activeElement as HTMLElement | null)?.id?.replace(/^tab-/, '') as TabId | undefined;
+    const idx = ALL_NAV_IDS.indexOf(focusedId && ALL_NAV_IDS.includes(focusedId) ? focusedId : (activeTab as TabId));
+    const next =
+      e.key === 'Home' ? 0 : e.key === 'End' ? ALL_NAV_IDS.length - 1 : (idx + (e.key === 'ArrowDown' ? 1 : -1) + ALL_NAV_IDS.length) % ALL_NAV_IDS.length;
+    setActiveTab(ALL_NAV_IDS[next] as any);
+    requestAnimationFrame(() => document.getElementById(`tab-${ALL_NAV_IDS[next]}`)?.focus());
+  };
+
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   useEffect(() => {
     if (!api?.getSettings) {
@@ -376,12 +490,17 @@ export default function App() {
   }, [selectedSerial, helpTargetState]);
 
   // Refresh devices and mirror status
-  const refreshDevices = async () => {
-    setIsScanning(true);
+  /**
+   * Refreshes the device list and mirroring status. `background` is the periodic poll: it does not toggle the
+   * busy indicator, keeps the previous array when nothing changed (no re-render), and skips the Captures listing,
+   * which is refreshed when a screen that shows captures is opened or after a capture.
+   */
+  const refreshDevices = async (background = false) => {
+    if (!background) setIsScanning(true);
     try {
       if (api?.getDevices) {
         const devList: AndroidDevice[] = await api.getDevices();
-        setDevices(devList);
+        setDevices(prev => (sameDeviceList(prev, devList) ? prev : devList));
         
         // Auto-select first device or maintain valid user selection using functional updater
         setSelectedSerial(current => {
@@ -400,12 +519,13 @@ export default function App() {
       // Sync mirroring status
       if (api?.getMirrorStatus) {
         const status = await api.getMirrorStatus();
-        if (status.running && !isMirroring) {
+        // isMirroringRef: the polling closure would otherwise see the value from when the timer was created.
+        if (status.running && !isMirroringRef.current) {
           setIsMirroring(true);
-        } else if (!status.running && isMirroring) {
+        } else if (!status.running && isMirroringRef.current) {
           setIsMirroring(false);
           if (status.lastError) {
-            setAlertBanner({ type: 'error', message: `Screen mirroring session exited: ${status.lastError}` });
+            setAlertBanner({ type: 'error', message: `Screen mirroring stopped: ${status.lastError}` });
           }
         }
         if (typeof status.inputControlBlocked === 'boolean') {
@@ -416,15 +536,15 @@ export default function App() {
         }
       }
 
-      // Sync captures
-      if (api?.getCaptures) {
+      // Sync captures (foreground refresh only)
+      if (!background && api?.getCaptures) {
         const existingCaptures = await api.getCaptures();
         setCaptures(existingCaptures);
       }
     } catch (e: any) {
       console.error('Device refresh error:', e);
     } finally {
-      setIsScanning(false);
+      if (!background) setIsScanning(false);
     }
   };
 
@@ -508,10 +628,19 @@ export default function App() {
     refreshSystemInfo();
     refreshMcpStatus();
 
+    // Background poll; skipped while the window is minimized or hidden, with an immediate refresh on return.
     const interval = setInterval(() => {
-      refreshDevices();
+      if (document.hidden) return;
+      refreshDevices(true);
       refreshMcpStatus();
     }, 2500);
+    const onVisible = () => {
+      if (!document.hidden) {
+        refreshDevices(true);
+        refreshMcpStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     const unsubs: Array<() => void> = [];
 
@@ -675,6 +804,7 @@ export default function App() {
 
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
       try { api?.cancelConnectionRetry?.(); } catch {}
       unsubs.forEach(cleanup => {
         try { cleanup(); } catch {}
@@ -1673,7 +1803,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-[#F3F6F8] text-[#202936] font-sans select-none overflow-hidden">
       {/* Top Application Header */}
-      <header className="h-16 border-b border-[#D9DEE5] bg-white px-5 flex items-center justify-between shrink-0 shadow-xs" role="banner">
+      <header className="min-h-16 border-b border-[#D9DEE5] bg-white px-4 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0" role="banner">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-[#0F766E] flex items-center justify-center shadow-xs" aria-hidden="true">
             <Smartphone className="w-5 h-5 text-white" />
@@ -1687,26 +1817,26 @@ export default function App() {
                 v1.0.0 Alpha
               </span>
             </div>
-            <p className="text-[11px] text-[#667085]">Windows-First Android Control & Automation Platform</p>
+            <p className="hidden lg:block text-[11px] text-[#667085]">Android control for Windows</p>
           </div>
         </div>
 
         {/* Global Device Bar */}
         <div className="flex items-center gap-3">
           {devices.length > 0 ? (
-            <div className="flex items-center gap-2 bg-white border border-[#D9DEE5] rounded-xl px-3 py-1.5 shadow-xs">
+            <div className="flex items-center gap-2 bg-white border border-[#D9DEE5] rounded-xl px-3 py-1.5 min-w-0">
               <span className={`status-pulse ${activeDevice?.state === 'device' ? 'active' : 'inactive'}`} aria-hidden="true"></span>
               <label htmlFor="global-device-select" className="sr-only">Select Android Device</label>
               <select
                 id="global-device-select"
                 value={selectedSerial}
                 onChange={e => setSelectedSerial(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-[#202936] outline-none cursor-pointer pr-2 max-w-[260px] truncate focus-visible:ring-2 focus-visible:ring-[#0F766E] rounded"
+                className="bg-transparent text-xs font-semibold text-[#202936] outline-none cursor-pointer pr-2 max-w-[clamp(140px,24vw,280px)] truncate focus-visible:ring-2 focus-visible:ring-[#0F766E] rounded"
                 aria-label="Select connected Android device"
               >
                 {devices.map(d => (
                   <option key={d.serial} value={d.serial} className="bg-white text-[#202936]">
-                    {d.alias || d.model} ({d.transportType.toUpperCase()} - {d.serial})
+                    {d.alias || d.model} · {d.transportType === 'wifi' ? 'Wi-Fi' : 'USB'} · {d.serial}
                   </option>
                 ))}
               </select>
@@ -1764,7 +1894,7 @@ export default function App() {
                 <button
                   onClick={handleCancelConnectionRetry}
                   className="text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-2.5 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1"
-                  title="Cancel active retry loop"
+                  title="Stop searching"
                   aria-label="Cancel active connection retry"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1774,8 +1904,8 @@ export default function App() {
                 <button
                   onClick={handleStartConnectionRetry}
                   className="glass-button text-[11px] font-semibold text-[#0F766E] bg-[#DDF4EF] hover:bg-[#cbf1e7] border border-[#0F766E]/40 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-                  title="Launch live ADB diagnostics in visible CMD window & retry loop"
-                  aria-label="Try Again: Launch live ADB diagnostics in Windows CMD"
+                  title="Search for the phone again and open a live diagnostics window"
+                  aria-label="Try again: search for the phone and open a diagnostics window"
                 >
                   <Terminal className="w-3.5 h-3.5 text-[#0F766E]" />
                   <span>Try Again</span>
@@ -1785,10 +1915,10 @@ export default function App() {
           )}
 
           <button
-            onClick={refreshDevices}
+            onClick={() => refreshDevices()}
             disabled={isScanning}
             className="glass-button p-2 text-[#202936] hover:bg-[#F3F6F8] min-h-[38px] min-w-[38px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
-            title="Scan for Devices (ADB)"
+            title="Refresh device list"
             aria-label="Scan for connected Android devices via ADB"
           >
             <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin text-[#0F766E]' : ''}`} aria-hidden="true" />
@@ -1798,7 +1928,7 @@ export default function App() {
 
       {/* Alert Guidance Banner */}
       {alertBanner && (
-        <div className="mx-4 mt-3" role="status" aria-live="polite">
+        <div className="mx-3 mt-2" role="status" aria-live="polite">
           <div
             className={`px-4 py-2.5 rounded-xl text-xs flex items-center justify-between border transition-all ${
               alertBanner.type === 'error'
@@ -1849,7 +1979,7 @@ export default function App() {
 
       {/* Pending AI Pairing Requests (Human-in-the-Loop Gatekeeper) */}
       {mcpStatus.pendingRequests && mcpStatus.pendingRequests.length > 0 && (
-        <div className="mx-4 mt-3 space-y-2" role="region" aria-label="Pending AI Pairing Handshake Requests" id="mcp-pairing-requests-container">
+        <div className="mx-3 mt-2 space-y-2" role="region" aria-label="Pending AI Pairing Handshake Requests" id="mcp-pairing-requests-container">
           {mcpStatus.pendingRequests.map(req => (
             <div
               key={req.requestId}
@@ -1896,177 +2026,91 @@ export default function App() {
       )}
 
       {/* Main Layout Container */}
-      <div className="flex-1 flex gap-4 p-4 overflow-hidden">
-        {/* Sidebar Nav */}
-        <nav className="w-60 glass-panel p-3 flex flex-col justify-between shrink-0" aria-label="Workbench navigation" role="tablist">
-          <div className="space-y-1">
-            <div className="text-[11px] font-bold text-[#84909E] uppercase tracking-wider px-3 py-2" id="nav-workbench-heading">
-              Workbench
-            </div>
-
-            <button
-              onClick={() => setActiveTab('mirror')}
-              role="tab"
-              aria-selected={activeTab === 'mirror'}
-              aria-controls="main-tab-panel"
-              id="tab-mirror"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'mirror'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Smartphone className={`w-4 h-4 ${activeTab === 'mirror' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Screen Mirroring</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('camera')}
-              role="tab"
-              aria-selected={activeTab === 'camera'}
-              aria-controls="main-tab-panel"
-              id="tab-camera"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'camera'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Video className={`w-4 h-4 ${activeTab === 'camera' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Camera Studio</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('wireless')}
-              role="tab"
-              aria-selected={activeTab === 'wireless'}
-              aria-controls="main-tab-panel"
-              id="tab-wireless"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'wireless'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Wifi className={`w-4 h-4 ${activeTab === 'wireless' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Wireless & Hotspot</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('media')}
-              role="tab"
-              aria-selected={activeTab === 'media'}
-              aria-controls="main-tab-panel"
-              id="tab-media"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'media'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Camera className={`w-4 h-4 ${activeTab === 'media' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Media & Captures</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('documents')}
-              role="tab"
-              aria-selected={activeTab === 'documents'}
-              aria-controls="main-tab-panel"
-              id="tab-documents"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'documents'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <FileText className={`w-4 h-4 ${activeTab === 'documents' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Documents & OCR</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('diagnostics')}
-              role="tab"
-              aria-selected={activeTab === 'diagnostics'}
-              aria-controls="main-tab-panel"
-              id="tab-diagnostics"
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'diagnostics'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Activity className={`w-4 h-4 ${activeTab === 'diagnostics' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Diagnostics & Logs</span>
-            </button>
-
-            <div className="pt-3 text-[11px] font-bold text-[#84909E] uppercase tracking-wider px-3 py-2">
-              Advanced (Preview)
-            </div>
-
-            <button
-              onClick={() => setActiveTab('workflow')}
-              role="tab"
-              aria-selected={activeTab === 'workflow'}
-              aria-controls="main-tab-panel"
-              id="tab-workflow"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'workflow'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Layers className={`w-4 h-4 ${activeTab === 'workflow' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Workflow Runner</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('ai')}
-              role="tab"
-              aria-selected={activeTab === 'ai'}
-              aria-controls="main-tab-panel"
-              id="tab-ai"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[40px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'ai'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8]'
-              }`}
-            >
-              <Bot className={`w-4 h-4 ${activeTab === 'ai' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>Local AI Assistant</span>
-            </button>
+      <div className="flex-1 min-h-0 flex gap-3 p-3 overflow-hidden">
+        {/* Sidebar navigation: full labels on wide windows, an icon rail on narrow ones (or when the user collapses it). */}
+        <nav
+          className={`glass-panel p-2 flex flex-col justify-between shrink-0 overflow-y-auto transition-[width] duration-200 ${navCollapsed ? 'w-[60px]' : 'w-56'}`}
+          aria-label="Main navigation"
+          role="tablist"
+          aria-orientation="vertical"
+          onKeyDown={handleNavKeyDown}
+        >
+          <div className="space-y-0.5">
+            {NAV_SECTIONS.map(section => (
+              <div key={section.title} className="space-y-0.5">
+                {navCollapsed ? (
+                  <div className="h-px bg-[#D9DEE5] mx-2 my-2 first:hidden" aria-hidden="true" />
+                ) : (
+                  <div className="text-[11px] font-semibold text-[#667085] uppercase tracking-wide px-3 pt-3 pb-1">{section.title}</div>
+                )}
+                {section.items.map(item => (
+                  <NavItem key={item.id} item={item} active={activeTab === item.id} collapsed={navCollapsed} onSelect={setActiveTab} />
+                ))}
+              </div>
+            ))}
           </div>
 
-          <div className="pt-2 border-t border-[#D9DEE5]">
+          <div className="pt-2 mt-2 border-t border-[#D9DEE5] space-y-0.5">
+            <NavItem item={ABOUT_NAV_ITEM} active={activeTab === 'about'} collapsed={navCollapsed} onSelect={setActiveTab} />
             <button
-              onClick={() => setActiveTab('about')}
-              role="tab"
-              aria-selected={activeTab === 'about'}
-              aria-controls="main-tab-panel"
-              id="tab-about"
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all min-h-[38px] focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer ${
-                activeTab === 'about'
-                  ? 'bg-[#DDF4EF] text-[#0F766E] border border-[#0F766E]/30 shadow-xs'
-                  : 'text-[#667085] hover:text-[#202936]'
-              }`}
+              type="button"
+              onClick={() => setNavPreference(navCollapsed ? 'expanded' : 'collapsed')}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs text-[#667085] hover:text-[#202936] hover:bg-[#F3F6F8] min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
+              aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             >
-              <Shield className={`w-4 h-4 ${activeTab === 'about' ? 'text-[#0F766E]' : 'text-[#667085]'}`} aria-hidden="true" />
-              <span>About & Licenses</span>
+              {navCollapsed ? <PanelLeftOpen className="w-4 h-4" aria-hidden="true" /> : <PanelLeftClose className="w-4 h-4" aria-hidden="true" />}
+              {!navCollapsed && <span>Collapse</span>}
             </button>
           </div>
         </nav>
 
         {/* Content View Area */}
-        <main id="main-content" className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+        <main id="main-content" className="relative flex-1 min-w-0 flex flex-col gap-4 overflow-y-auto overflow-x-hidden pr-1" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+          {devices.length === 0 && activeTab !== 'about' && (
+            <div className="glass-panel p-5 flex flex-wrap items-center gap-4" data-testid="no-device-state">
+              <div className="w-10 h-10 rounded-xl bg-[#F3F6F8] flex items-center justify-center shrink-0" aria-hidden="true">
+                <Usb className="w-5 h-5 text-[#667085]" />
+              </div>
+              <div className="flex-1 min-w-[220px]">
+                <h2 className="text-sm font-semibold text-[#202936]">
+                  {retryState.active ? 'Looking for your phone…' : 'No phone connected'}
+                </h2>
+                <p className="text-xs text-[#667085] mt-0.5">
+                  {retryState.active
+                    ? retryState.message || 'Keep the phone unlocked and accept "Allow USB debugging" if it asks.'
+                    : 'Connect your phone with a USB data cable, turn on USB debugging in Developer options, and accept the prompt on the phone. You can also connect over Wi-Fi.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {retryState.active ? (
+                  <button type="button" onClick={handleCancelConnectionRetry} className="glass-button text-xs min-h-[38px]">
+                    Stop searching
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={handleStartConnectionRetry} className="glass-button glass-button-primary text-xs min-h-[38px]">
+                      <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                      Try again
+                    </button>
+                    <button type="button" onClick={() => setActiveTab('wireless')} className="glass-button text-xs min-h-[38px]">
+                      <Wifi className="w-3.5 h-3.5" aria-hidden="true" />
+                      Connect over Wi-Fi
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {/* TAB 1: SCREEN MIRRORING */}
           {activeTab === 'mirror' && (
             <div className="space-y-4">
               {/* Primary Mirror Control Card */}
               <div className="glass-panel p-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-bold tracking-tight text-[#202936]">Screen Mirroring Studio</h2>
+                      <h2 className="text-xl font-bold tracking-tight text-[#202936]">Screen Mirroring</h2>
                       {isMirroring ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#DCFCE7] border border-[#15803D]/30 text-[#15803D]">
                           <span className="status-pulse active"></span> Live ({formatSeconds(sessionDuration)})
@@ -2078,7 +2122,7 @@ export default function App() {
                       )}
                     </div>
                     <p className="text-xs text-[#667085] mt-1">
-                      Direct display streaming via official scrcpy 5.0.1 engine with hardware decoding and audio forwarding.
+                      Mirror and control your phone's screen in its own window. Phone audio plays on this PC.
                     </p>
                   </div>
 
@@ -2096,7 +2140,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={handleStopMirror}
-                          className="glass-button glass-button-danger px-6 py-2.5 text-sm min-h-[44px] flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-[#B91C1C] cursor-pointer"
+                          className="glass-button glass-button-danger px-6 py-2.5 text-sm min-h-[44px] flex items-center gap-2 whitespace-nowrap focus-visible:ring-2 focus-visible:ring-[#B91C1C] cursor-pointer"
                           aria-label="Stop screen mirroring session"
                         >
                           <Square className="w-4 h-4 fill-white" aria-hidden="true" />
@@ -2113,7 +2157,7 @@ export default function App() {
                         aria-label="Start screen mirroring session"
                         aria-disabled={!isDeviceReady}
                       >
-                        <Play className="w-4 h-4 fill-white" aria-hidden="true" />
+                        <Play className="w-4 h-4 fill-white whitespace-nowrap" aria-hidden="true" />
                         <span>Start Mirroring</span>
                       </button>
                     )}
@@ -2223,10 +2267,10 @@ export default function App() {
 
                 {/* Quality Presets */}
                 <div className="mt-6 pt-5 border-t border-[#D9DEE5]">
-                  <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3" id="quality-preset-label">
+                  <div className="text-xs font-bold text-[#667085] uppercase tracking-wider mb-3" id="quality-preset-label">
                     Quality Presets
                   </div>
-                  <div className="grid grid-cols-4 gap-3" role="radiogroup" aria-labelledby="quality-preset-label">
+                  <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-3" role="radiogroup" aria-labelledby="quality-preset-label">
                     {[
                       { key: 'ultra', title: 'Ultra Quality', desc: 'Native res · 16 Mbps · 60 FPS' },
                       { key: 'high_performance', title: 'High Performance', desc: '1080p · 12 Mbps · 60 FPS' },
@@ -2259,7 +2303,7 @@ export default function App() {
                 </div>
 
                 {/* Feature Toggles */}
-                <div className="mt-5 grid grid-cols-3 gap-3">
+                <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
                   <label htmlFor="toggle-turn-screen-off" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
                     <input
                       id="toggle-turn-screen-off"
@@ -2270,7 +2314,7 @@ export default function App() {
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-[#202936]">Turn Phone Screen Off</div>
-                      <div className="text-[#667085] text-[10px]">Save battery while streaming (-S)</div>
+                      <div className="text-[#667085] text-[10px]">Saves battery while mirroring</div>
                     </div>
                   </label>
 
@@ -2284,7 +2328,7 @@ export default function App() {
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-[#202936]">Stay Awake While Plugged</div>
-                      <div className="text-[#667085] text-[10px]">Prevents device sleep timeout (-w)</div>
+                      <div className="text-[#667085] text-[10px]">Keeps the phone awake while it is charging</div>
                     </div>
                   </label>
 
@@ -2298,7 +2342,7 @@ export default function App() {
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-[#202936]">Record Video Stream (MP4)</div>
-                      <div className="text-[#667085] text-[10px]">Save directly to Captures/ via scrcpy</div>
+                      <div className="text-[#667085] text-[10px]">Saves an MP4 file to the Captures folder</div>
                     </div>
                   </label>
 
@@ -2312,7 +2356,7 @@ export default function App() {
                     />
                     <div className="text-xs">
                       <div className="font-semibold text-[#202936]">Always on Top</div>
-                      <div className="text-[#667085] text-[10px]">Pin window above all apps (--always-on-top)</div>
+                      <div className="text-[#667085] text-[10px]">Keeps the phone window above other windows</div>
                     </div>
                   </label>
 
@@ -2325,9 +2369,9 @@ export default function App() {
                         className="w-full text-xs bg-white border border-[#D9DEE5] rounded-lg px-2 py-1 text-[#202936] cursor-pointer"
                         title="Select keyboard and mouse input injection method"
                       >
-                        <option value="auto">Auto (Default SDK)</option>
-                        <option value="uhid">UHID (Hardware Emulation - Best for Xiaomi)</option>
-                        <option value="sdk">SDK (Standard Android Injection)</option>
+                        <option value="auto">Automatic (standard input)</option>
+                        <option value="uhid">Hardware keyboard & mouse (UHID) — best for Xiaomi</option>
+                        <option value="sdk">Standard Android input (SDK)</option>
                       </select>
                     </div>
                   </div>
@@ -2353,8 +2397,8 @@ export default function App() {
 
               {/* Hardware Remote Control Bar */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3">
-                  Quick Navigation & Device Controls ({activeDevice ? activeDevice.model : 'No Target'})
+                <div className="text-xs font-bold text-[#667085] uppercase tracking-wider mb-3">
+                  Phone buttons{activeDevice ? ` · ${activeDevice.alias || activeDevice.model}` : ''}
                 </div>
                 <div className="flex flex-wrap gap-2.5" role="toolbar" aria-label="Device quick navigation controls">
                   <button
@@ -2440,12 +2484,12 @@ export default function App() {
                         </span>
                       ) : (
                         <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[#F3F6F8] text-[#667085] border border-[#D9DEE5]" role="status">
-                          Camera Idle
+                          Camera off
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-[#667085] mt-1">
-                      Direct low-latency Android camera preview via scrcpy Camera2 Direct3D11 streaming. Zero APK required.
+                      Use the phone's camera on this PC: in a separate window (nothing to install), or inside AndroScrn with the AndroScrn Camera companion app.
                     </p>
                   </div>
 
@@ -2457,7 +2501,7 @@ export default function App() {
                       title="Refresh Camera Hardware Capabilities"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isQueryingCameras ? 'animate-spin text-[#0F766E]' : ''}`} aria-hidden="true" />
-                      <span>{isQueryingCameras ? 'Scanning Cameras...' : 'Query Sensors'}</span>
+                      <span>{isQueryingCameras ? 'Detecting cameras…' : 'Detect cameras'}</span>
                     </button>
 
                     <button
@@ -2488,7 +2532,7 @@ export default function App() {
                     }`}
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Scrcpy Native Direct3D11</span>
+                    <span>Separate window</span>
                   </button>
 
                   <button
@@ -2503,10 +2547,7 @@ export default function App() {
                     }`}
                   >
                     <Smartphone className="w-3.5 h-3.5" />
-                    <span>Camera Companion App</span>
-                    <span className="text-[10px] bg-[#DDF4EF] text-[#0F766E] px-1.5 py-0.5 rounded border border-[#0F766E]/20">
-                      Phase 6
-                    </span>
+                    <span>In-app preview</span>
                   </button>
                 </div>
 
@@ -2552,10 +2593,7 @@ export default function App() {
                       <div className="flex items-center justify-between flex-wrap gap-3">
                         <div className="flex items-center gap-2.5">
                           <Video className="w-4 h-4 text-[#0F766E]" />
-                          <h3 className="text-sm font-bold text-[#202936]">Live Camera Preview Viewport</h3>
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1]" title="Camera mode streams sensor video directly. Use Screen Mirroring Studio for interactive touchscreen and app control.">
-                            Sensor Stream Only
-                          </span>
+                          <h3 className="text-sm font-bold text-[#202936]">Camera preview</h3>
                           {isCameraRunning ? (
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#DCFCE7] text-[#15803D] border border-[#15803D]/30 flex items-center gap-1.5" role="status">
                               <span className="w-2 h-2 rounded-full bg-[#15803D] animate-pulse"></span>
@@ -2587,10 +2625,10 @@ export default function App() {
                           <button
                             onClick={() => setActiveTab('mirror')}
                             className="glass-button px-2.5 py-1.5 text-[#202936] hover:bg-[#F3F6F8] min-h-[32px] flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-                            title="Switch to Screen Mirroring Studio for phone control and apps"
+                            title="Go to Screen Mirroring"
                           >
                             <Smartphone className="w-3.5 h-3.5 text-[#0F766E]" />
-                            <span>Mirroring Studio</span>
+                            <span>Screen Mirroring</span>
                           </button>
 
                           {isCameraRunning && (
@@ -2645,8 +2683,8 @@ export default function App() {
                       <div
                         className={`relative w-full rounded-2xl overflow-hidden border border-[#D9DEE5] bg-[#F8FAFC] flex flex-col items-center justify-center transition-all duration-300 ${
                           cameraPreviewExpanded
-                            ? 'aspect-video min-h-[440px] max-h-[640px]'
-                            : 'aspect-video min-h-[260px] max-h-[380px]'
+                            ? 'aspect-video min-h-[320px] max-h-[640px]'
+                            : 'min-h-[200px] py-8'
                         }`}
                       >
                         {/* Optical Viewfinder Corner Brackets */}
@@ -2662,9 +2700,9 @@ export default function App() {
                               <Camera className="w-7 h-7" />
                             </div>
                             <div>
-                              <h4 className="text-sm font-bold text-[#202936]">Camera Preview Idle</h4>
+                              <h4 className="text-sm font-bold text-[#202936]">Camera is off</h4>
                               <p className="text-xs text-[#667085] mt-0.5 max-w-md mx-auto">
-                                Low-latency Direct3D11 streaming through scrcpy Camera2 mode.
+                                When you start the camera, it opens in its own window.
                               </p>
                             </div>
                             <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
@@ -2705,7 +2743,7 @@ export default function App() {
                         {isCameraRunning && (
                           <div className="w-full h-full relative flex flex-col justify-between p-4 z-10 bg-radial from-transparent to-black/5">
                             {/* Top HUD */}
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                               <div className="flex items-center gap-2 bg-black/70 backdrop-blur-xs text-white px-3 py-1.5 rounded-xl text-xs font-mono">
                                 <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
                                 <span className="font-bold text-red-400">REC / LIVE</span>
@@ -2829,7 +2867,7 @@ export default function App() {
                       {/* Expandable Diagnostics Drawer */}
                       {showCameraDiagnostics && (
                         <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#D9DEE5] space-y-3 animate-in fade-in duration-200">
-                          <div className="flex items-center justify-between">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
                               <Terminal className="w-4 h-4 text-[#0F766E]" />
                               <span className="text-xs font-bold text-[#202936]">Camera Studio Diagnostics & Recent Stderr</span>
@@ -2895,14 +2933,14 @@ export default function App() {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Left Column: Stream Configuration & Sensor Selection */}
                   <div className="lg:col-span-7 space-y-5">
-                    {/* Camera Sensor Selector (Physical Lens Switching) */}
+                    {/* Camera Sensor Selector (Choose a camera) */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label htmlFor="camera-select" className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                        <label htmlFor="camera-select" className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                           <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Optical Lens / Camera Sensor</span>
                         </label>
-                        <span className="text-[11px] text-[#667085]">Physical Lens Switching</span>
+                        <span className="text-[11px] text-[#667085]">Choose a camera</span>
                       </div>
 
                       {cameraCaps && cameraCaps.cameras.length > 0 ? (
@@ -2928,8 +2966,8 @@ export default function App() {
                         </select>
                       ) : (
                         <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs text-[#667085] flex items-center justify-between">
-                          <span>{isQueryingCameras ? 'Probing camera sensors...' : 'Camera 0 (Default Back Camera)'}</span>
-                          <span className="text-[10px] uppercase font-bold text-[#84909E]">Auto-Detect</span>
+                          <span>{isQueryingCameras ? 'Detecting cameras…' : 'Camera 0 (Default Back Camera)'}</span>
+                          <span className="text-[10px] uppercase font-bold text-[#667085]">Auto-Detect</span>
                         </div>
                       )}
                     </div>
@@ -2938,7 +2976,7 @@ export default function App() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Resolution Selector */}
                       <div>
-                        <label htmlFor="camera-resolution-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-resolution-select" className="block text-xs font-bold text-[#667085] uppercase tracking-wider mb-2">
                           Capture Resolution
                         </label>
                         <select
@@ -2965,7 +3003,7 @@ export default function App() {
 
                       {/* Frame Rate (FPS) Selector */}
                       <div>
-                        <label htmlFor="camera-fps-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-fps-select" className="block text-xs font-bold text-[#667085] uppercase tracking-wider mb-2">
                           Target Frame Rate
                         </label>
                         <select
@@ -2993,7 +3031,7 @@ export default function App() {
                     {/* Aspect Ratio & High Speed */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label htmlFor="camera-ar-select" className="block text-xs font-bold text-[#84909E] uppercase tracking-wider mb-2">
+                        <label htmlFor="camera-ar-select" className="block text-xs font-bold text-[#667085] uppercase tracking-wider mb-2">
                           Aspect Ratio
                         </label>
                         <select
@@ -3006,7 +3044,7 @@ export default function App() {
                           <option value="auto">Auto (Sensor Native)</option>
                           <option value="16:9">16:9 (Widescreen Video)</option>
                           <option value="4:3">4:3 (Classic Photo)</option>
-                          <option value="sensor">Sensor Sensor Ratio</option>
+                          <option value="sensor">Camera default</option>
                         </select>
                       </div>
 
@@ -3026,7 +3064,7 @@ export default function App() {
 
                     {/* PC-Side Recording Toggle */}
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                         <label className="flex items-center gap-2 text-xs font-bold text-[#202936] cursor-pointer">
                           <input
                             id="record-camera-checkbox"
@@ -3038,18 +3076,15 @@ export default function App() {
                           />
                           <span>Record Camera Stream to MP4 on PC</span>
                         </label>
-                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
-                          Hardware MP4
-                        </span>
                       </div>
                       <p className="text-[11px] text-[#667085]">
-                        Saves lossless hardware-encoded video directly to the local <code className="text-[#202936] font-mono">Captures/</code> folder with zero dropped frames.
+                        Saves an MP4 video of the camera to the Captures folder.
                       </p>
                     </div>
 
                     {/* Auto-Reconnect Toggle for Xiaomi / HyperOS Preemption */}
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                         <label className="flex items-center gap-2 text-xs font-bold text-[#202936] cursor-pointer">
                           <input
                             id="camera-auto-reconnect-checkbox"
@@ -3058,14 +3093,11 @@ export default function App() {
                             onChange={(e) => setCameraAutoReconnect(e.target.checked)}
                             className="rounded border-[#D9DEE5] text-[#0F766E] focus:ring-[#0F766E] w-4 h-4 accent-[#0F766E]"
                           />
-                          <span>Auto-Reconnect on Screen Wake / Face Unlock</span>
+                          <span>Reconnect automatically if the camera is interrupted</span>
                         </label>
-                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
-                          HyperOS Shield
-                        </span>
                       </div>
                       <p className="text-[11px] text-[#667085]">
-                        Automatically recovers the stream if Xiaomi HyperOS evicts the camera when waking the screen (max 5 retries with rate-limiting).
+                        Restarts the camera automatically if the phone takes it away, for example when the screen wakes or Face Unlock runs (up to 5 attempts).
                       </p>
                     </div>
 
@@ -3126,8 +3158,8 @@ export default function App() {
                   <div className="lg:col-span-5 space-y-5">
                     {/* Digital Zoom Control Card */}
                     <div className="glass-panel p-4 space-y-3.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <label className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                           <Sliders className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Digital Zoom Control</span>
                         </label>
@@ -3137,7 +3169,7 @@ export default function App() {
                       </div>
 
                       <p className="text-[11px] text-[#667085]">
-                        Adjust focal crop within the active sensor. Verified sensor range: <span className="text-[#202936] font-mono">1.0x – 10.0x</span>.
+                        Digital zoom from <span className="text-[#202936] font-mono">1.0x</span> to <span className="text-[#202936] font-mono">10.0x</span>. Some cameras support less.
                       </p>
 
                       {/* Zoom Buttons (+ / -) */}
@@ -3181,7 +3213,7 @@ export default function App() {
                           className="w-full accent-[#0F766E] cursor-pointer disabled:opacity-50"
                           aria-label="Camera digital zoom slider"
                         />
-                        <div className="flex justify-between text-[10px] text-[#84909E] font-mono mt-1">
+                        <div className="flex justify-between text-[10px] text-[#667085] font-mono mt-1">
                           <span>1.0x (Wide)</span>
                           <span>2.5x</span>
                           <span>5.0x</span>
@@ -3215,7 +3247,7 @@ export default function App() {
                     {/* Torch & Flashlight Card */}
                     <div className="glass-panel p-4 flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                        <div className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                           <Flashlight className="w-3.5 h-3.5 text-[#B45309]" />
                           <span>Camera Torch (Flash)</span>
                         </div>
@@ -3251,23 +3283,20 @@ export default function App() {
 
                     {/* Snapshots & Captures Info */}
                     <div className="glass-panel p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                           <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                           <span>Snapshots & Captures</span>
                         </span>
-                        <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
-                          Verified Status
-                        </span>
                       </div>
                       <p className="text-[11px] text-[#667085] leading-relaxed">
-                        Continuous PC recording is <strong className="text-[#15803D]">verified</strong> via the MP4 recording toggle. Direct single-frame PNG capture during live Camera2 streaming is unsupported by scrcpy's CLI transport; full photo capture will be provided via the dedicated CameraX companion APK.
+                        In this mode you can record the camera to an MP4 file. Single photos are not available in the separate window; switch to the in-app preview (companion app) to take full-resolution photos.
                       </p>
                     </div>
 
                     {/* In-App Keyboard Shortcuts Reference */}
                     <div className="glass-panel p-4 space-y-2.5">
-                      <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                         <Key className="w-3.5 h-3.5 text-[#0F766E]" />
                         <span>Live Preview Shortcuts</span>
                       </div>
@@ -3304,7 +3333,7 @@ export default function App() {
                         <div>
                           <div className="flex items-center gap-2.5">
                             <Smartphone className="w-5 h-5 text-[#0F766E]" />
-                            <h3 className="text-base font-bold text-[#202936]">AndroScrn Companion App Connection</h3>
+                            <h3 className="text-base font-bold text-[#202936]">Companion app</h3>
                             <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
                               companionPaired
                                 ? 'bg-[#DCFCE7] text-[#15803D] border-[#15803D]/30'
@@ -3613,17 +3642,14 @@ export default function App() {
                       <div className="lg:col-span-4 space-y-4">
                         {/* Remote Shutter / Still Snapshot Card */}
                         <div className="glass-panel p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                               <Camera className="w-3.5 h-3.5 text-[#0F766E]" />
                               <span>Full-Res Still Capture</span>
                             </span>
-                            <span className="text-[10px] uppercase font-bold text-[#0F766E] bg-[#DDF4EF] px-2 py-0.5 rounded border border-[#0F766E]/20">
-                              CameraX
-                            </span>
                           </div>
                           <p className="text-[11px] text-[#667085]">
-                            Captures uncompressed 48MP/12MP photo directly on sensor and transfers it instantly to desktop without interrupting live stream.
+                            Takes a full-resolution JPEG photo with the phone's camera and saves it to the Captures folder. The preview keeps running.
                           </p>
                           <button
                             id="btn-companion-snapshot"
@@ -3638,7 +3664,7 @@ export default function App() {
 
                         {/* Physical Lens Flip & Torch Controls */}
                         <div className="glass-panel p-4 space-y-3">
-                          <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <div className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                             <Sliders className="w-3.5 h-3.5 text-[#0F766E]" />
                             <span>Optics & Hardware Controls</span>
                           </div>
@@ -3683,8 +3709,8 @@ export default function App() {
 
                         {/* Live Smooth Zoom Slider */}
                         <div className="glass-panel p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-[#84909E] uppercase tracking-wider flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-xs font-bold text-[#667085] uppercase tracking-wider flex items-center gap-1.5">
                               <ZoomIn className="w-3.5 h-3.5 text-[#0F766E]" />
                               <span>Digital Zoom</span>
                             </span>
@@ -3705,7 +3731,7 @@ export default function App() {
                             disabled={!companionPaired}
                             className="w-full accent-[#0F766E] bg-[#D9DEE5] h-2 rounded-lg cursor-pointer disabled:opacity-50"
                           />
-                          <div className="flex justify-between text-[10px] font-mono text-[#84909E]">
+                          <div className="flex justify-between text-[10px] font-mono text-[#667085]">
                             <span>1.0x (Wide)</span>
                             <span>2.0x</span>
                             <span>4.0x</span>
@@ -3717,13 +3743,13 @@ export default function App() {
                         <div className="glass-panel p-4 space-y-2 text-[11px] text-[#667085] leading-relaxed">
                           <div className="font-bold text-[#202936] flex items-center gap-1.5">
                             <ShieldCheck className="w-3.5 h-3.5 text-[#15803D]" />
-                            <span>Security & Privacy Architecture</span>
+                            <span>Privacy & security</span>
                           </div>
                           <ul className="list-disc list-inside space-y-1 text-[#667085]">
-                            <li>Loopback only (`127.0.0.1:8080`) — no open Wi-Fi ports.</li>
-                            <li>6-digit challenge PIN with brute-force lockout (3 attempts).</li>
-                            <li>Camera watermark & active indicator visible on phone.</li>
-                            <li>Session automatically expires upon cable unplug or disconnect.</li>
+                            <li>Reachable only through the USB (ADB) connection — no network ports are opened.</li>
+                            <li>Pairing needs the 6-digit PIN shown on the phone; 3 wrong attempts cancel it.</li>
+                            <li>The phone shows a LIVE banner and the camera image while you are watching.</li>
+                            <li>Disconnecting ends the session and turns the phone camera off.</li>
                           </ul>
                         </div>
                       </div>
@@ -3738,9 +3764,6 @@ export default function App() {
                       <div className="flex items-center gap-2.5">
                         <Grid className="w-5 h-5 text-[#0F766E]" />
                         <h3 className="text-base font-bold text-[#202936]">Lab & Optical Inspection Tools</h3>
-                        <span className="text-[10px] font-bold uppercase bg-[#DDF4EF] text-[#0F766E] px-2 py-0.5 rounded border border-[#0F766E]/20">
-                          Phase 7.1 Active
-                        </span>
                       </div>
                       <p className="text-xs text-[#667085] mt-1">
                         Precision alignment reticles, non-destructive overlays, side-by-side golden sample comparison, and automated timelapse recording.
@@ -3775,7 +3798,7 @@ export default function App() {
                       </div>
 
                       <div>
-                        <label htmlFor="inspection-overlay-select" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
+                        <label htmlFor="inspection-overlay-select" className="block text-[11px] font-semibold text-[#667085] mb-1.5">
                           Overlay Pattern
                         </label>
                         <select
@@ -3795,7 +3818,7 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="inspection-color-select" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
+                          <label htmlFor="inspection-color-select" className="block text-[11px] font-semibold text-[#667085] mb-1.5">
                             Color
                           </label>
                           <select
@@ -3814,7 +3837,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label htmlFor="inspection-opacity-slider" className="block text-[11px] font-semibold text-[#84909E] mb-1.5">
+                          <label htmlFor="inspection-opacity-slider" className="block text-[11px] font-semibold text-[#667085] mb-1.5">
                             Opacity ({Math.round(overlayOpacity * 100)}%)
                           </label>
                           <input
@@ -3857,7 +3880,7 @@ export default function App() {
 
                     {/* Column 2: Side-by-Side Reference Comparison */}
                     <div className="space-y-4 p-4 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-xs font-bold text-[#202936] uppercase tracking-wider">
                           <Layers className="w-4 h-4 text-[#0F766E]" />
                           <span>Golden Sample Compare</span>
@@ -3888,7 +3911,7 @@ export default function App() {
 
                         {refCompEnabled && (
                           <div className="space-y-2 pt-2">
-                            <label htmlFor="ref-comp-mode-select" className="block text-[11px] font-semibold text-[#84909E]">
+                            <label htmlFor="ref-comp-mode-select" className="block text-[11px] font-semibold text-[#667085]">
                               Comparison Layout
                             </label>
                             <select
@@ -3903,7 +3926,7 @@ export default function App() {
                             </select>
 
                             <div>
-                              <label htmlFor="ref-comp-opacity-slider" className="block text-[11px] font-semibold text-[#84909E] mb-1">
+                              <label htmlFor="ref-comp-opacity-slider" className="block text-[11px] font-semibold text-[#667085] mb-1">
                                 Blend Ratio ({Math.round(refCompOpacity * 100)}%)
                               </label>
                               <input
@@ -3924,7 +3947,7 @@ export default function App() {
 
                     {/* Column 3: Scheduled Timelapse Engine */}
                     <div className="space-y-4 p-4 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-xs font-bold text-[#202936] uppercase tracking-wider">
                           <Clock className="w-4 h-4 text-[#B45309]" />
                           <span>Timelapse Scheduler</span>
@@ -3938,7 +3961,7 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="timelapse-interval-input" className="block text-[11px] font-semibold text-[#84909E] mb-1">
+                          <label htmlFor="timelapse-interval-input" className="block text-[11px] font-semibold text-[#667085] mb-1">
                             Interval (sec)
                           </label>
                           <input
@@ -3954,7 +3977,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label htmlFor="timelapse-frames-input" className="block text-[11px] font-semibold text-[#84909E] mb-1">
+                          <label htmlFor="timelapse-frames-input" className="block text-[11px] font-semibold text-[#667085] mb-1">
                             Total Frames
                           </label>
                           <input
@@ -4129,7 +4152,7 @@ export default function App() {
                   Under Developer Options &gt; Wireless Debugging &gt; "Pair device with pairing code", enter the 6-digit PIN and pairing port.
                 </p>
 
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
                   <div>
                     <label htmlFor="pair-ip-input" className="sr-only">Device IP Address</label>
                     <input
@@ -4222,7 +4245,7 @@ export default function App() {
 
               {/* Captures List */}
               <div className="glass-panel p-5">
-                <div className="text-xs font-bold text-[#84909E] uppercase tracking-wider mb-3">
+                <div className="text-xs font-bold text-[#667085] uppercase tracking-wider mb-3">
                   Recorded Media Files ({captures.length})
                 </div>
 
@@ -4263,7 +4286,7 @@ export default function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-10 text-[#84909E] text-xs">
+                  <div className="text-center py-10 text-[#667085] text-xs">
                     No screenshots or recordings captured yet. Use "Take High-Res Screenshot" above or enable "Record Video Stream" in the Mirror tab.
                   </div>
                 )}
@@ -4303,21 +4326,21 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 text-xs">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3 text-xs">
                   <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                    <div className="text-[10px] uppercase font-bold text-[#84909E]">ADB Engine</div>
+                    <div className="text-[10px] uppercase font-bold text-[#667085]">ADB Engine</div>
                     <div className="font-semibold text-[#202936] mt-1">{systemInfo?.adbVersion || 'Probing...'}</div>
                     <div className="font-mono text-[9px] text-[#667085] truncate mt-1">{systemInfo?.adbPath || 'bundled'}</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                    <div className="text-[10px] uppercase font-bold text-[#84909E]">scrcpy Engine</div>
+                    <div className="text-[10px] uppercase font-bold text-[#667085]">scrcpy Engine</div>
                     <div className="font-semibold text-[#202936] mt-1">{systemInfo?.scrcpyVersion || 'scrcpy 5.0.1'}</div>
                     <div className="font-mono text-[9px] text-[#667085] truncate mt-1">{systemInfo?.scrcpyPath || 'bundled'}</div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                    <div className="text-[10px] uppercase font-bold text-[#84909E]">Connected Devices</div>
+                    <div className="text-[10px] uppercase font-bold text-[#667085]">Connected Devices</div>
                     <div className="font-semibold text-[#202936] mt-1">{devices.length} Detected</div>
                     <div className="text-[10px] text-[#667085] mt-1">
                       {devices.filter(d => d.state === 'device').length} authorized / ready
@@ -4325,7 +4348,7 @@ export default function App() {
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5]">
-                    <div className="text-[10px] uppercase font-bold text-[#84909E]">Mirroring Session</div>
+                    <div className="text-[10px] uppercase font-bold text-[#667085]">Mirroring Session</div>
                     <div className="font-semibold text-[#202936] mt-1">
                       {isMirroring ? 'ACTIVE' : 'IDLE'}
                     </div>
@@ -4338,7 +4361,7 @@ export default function App() {
 
               {/* Log Stream Viewer */}
               <div className="glass-panel p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <div className="flex items-center bg-[#F3F6F8] rounded-lg p-0.5 border border-[#D9DEE5] text-xs font-semibold" role="tablist" aria-label="Log source selector">
                       <button
@@ -4366,7 +4389,7 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-2 bg-white border border-[#D9DEE5] rounded-lg px-2.5 py-1 text-xs focus-within:ring-2 focus-within:ring-[#0F766E]">
-                      <Search className="w-3.5 h-3.5 text-[#84909E]" aria-hidden="true" />
+                      <Search className="w-3.5 h-3.5 text-[#667085]" aria-hidden="true" />
                       <label htmlFor="log-filter-input" className="sr-only">Filter logs</label>
                       <input
                         id="log-filter-input"
@@ -4400,7 +4423,7 @@ export default function App() {
                         .filter(l => (logFilter ? l.message.toLowerCase().includes(logFilter.toLowerCase()) || l.tag?.toLowerCase().includes(logFilter.toLowerCase()) : true))
                         .map((l, i) => (
                           <div key={i} className="flex items-start gap-2 hover:bg-white py-0.5 px-1 rounded text-[11px] transition-colors">
-                            <span className="text-[#84909E] text-[10px] select-none">{l.timestamp}</span>
+                            <span className="text-[#667085] text-[10px] select-none">{l.timestamp}</span>
                             <span className={`px-1 rounded text-[9px] font-bold ${
                               l.level === 'E' ? 'bg-[#FEE2E2] text-[#B91C1C]' : l.level === 'W' ? 'bg-[#FEF3C7] text-[#B45309]' : 'bg-[#DDF4EF] text-[#0F766E]'
                             }`}>
@@ -4411,7 +4434,7 @@ export default function App() {
                           </div>
                         ))
                     ) : (
-                      <div className="text-[#84909E] text-center py-12">
+                      <div className="text-[#667085] text-center py-12">
                         {selectedSerial ? 'No logcat lines received. Verify device is connected and authorized.' : 'Connect an Android device to inspect device logcat stream.'}
                       </div>
                     )
@@ -4425,7 +4448,7 @@ export default function App() {
                           </div>
                         ))
                     ) : (
-                      <div className="text-[#84909E] text-center py-12">
+                      <div className="text-[#667085] text-center py-12">
                         Application runtime logs empty.
                       </div>
                     )
@@ -4540,7 +4563,7 @@ export default function App() {
                       disabled={!isDeviceReady || workflowRunning || workflowSteps.length === 0}
                       className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all ${
                         !isDeviceReady || workflowRunning || workflowSteps.length === 0
-                          ? 'bg-[#F3F6F8] text-[#84909E] cursor-not-allowed border border-[#D9DEE5]'
+                          ? 'bg-[#F3F6F8] text-[#667085] cursor-not-allowed border border-[#D9DEE5]'
                           : 'bg-[#0F766E] hover:bg-[#115E59] text-white shadow-md shadow-[#0F766E]/20 cursor-pointer border border-[#0F766E]'
                       }`}
                     >
@@ -4609,7 +4632,7 @@ export default function App() {
                         {workflowPreset === 'custom' && (
                           <button
                             onClick={() => setWorkflowSteps(prev => prev.filter((_, i) => i !== idx))}
-                            className="text-[#84909E] hover:text-[#B91C1C] transition-colors p-1 cursor-pointer"
+                            className="text-[#667085] hover:text-[#B91C1C] transition-colors p-1 cursor-pointer"
                             title="Delete step"
                             aria-label={`Delete step ${idx + 1}`}
                           >
@@ -4640,7 +4663,7 @@ export default function App() {
                       ? 'bg-[#DCFCE7]/40 border-[#15803D]/30'
                       : 'bg-[#FEE2E2]/60 border-[#B91C1C]/30'
                   } space-y-3`}>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         {isSuccess ? (
                           <CheckCircle2 className="w-5 h-5 text-[#15803D]" />
@@ -4745,7 +4768,7 @@ export default function App() {
 
               {/* Active Sessions List */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#667085] flex items-center gap-2">
                     <Key className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
                     Active AI Sessions ({mcpStatus.activeSessions?.length || 0})
@@ -4797,12 +4820,12 @@ export default function App() {
 
               {/* Live AI Action Audit Log */}
               <div className="space-y-3 pt-2" id="mcp-action-audit-section">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#667085] flex items-center gap-2">
                     <Activity className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
                     Live Action Audit Log (Token-Free &amp; Redacted)
                   </h4>
-                  <span className="text-[11px] text-[#84909E] font-mono">
+                  <span className="text-[11px] text-[#667085] font-mono">
                     Last {mcpStatus.recentAudits?.length || 0} events
                   </span>
                 </div>
@@ -4831,9 +4854,9 @@ export default function App() {
                               {item.status}
                             </span>
                             <span className="font-mono text-[#0F766E] font-semibold">{item.action}</span>
-                            <span className="text-[#84909E] text-[11px]">by</span>
+                            <span className="text-[#667085] text-[11px]">by</span>
                             <span className="text-[#202936] font-medium">{item.clientName}</span>
-                            <span className="text-[#84909E] text-[11px]">on</span>
+                            <span className="text-[#667085] text-[11px]">on</span>
                             <span className="font-mono text-[#667085] text-[11px]">{item.serial}</span>
                           </div>
                           <div className="flex items-center gap-3 text-[#667085] text-[11px]">
@@ -4842,7 +4865,7 @@ export default function App() {
                                 {item.details}
                               </span>
                             )}
-                            <span className="text-[#84909E] font-mono text-[10px]">
+                            <span className="text-[#667085] font-mono text-[10px]">
                               {new Date(item.timestamp).toLocaleTimeString()}
                             </span>
                           </div>
@@ -4892,10 +4915,10 @@ export default function App() {
                 <div>
                   <h3 className="text-base font-bold text-[#202936] flex items-center gap-2">
                     <Shield className="w-4 h-4 text-[#0F766E]" />
-                    About AndroScrn &amp; Governance
+                    About AndroScrn
                   </h3>
                   <p className="text-xs text-[#667085] mt-1">
-                    Independent, local-first Android engineering workbench for Windows.
+                    Local-first Android control for Windows. Everything stays on your PC.
                   </p>
                 </div>
 
@@ -4940,19 +4963,6 @@ export default function App() {
                   >
                     Terms of Use
                   </button>
-                  <button
-                    onClick={() => setAboutSubTab('submission')}
-                    role="tab"
-                    aria-selected={aboutSubTab === 'submission'}
-                    id="btn-subtab-submission"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      aboutSubTab === 'submission'
-                        ? 'bg-[#0F766E] text-white shadow-sm'
-                        : 'text-[#667085] hover:text-[#202936]'
-                    }`}
-                  >
-                    Store Readiness
-                  </button>
                 </div>
               </div>
 
@@ -4987,53 +4997,41 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Architecture Notice */}
-                  <div className="p-3.5 rounded-xl bg-[#DDF4EF]/40 border border-[#0F766E]/20 text-xs text-[#202936] space-y-1.5">
-                    <div className="font-semibold text-[#0F766E] flex items-center gap-2">
-                      <Info className="w-3.5 h-3.5 text-[#0F766E]" />
-                      Architecture Designation: Provisional Electron Distribution
-                    </div>
-                    <div className="text-[11px] text-[#667085] leading-relaxed">
-                      The approved target product baseline is Tauri 2 + Rust + React/TypeScript with an MCP stdio server.
-                      This standalone build is packaged as an Electron 31 distribution due to host toolchain constraints (no local Rust compiler).
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">scrcpy (v5.0.1)</div>
                       <div className="text-[#667085] text-[11px] mt-1">Copyright © Genymobile · Apache License 2.0</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
+                      <div className="text-[#667085] text-[10px] mt-1">SDL3, libavcodec, libavformat, libavutil, libusb</div>
                     </div>
 
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">Android Debug Bridge (ADB v1.0.41)</div>
                       <div className="text-[#667085] text-[11px] mt-1">Copyright © Google AOSP · Apache License 2.0</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">Platform Tools v37.0.1</div>
+                      <div className="text-[#667085] text-[10px] mt-1">Platform Tools v37.0.1</div>
                     </div>
 
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">Electron &amp; Chromium</div>
                       <div className="text-[#667085] text-[11px] mt-1">Copyright © Electron Contributors · MIT License</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">Runtime Version v31.7.7</div>
+                      <div className="text-[#667085] text-[10px] mt-1">Runtime Version v31.7.7</div>
                     </div>
 
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">REA (Reverse Engineer Anything)</div>
                       <div className="text-[#667085] text-[11px] mt-1">Copyright © morluto · MIT License</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">Research &amp; Architecture Reference</div>
+                      <div className="text-[#667085] text-[10px] mt-1">Research &amp; Architecture Reference</div>
                     </div>
 
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">Tesseract.js OCR (v7.0.0)</div>
                       <div className="text-[#667085] text-[11px] mt-1">Copyright © Tesseract Contributors · Apache 2.0</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">WebAssembly local OCR engine, zero network calls</div>
+                      <div className="text-[#667085] text-[10px] mt-1">WebAssembly local OCR engine, zero network calls</div>
                     </div>
 
                     <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] hover:border-[#0F766E]/30 transition-colors">
                       <div className="font-semibold text-[#202936]">Android Companion</div>
-                      <div className="text-[#667085] text-[11px] mt-1">CameraX (Apache 2.0) &amp; NanoHTTPD (BSD-3)</div>
-                      <div className="text-[#84909E] text-[10px] mt-1">Loopback 127.0.0.1:8080 streaming helper</div>
+                      <div className="text-[#667085] text-[11px] mt-1">CameraX &amp; Gson (Apache 2.0)</div>
+                      <div className="text-[#667085] text-[10px] mt-1">In-app camera preview over the USB connection</div>
                     </div>
                   </div>
 
@@ -5100,7 +5098,7 @@ export default function App() {
 
                   <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
                     <span>Maintainer Privacy Contact: <strong className="text-[#202936]">[MAINTAINER_CONTACT_PLACEHOLDER: privacy@androscrn.org]</strong></span>
-                    <span className="text-[#84909E]">Document: docs/privacy-policy.md</span>
+                    <span className="text-[#667085]">Document: docs/privacy-policy.md</span>
                   </div>
                 </div>
               )}
@@ -5150,65 +5148,12 @@ export default function App() {
 
                   <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
                     <span>Maintainer Legal Contact: <strong className="text-[#202936]">[MAINTAINER_CONTACT_PLACEHOLDER: legal@androscrn.org]</strong></span>
-                    <span className="text-[#84909E]">Document: docs/terms-of-use.md</span>
+                    <span className="text-[#667085]">Document: docs/terms-of-use.md</span>
                   </div>
                 </div>
               )}
 
               {/* SUBTAB 4: ANDROID STORE READINESS */}
-              {aboutSubTab === 'submission' && (
-                <div className="space-y-4">
-                  <div className="p-3.5 rounded-xl bg-[#DCFCE7]/40 border border-[#15803D]/30 text-xs text-[#202936]">
-                    <div className="font-semibold text-[#15803D] flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-[#15803D]" />
-                      Google Play Store &amp; F-Droid Submission Readiness
-                    </div>
-                    <div className="text-[11px] text-[#667085] mt-1">
-                      AndroScrn Companion (com.androscrn.companion) audit status for Android store compliance.
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
-                      <div className="text-[#15803D] font-semibold text-[11px]">DATA SAFETY</div>
-                      <div className="text-[#202936] font-bold">Zero Data Collected</div>
-                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
-                        Questionnaire responses: No data collected, no data shared with third parties. Ephemeral in-memory frame processing only.
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
-                      <div className="text-[#0F766E] font-semibold text-[11px]">TARGET PLATFORM</div>
-                      <div className="text-[#202936] font-bold">Target SDK 34 (Android 14)</div>
-                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
-                        Fully compliant with Google Play target API requirements. Min SDK 26 (Android 8.0 Oreo). 64-bit architecture neutral.
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] space-y-1">
-                      <div className="text-[#0F766E] font-semibold text-[11px]">USER ACCOUNTS</div>
-                      <div className="text-[#202936] font-bold">Policy Exempt</div>
-                      <div className="text-[#667085] text-[11px] mt-1 leading-relaxed">
-                        No user account creation or cloud login infrastructure. Google Play account deletion requirement is non-applicable.
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-xs text-[#202936] space-y-1.5">
-                    <div className="font-semibold text-[#202936]">Permissions Justification &amp; Prominent Disclosure:</div>
-                    <div className="text-[11px] text-[#667085] leading-relaxed">
-                      • <span className="font-mono text-[#0F766E]">android.permission.CAMERA</span>: Foreground CameraX capture; requested dynamically with in-app explanation.<br/>
-                      • <span className="font-mono text-[#0F766E]">android.permission.INTERNET</span>: Bound strictly to loopback <span className="font-mono">127.0.0.1:8080</span> for ADB port-forwarding.<br/>
-                      • <span className="font-mono text-[#0F766E]">android.permission.ACCESS_NETWORK_STATE</span>: Local interface inspection.
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-white border border-[#D9DEE5] text-[11px] text-[#667085] flex items-center justify-between">
-                    <span>AAB Release Signing Guide &amp; Store Metadata Ready</span>
-                    <span className="text-[#84909E]">Document: docs/android-submission-readiness.md</span>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </main>

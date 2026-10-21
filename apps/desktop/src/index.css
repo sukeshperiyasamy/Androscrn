@@ -52,6 +52,14 @@
   box-sizing: border-box;
 }
 
+/* Full-window app shell: only designated regions (e.g. #main-content) scroll, never the page itself. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--color-surface-secondary);

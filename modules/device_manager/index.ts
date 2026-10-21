@@ -76,6 +76,15 @@ export function getDeviceStateGuidance(state: AndroidDevice['state']): string {
 export class DeviceManager {
   private adbPath: string;
   private aliases: Map<string, string> = new Map();
+  /**
+   * The UI polls the device list every few seconds. System properties never change while a phone stays
+   * connected, and battery level changes slowly, so both are cached per serial instead of spawning
+   * `adb shell getprop` and `dumpsys battery` on every poll. Entries are dropped when the device
+   * disappears or stops being authorized, so a reconnect always reads fresh values.
+   */
+  private propsCache: Map<string, DeviceProperties> = new Map();
+  private batteryCache: Map<string, { level: number | undefined; at: number }> = new Map();
+  static readonly BATTERY_CACHE_MS = 30_000;
 
   constructor(adbPath: string) {
     this.adbPath = adbPath;
@@ -316,14 +325,22 @@ export class DeviceManager {
   public async getDevices(): Promise<AndroidDevice[]> {
     const result = await this.executeAdb(['devices', '-l']);
     const devices = this.parseDevicesOutput(result.stdout);
+    this.pruneCaches(devices);
 
-    // Concurrently probe battery for authorized devices with bounded timeout
+    // Concurrently probe battery for authorized devices with bounded timeout (cached, see batteryCache)
+    const now = Date.now();
     await Promise.allSettled(
       devices
         .filter(d => d.state === 'device')
         .map(async d => {
+          const cached = this.batteryCache.get(d.serial);
+          if (cached && now - cached.at < DeviceManager.BATTERY_CACHE_MS) {
+            if (cached.level !== undefined) d.batteryLevel = cached.level;
+            return;
+          }
           try {
             const battery = await this.getBatteryLevel(d.serial);
+            this.batteryCache.set(d.serial, { level: battery, at: Date.now() });
             if (battery !== undefined) {
               d.batteryLevel = battery;
             }
@@ -346,7 +363,12 @@ export class DeviceManager {
       devices
         .filter(d => d.state === 'device')
         .map(async d => {
-          const props = await this.getDeviceProperties(d.serial);
+          let props = this.propsCache.get(d.serial);
+          if (!props) {
+            props = await this.getDeviceProperties(d.serial);
+            // Only cache a successful read; an empty result (timeout, transient error) is retried next poll.
+            if (Object.keys(props).length > 0) this.propsCache.set(d.serial, props);
+          }
           if (props.manufacturer) d.manufacturer = props.manufacturer;
           if (props.brand) d.brand = props.brand;
           if (props.androidVersion) d.androidVersion = props.androidVersion;
@@ -356,6 +378,13 @@ export class DeviceManager {
         })
     );
     return devices;
+  }
+
+  /** Drops cached properties/battery for devices that are gone or no longer authorized. */
+  private pruneCaches(devices: AndroidDevice[]): void {
+    const ready = new Set(devices.filter(d => d.state === 'device').map(d => d.serial));
+    for (const serial of [...this.propsCache.keys()]) if (!ready.has(serial)) this.propsCache.delete(serial);
+    for (const serial of [...this.batteryCache.keys()]) if (!ready.has(serial)) this.batteryCache.delete(serial);
   }
 
   /**

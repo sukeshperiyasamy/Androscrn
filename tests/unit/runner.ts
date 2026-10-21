@@ -22,6 +22,7 @@ import { runConnectionRetryUnitTests } from './connection-retry.test';
 import { runGracefulStopUnitTests } from './graceful-stop.test';
 import { runSettingsStoreUnitTests } from './settings-store.test';
 import { runCompanionManagerUnitTests, runCompanionClientDefaultsTests } from './companion-manager.test';
+import { runDeviceCacheUnitTests } from './device-cache.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -340,6 +341,7 @@ OFFLINE_DEV_1          offline transport_id:4
   await runSettingsStoreUnitTests(assert, assertEqual);
   await runCompanionManagerUnitTests(assert, assertEqual);
   await runCompanionClientDefaultsTests(assert);
+  await runDeviceCacheUnitTests(assert, assertEqual);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);
