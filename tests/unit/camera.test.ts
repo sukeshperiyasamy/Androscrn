@@ -298,17 +298,17 @@ scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>
   console.log('\n--- Camera Studio: HyperOS Face Unlock & Preemption Diagnostics ---');
 
   // 8. Focus camera window rejected when idle
-  const idleFocus = cameraManager.focusCameraWindow();
+  const idleFocus = await cameraManager.focusCameraWindow();
   assert(!idleFocus.success, 'focusCameraWindow rejected safely when session is idle');
   assert(idleFocus.message.includes('not active'), 'Returns informative not active message');
 
-  // 9. Focus camera window returns success when process active
+  // 9. Focus camera window reports failure when window cannot be found or activated
   const activeFocusMgr = new CameraManager(mockScrcpyPath, mockConnectedDm);
   (activeFocusMgr as any).currentProcess = { pid: 9999, killed: false, exitCode: null };
   (activeFocusMgr as any).currentSerial = 'focus_serial';
-  const activeFocus = activeFocusMgr.focusCameraWindow();
-  assert(activeFocus.success === true, 'focusCameraWindow succeeds when process running');
-  assert(activeFocus.message.includes('foreground'), 'Returns window brought to foreground message');
+  const activeFocus = await activeFocusMgr.focusCameraWindow();
+  assert(activeFocus.success === false, 'focusCameraWindow reports failure when window cannot be found or activated');
+  assert(activeFocus.message.includes('Could not activate') || activeFocus.message.includes('not active'), 'Returns informative message when window not found');
 
   // 10. Preemption Regex detects Xiaomi HyperOS Face Unlock eviction signatures
   const hyperOsLogSnippet = `

@@ -2,6 +2,7 @@
   "name": "androscrn",
   "version": "1.0.0-alpha.1",
   "description": "Next-Generation Android Control & Automation Platform for Windows",
+  "homepage": "https://sukeshperiyasamy.github.io/Androscrn",
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit && npm --prefix apps/desktop exec tsc -- --noEmit",

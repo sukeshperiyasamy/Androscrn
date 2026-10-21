@@ -165,6 +165,13 @@ boot_dev_7             bootloader usb:1-7 transport_id:8
   assertEqual(focusIdleRes.success, false, 'focusMirrorWindow on idle session returns success: false');
   assert(focusIdleRes.message?.includes('not active') === true, 'Idle focus error explains missing session');
 
+  // When session process is mock and window cannot be found or activated, reports failure
+  (inputTestMgr as any).currentProcess = { pid: 99999, killed: false, exitCode: null };
+  const focusNotFoundRes = await inputTestMgr.focusMirrorWindow();
+  assertEqual(focusNotFoundRes.success, false, 'focusMirrorWindow reports failure when window cannot be found or activated');
+  assert(focusNotFoundRes.message?.includes('Could not activate') === true, 'Focus error explains window not found');
+  (inputTestMgr as any).currentProcess = null;
+
   // Verify initial status has inputControlBlocked === false
   const inputInitStatus = inputTestMgr.getStatus();
   assertEqual(inputInitStatus.inputControlBlocked, false, 'Initial inputControlBlocked is false');

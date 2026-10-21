@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
@@ -770,27 +770,42 @@ export class CameraManager extends EventEmitter {
   /**
    * Focuses the native scrcpy Camera Studio window on Windows.
    */
-  public focusCameraWindow(): { success: boolean; message: string } {
-    if (!this.currentProcess || this.currentProcess.killed) {
-      return { success: false, message: 'Camera preview is not active.' };
+  public focusCameraWindow(): Promise<{ success: boolean; message: string }> {
+    if (!this.currentProcess || this.currentProcess.killed || this.currentProcess.exitCode !== null) {
+      return Promise.resolve({ success: false, message: 'Camera preview is not active.' });
     }
     const windowTitle = this.currentOptions?.windowTitle || `AndroScrn Camera Studio - ${this.currentSerial}`;
-    try {
-      const psScript = `
-        Add-Type -AssemblyName System.Windows.Forms
-        $wshell = New-Object -ComObject Wscript.Shell
-        if ($wshell.AppActivate('${windowTitle}')) {
-          # Window brought to foreground
-        }
-      `;
-      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
-        windowsHide: true,
-        stdio: 'ignore'
-      });
-      return { success: true, message: `Brought "${windowTitle}" to foreground.` };
-    } catch (err: any) {
-      return { success: false, message: `Failed to focus camera window: ${err.message}` };
-    }
+    const safeTitle = windowTitle.replace(/'/g, "''");
+    const pid = this.currentProcess.pid;
+
+    return new Promise((resolve) => {
+      try {
+        const psScript = `
+          Add-Type -AssemblyName System.Windows.Forms
+          $wshell = New-Object -ComObject Wscript.Shell
+          $activated = $false
+          if (${pid || 0}) {
+            $activated = $wshell.AppActivate(${pid || 0})
+          }
+          if (-not $activated) {
+            $activated = $wshell.AppActivate('${safeTitle}')
+          }
+          if ($activated) { exit 0 } else { exit 1 }
+        `;
+        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+          windowsHide: true,
+          timeout: 4000
+        }, (error) => {
+          if (!error) {
+            resolve({ success: true, message: `Brought "${windowTitle}" to foreground.` });
+          } else {
+            resolve({ success: false, message: `Could not activate camera window "${windowTitle}". It may be minimized or not yet created.` });
+          }
+        });
+      } catch (err: any) {
+        resolve({ success: false, message: `Failed to focus camera window: ${err?.message || err}` });
+      }
+    });
   }
 
   /**

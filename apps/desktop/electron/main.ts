@@ -152,6 +152,15 @@ function createWindow() {
     }
   });
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      const { shell } = require('electron');
+      shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+
   const devUrl = 'http://localhost:5173';
   const prodIndexCandidates = [
     path.join(app.getAppPath(), 'dist', 'index.html'),
@@ -234,9 +243,9 @@ ipcMain.handle('get-mirror-status', () => {
   }
 });
 
-ipcMain.handle('focus-mirror-window', () => {
+ipcMain.handle('focus-mirror-window', async () => {
   try {
-    return scrcpyManager.focusMirrorWindow();
+    return await scrcpyManager.focusMirrorWindow();
   } catch (err: any) {
     appLog('ERROR', 'Error focusing mirror window', err?.message || err);
     return { success: false, message: err?.message || 'Failed to focus mirror window' };
@@ -401,9 +410,9 @@ ipcMain.handle('send-camera-torch', async (_, payload) => {
   }
 });
 
-ipcMain.handle('focus-camera-window', () => {
+ipcMain.handle('focus-camera-window', async () => {
   try {
-    return cameraManager.focusCameraWindow();
+    return await cameraManager.focusCameraWindow();
   } catch (err: any) {
     appLog('ERROR', 'Error focusing camera window', err?.message || err);
     return { success: false, message: err?.message || 'Failed to focus camera window' };
@@ -786,6 +795,20 @@ ipcMain.handle('open-path', async (_, targetPath: string) => {
     return false;
   } catch (err: any) {
     appLog('ERROR', 'Error opening path: ' + targetPath, err?.message || err);
+    return false;
+  }
+});
+
+ipcMain.handle('open-external', async (_, url: string) => {
+  try {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      const { shell } = require('electron');
+      await shell.openExternal(url);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    appLog('ERROR', 'Error opening external URL: ' + url, err?.message || err);
     return false;
   }
 });

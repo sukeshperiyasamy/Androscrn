@@ -149,6 +149,9 @@ export default function App() {
   const [showTouches, setShowTouches] = useState(false);
   const [noAudio, setNoAudio] = useState(false);
   const [windowBorderless, setWindowBorderless] = useState(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [inputMode, setInputMode] = useState<'auto' | 'sdk' | 'uhid'>('auto');
+  const [captureOrientation, setCaptureOrientation] = useState<'0' | '90' | '180' | '270'>('0');
   const [sessionDuration, setSessionDuration] = useState(0);
   const [isOperating, setIsOperating] = useState(false);
   const [inputControlBlocked, setInputControlBlocked] = useState(false);
@@ -1077,6 +1080,10 @@ export default function App() {
           showTouches,
           noAudio,
           windowBorderless,
+          alwaysOnTop,
+          captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
+          keyboardMode: inputMode === 'uhid' ? 'uhid' : (inputMode === 'sdk' ? 'sdk' : undefined),
+          mouseMode: inputMode === 'uhid' ? 'uhid' : (inputMode === 'sdk' ? 'sdk' : undefined),
           recordPath: recordMirrorSession ? recordFilename : undefined
         });
 
@@ -1112,6 +1119,36 @@ export default function App() {
       if (res?.message) {
         setAlertBanner({ type: 'info', message: res.message });
       }
+    }
+  };
+
+  const handleSwitchToUhid = async () => {
+    setInputMode('uhid');
+    setInputControlBlocked(false);
+    if (isMirroring && api?.stopMirroring && api?.startMirroring) {
+      await api.stopMirroring();
+      setTimeout(async () => {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const recordFilename = `recording_${selectedSerial.replace(/[:.]/g, '_')}_${timestamp}.mp4`;
+        await api?.startMirroring({
+          serial: selectedSerial,
+          preset: qualityPreset,
+          turnScreenOff,
+          stayAwake,
+          fullscreen,
+          showTouches,
+          noAudio,
+          windowBorderless,
+          alwaysOnTop,
+          captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
+          keyboardMode: 'uhid',
+          mouseMode: 'uhid',
+          recordPath: recordMirrorSession ? recordFilename : undefined
+        });
+        setAlertBanner({ type: 'success', message: 'Switched to UHID Hardware Emulation mode. Laptop keyboard and mouse control enabled.' });
+      }, 400);
+    } else {
+      setAlertBanner({ type: 'info', message: 'Input mode set to UHID Hardware Emulation. Next session will use UHID mode.' });
     }
   };
 
@@ -1795,6 +1832,16 @@ export default function App() {
                               <li><em>Note: Xiaomi requires an active SIM card and logged-in Mi Account to enable this toggle.</em></li>
                               <li>Restart screen mirroring once enabled.</li>
                             </ol>
+                            <div className="mt-3 pt-2 border-t border-amber-200/80 flex items-center justify-between flex-wrap gap-2">
+                              <span className="text-[11px] text-amber-900 font-medium">Or bypass OEM restrictions using kernel-level UHID hardware emulation:</span>
+                              <button
+                                onClick={handleSwitchToUhid}
+                                className="px-3 py-1.5 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                              >
+                                <Zap className="w-3.5 h-3.5" />
+                                <span>Switch to UHID Emulation Mode</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1905,6 +1952,53 @@ export default function App() {
                       <div className="text-[#667085] text-[10px]">Save directly to Captures/ via scrcpy</div>
                     </div>
                   </label>
+
+                  <label htmlFor="toggle-always-on-top" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
+                    <input
+                      id="toggle-always-on-top"
+                      type="checkbox"
+                      checked={alwaysOnTop}
+                      onChange={e => setAlwaysOnTop(e.target.checked)}
+                      className="accent-[#0F766E] w-4 h-4 rounded cursor-pointer"
+                    />
+                    <div className="text-xs">
+                      <div className="font-semibold text-[#202936]">Always on Top</div>
+                      <div className="text-[#667085] text-[10px]">Pin window above all apps (--always-on-top)</div>
+                    </div>
+                  </label>
+
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] transition-all">
+                    <div className="text-xs w-full">
+                      <div className="font-semibold text-[#202936] mb-1">Input Control Mode</div>
+                      <select
+                        value={inputMode}
+                        onChange={e => setInputMode(e.target.value as any)}
+                        className="w-full text-xs bg-white border border-[#D9DEE5] rounded-lg px-2 py-1 text-[#202936] cursor-pointer"
+                        title="Select keyboard and mouse input injection method"
+                      >
+                        <option value="auto">Auto (Default SDK)</option>
+                        <option value="uhid">UHID (Hardware Emulation - Best for Xiaomi)</option>
+                        <option value="sdk">SDK (Standard Android Injection)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] transition-all">
+                    <div className="text-xs w-full">
+                      <div className="font-semibold text-[#202936] mb-1">Display Orientation</div>
+                      <select
+                        value={captureOrientation}
+                        onChange={e => setCaptureOrientation(e.target.value as any)}
+                        className="w-full text-xs bg-white border border-[#D9DEE5] rounded-lg px-2 py-1 text-[#202936] cursor-pointer"
+                        title="Lock or rotate display streaming orientation"
+                      >
+                        <option value="0">Default (Portrait / Auto)</option>
+                        <option value="90">Landscape (90° Clockwise)</option>
+                        <option value="180">Inverted Portrait (180°)</option>
+                        <option value="270">Reverse Landscape (270°)</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -4421,6 +4515,34 @@ export default function App() {
               {/* SUBTAB 1: OVERVIEW & LICENSES */}
               {aboutSubTab === 'licenses' && (
                 <div className="space-y-4">
+                  {/* Official Documentation & Website Banner */}
+                  <div className="p-4 rounded-xl bg-white border border-[#D9DEE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+                    <div>
+                      <div className="font-semibold text-[#202936] flex items-center gap-1.5">
+                        <ExternalLink className="w-3.5 h-3.5 text-[#0F766E]" />
+                        Official Website &amp; Documentation
+                      </div>
+                      <p className="text-[11px] text-[#667085] mt-1">
+                        Explore interactive guides, Camera Studio manual, MCP automation reference, and web workbench at <strong className="text-[#0F766E]">sukeshperiyasamy.github.io/Androscrn</strong>.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = 'https://sukeshperiyasamy.github.io/Androscrn';
+                        if (api?.openExternal) {
+                          api.openExternal(url);
+                        } else {
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-white text-xs font-semibold shadow-xs transition-colors w-fit focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer shrink-0"
+                    >
+                      <span>Visit Documentation</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+
                   {/* Architecture Notice */}
                   <div className="p-3.5 rounded-xl bg-[#DDF4EF]/40 border border-[#0F766E]/20 text-xs text-[#202936] space-y-1.5">
                     <div className="font-semibold text-[#0F766E] flex items-center gap-2">

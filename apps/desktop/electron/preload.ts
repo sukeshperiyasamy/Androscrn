@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   captureScreenshot: (serial: string) => ipcRenderer.invoke('capture-screenshot', { serial }),
   getCaptures: () => ipcRenderer.invoke('get-captures'),
   openPath: (targetPath: string) => ipcRenderer.invoke('open-path', targetPath),
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   getRecentLogs: (serial: string) => ipcRenderer.invoke('get-recent-logs', { serial }),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   getDiagnosticReport: (serial?: string) => ipcRenderer.invoke('get-diagnostic-report', { serial }),

@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
@@ -19,6 +19,13 @@ export interface ScrcpyOptions {
   windowBorderless?: boolean;
   recordPath?: string;
   windowTitle?: string;
+  keyboardMode?: 'sdk' | 'uhid' | 'aoa' | 'disabled';
+  mouseMode?: 'sdk' | 'uhid' | 'aoa' | 'disabled';
+  alwaysOnTop?: boolean;
+  captureOrientation?: '0' | '90' | '180' | '270' | 'flip0' | 'flip90' | 'flip180' | 'flip270';
+  newDisplay?: string;
+  audioSource?: 'output' | 'playback' | 'mic';
+  audioDup?: boolean;
 }
 
 export interface ScrcpyProcessStatus {
@@ -152,6 +159,34 @@ export class ScrcpyManager extends EventEmitter {
       args.push(`--record=${options.recordPath}`);
     }
 
+    if (options.keyboardMode && ['sdk', 'uhid', 'aoa', 'disabled'].includes(options.keyboardMode)) {
+      args.push(`--keyboard=${options.keyboardMode}`);
+    }
+
+    if (options.mouseMode && ['sdk', 'uhid', 'aoa', 'disabled'].includes(options.mouseMode)) {
+      args.push(`--mouse=${options.mouseMode}`);
+    }
+
+    if (options.alwaysOnTop) {
+      args.push('--always-on-top');
+    }
+
+    if (options.captureOrientation && ['0', '90', '180', '270', 'flip0', 'flip90', 'flip180', 'flip270'].includes(options.captureOrientation)) {
+      args.push(`--capture-orientation=${options.captureOrientation}`);
+    }
+
+    if (options.newDisplay && /^\d{3,4}x\d{3,4}(\/\d{2,3})?$/.test(options.newDisplay)) {
+      args.push(`--new-display=${options.newDisplay}`, '-x');
+    }
+
+    if (options.audioSource && ['output', 'playback', 'mic'].includes(options.audioSource)) {
+      args.push(`--audio-source=${options.audioSource}`);
+    }
+
+    if (options.audioDup) {
+      args.push('--audio-dup');
+    }
+
     args.push(`--window-title=${options.windowTitle || 'AndroScrn Display'}`);
 
     return args;
@@ -280,27 +315,42 @@ export class ScrcpyManager extends EventEmitter {
   /**
    * Focuses the native scrcpy interactive mirroring window on Windows
    */
-  public focusMirrorWindow(): { success: boolean; message: string } {
+  public focusMirrorWindow(): Promise<{ success: boolean; message: string }> {
     if (!this.currentProcess || this.currentProcess.killed || this.currentProcess.exitCode !== null) {
-      return { success: false, message: 'Screen mirroring is not active.' };
+      return Promise.resolve({ success: false, message: 'Screen mirroring is not active.' });
     }
     const windowTitle = this.currentOptions?.windowTitle || 'AndroScrn Display';
-    try {
-      const psScript = `
-        Add-Type -AssemblyName System.Windows.Forms
-        $wshell = New-Object -ComObject Wscript.Shell
-        if ($wshell.AppActivate('${windowTitle}')) {
-          # Window brought to foreground
-        }
-      `;
-      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
-        windowsHide: true,
-        stdio: 'ignore'
-      });
-      return { success: true, message: `Brought "${windowTitle}" to foreground.` };
-    } catch (err: any) {
-      return { success: false, message: `Failed to focus mirror window: ${err.message}` };
-    }
+    const safeTitle = windowTitle.replace(/'/g, "''");
+    const pid = this.currentProcess.pid;
+
+    return new Promise((resolve) => {
+      try {
+        const psScript = `
+          Add-Type -AssemblyName System.Windows.Forms
+          $wshell = New-Object -ComObject Wscript.Shell
+          $activated = $false
+          if (${pid || 0}) {
+            $activated = $wshell.AppActivate(${pid || 0})
+          }
+          if (-not $activated) {
+            $activated = $wshell.AppActivate('${safeTitle}')
+          }
+          if ($activated) { exit 0 } else { exit 1 }
+        `;
+        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
+          windowsHide: true,
+          timeout: 4000
+        }, (error) => {
+          if (!error) {
+            resolve({ success: true, message: `Brought "${windowTitle}" to foreground.` });
+          } else {
+            resolve({ success: false, message: `Could not activate mirror window "${windowTitle}". It may be minimized or not yet created.` });
+          }
+        });
+      } catch (err: any) {
+        resolve({ success: false, message: `Failed to focus mirror window: ${err?.message || err}` });
+      }
+    });
   }
 
   /**

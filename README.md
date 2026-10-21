@@ -2,8 +2,11 @@
 
 **An open-source Windows workbench for inspecting, mirroring and (with your approval) automating Android devices.**
 
+[![Website](https://img.shields.io/badge/Website-sukeshperiyasamy.github.io%2FAndroscrn-0F766E.svg)](https://sukeshperiyasamy.github.io/Androscrn)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![AndroScrn CI](https://github.com/sukeshperiyasamy/Androscrn/actions/workflows/ci.yml/badge.svg)](https://github.com/sukeshperiyasamy/Androscrn/actions/workflows/ci.yml)
+
+🌐 **Official Website & Documentation:** [https://sukeshperiyasamy.github.io/Androscrn](https://sukeshperiyasamy.github.io/Androscrn)
 
 > **Status: alpha (v1.0.0-alpha.1).** Expect rough edges. See [Limitations](#supported-platforms-and-limitations).
 

@@ -150,6 +150,37 @@ OFFLINE_DEV_1          offline transport_id:4
   assert(recordArgs.includes('--record=C:\\Captures\\test.mp4'), 'Record path argument added');
   assert(recordArgs.includes('--no-audio'), 'No audio flag added');
 
+  const parityArgs = sm.buildArguments({
+    serial: 'emulator-5554',
+    keyboardMode: 'uhid',
+    mouseMode: 'uhid',
+    alwaysOnTop: true,
+    captureOrientation: '90',
+    newDisplay: '1920x1080',
+    audioSource: 'mic',
+    audioDup: true
+  });
+
+  assert(parityArgs.includes('--keyboard=uhid'), 'Keyboard mode --keyboard=uhid added');
+  assert(parityArgs.includes('--mouse=uhid'), 'Mouse mode --mouse=uhid added');
+  assert(parityArgs.includes('--always-on-top'), 'Always on top flag added');
+  assert(parityArgs.includes('--capture-orientation=90'), 'Capture orientation flag added');
+  assert(parityArgs.includes('--new-display=1920x1080'), 'New display flag added');
+  assert(parityArgs.includes('-x'), 'Flex display flag -x added with new display');
+  assert(parityArgs.includes('--audio-source=mic'), 'Audio source mic flag added');
+  assert(parityArgs.includes('--audio-dup'), 'Audio dup flag added');
+
+  // Rejection of invalid inputs
+  const invalidParityArgs = sm.buildArguments({
+    serial: 'emulator-5554',
+    keyboardMode: 'invalid_mode' as any,
+    captureOrientation: 'invalid_angle' as any,
+    newDisplay: 'bad;injection'
+  });
+  assert(!invalidParityArgs.some(a => a.startsWith('--keyboard=invalid')), 'Invalid keyboard mode safely rejected');
+  assert(!invalidParityArgs.some(a => a.startsWith('--capture-orientation=invalid')), 'Invalid orientation safely rejected');
+  assert(!invalidParityArgs.some(a => a.startsWith('--new-display=bad')), 'Invalid new-display injection safely rejected');
+
   // 4. Missing Binaries & Graceful Failure Handling
   console.log('\nTest Group 4: Missing Binaries & Error Handling');
   const missingAdbDm = new DeviceManager('C:\\path\\does\\not\\exist\\adb_missing.exe');

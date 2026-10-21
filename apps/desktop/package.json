@@ -1,6 +1,7 @@
 {
   "name": "androscrn-desktop",
   "version": "1.0.0-alpha.1",
+  "homepage": "https://sukeshperiyasamy.github.io/Androscrn",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
