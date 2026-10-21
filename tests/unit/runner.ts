@@ -23,6 +23,7 @@ import { runGracefulStopUnitTests } from './graceful-stop.test';
 import { runSettingsStoreUnitTests } from './settings-store.test';
 import { runCompanionManagerUnitTests, runCompanionClientDefaultsTests } from './companion-manager.test';
 import { runDeviceCacheUnitTests } from './device-cache.test';
+import { runCameraStartupUnitTests } from './camera-startup.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -342,6 +343,7 @@ OFFLINE_DEV_1          offline transport_id:4
   await runCompanionManagerUnitTests(assert, assertEqual);
   await runCompanionClientDefaultsTests(assert);
   await runDeviceCacheUnitTests(assert, assertEqual);
+  await runCameraStartupUnitTests(assert);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);

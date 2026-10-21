@@ -142,6 +142,17 @@ function pickDefaultCameraFps(fpsList: number[]): number {
   return fpsList.includes(30) ? 30 : fpsList[fpsList.length - 1];
 }
 
+/**
+ * High-speed capture only exists at specific sizes and frame rates (typically 120 FPS), listed per camera.
+ * Returns the configuration to request, preferring the selected resolution when the camera offers it at high speed.
+ */
+export function pickHighSpeedConfig(camera: CameraDeviceInfo | undefined, preferredSize: string): { size: string; fps: number } | null {
+  const modes = camera?.highSpeedSizes?.filter(m => m.fps.length > 0) ?? [];
+  if (modes.length === 0) return null;
+  const mode = modes.find(m => m.size === preferredSize) ?? modes[0];
+  return { size: mode.size, fps: Math.max(...mode.fps) };
+}
+
 /** True when two device lists would render identically (avoids re-rendering the app on every poll). */
 function sameDeviceList(a: AndroidDevice[], b: AndroidDevice[]): boolean {
   if (a.length !== b.length) return false;
@@ -278,6 +289,13 @@ export default function App() {
   const [showCameraDiagnostics, setShowCameraDiagnostics] = useState<boolean>(false);
   const [cameraAutoReconnect, setCameraAutoReconnect] = useState<boolean>(true);
   const [cameraRecentStderr, setCameraRecentStderr] = useState<string[]>([]);
+  const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+  // A camera without a high-speed mode cannot keep the (now disabled) high-speed option switched on.
+  useEffect(() => {
+    if (cameraHighSpeed && cameraCaps && !pickHighSpeedConfig(cameraCaps.cameras.find(c => c.id === selectedCameraId), selectedResolution)) {
+      setCameraHighSpeed(false);
+    }
+  }, [selectedCameraId, cameraCaps, cameraHighSpeed, selectedResolution]);
   const [cameraExitCode, setCameraExitCode] = useState<number | null>(null);
   const [cameraExitReason, setCameraExitReason] = useState<string | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState<boolean>(false);
@@ -740,6 +758,7 @@ export default function App() {
         if (Array.isArray(data.recentStderr)) {
           setCameraRecentStderr(data.recentStderr);
         }
+        setCameraErrorMessage(data.status === 'error' && data.lastError ? data.lastError : null);
         if (data.status === 'interrupted' || data.exitReason === 'camera_preempted') {
           setCameraPreempted(true);
           setIsReconnectingCamera(false);
@@ -982,12 +1001,31 @@ export default function App() {
 
       setAlertBanner({ type: 'info', message: `Launching Camera Studio for ${activeDevice?.model || selectedSerial}...` });
 
+      let startSize: string | undefined = selectedResolution || undefined;
+      let startFps: number | undefined = selectedFps || undefined;
+      if (cameraHighSpeed) {
+        const selectedInfo = cameraCaps?.cameras.find(c => c.id === selectedCameraId);
+        const hs = pickHighSpeedConfig(selectedInfo, selectedResolution);
+        if (!hs) {
+          setAlertBanner({
+            type: 'error',
+            message: cameraCaps
+              ? 'This camera has no high-speed mode. Choose another camera or turn off High-Speed Capture.'
+              : 'Detect cameras first so AndroScrn can find a high-speed mode for this camera.'
+          });
+          return;
+        }
+        startSize = hs.size;
+        startFps = hs.fps;
+      }
+
       if (api?.startCamera) {
+        setCameraErrorMessage(null);
         const res = await api.startCamera({
           serial: selectedSerial,
           cameraId: selectedCameraId,
-          size: selectedResolution || undefined,
-          fps: selectedFps || undefined,
+          size: startSize,
+          fps: startFps,
           zoom: cameraZoom,
           torch: cameraTorch,
           highSpeed: cameraHighSpeed,
@@ -2846,10 +2884,19 @@ export default function App() {
                               <AlertCircle className="w-6 h-6" />
                             </div>
                             <div>
-                              <h4 className="text-sm font-bold text-red-800">Camera Preview Launch Failed</h4>
-                              <p className="text-xs text-red-700 mt-1 leading-relaxed">
-                                {cameraRecentStderr[cameraRecentStderr.length - 1] || 'Unable to open camera sensor. Please ensure no other application is using the camera.'}
+                              <h4 className="text-sm font-bold text-red-800">The camera could not start</h4>
+                              <p className="text-xs text-red-700 mt-1 leading-relaxed max-w-md mx-auto">
+                                {cameraErrorMessage || 'Unable to open the camera. Make sure no other app is using it.'}
                               </p>
+                              {cameraRecentStderr.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowCameraDiagnostics(true)}
+                                  className="mt-1 text-[11px] text-red-700 underline cursor-pointer"
+                                >
+                                  Show technical details
+                                </button>
+                              )}
                             </div>
                             <div className="pt-1 flex items-center justify-center gap-2">
                               <button
@@ -2857,7 +2904,7 @@ export default function App() {
                                 className="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                               >
                                 <RefreshCw className="w-3.5 h-3.5" />
-                                <span>Retry Launch</span>
+                                <span>Try again</span>
                               </button>
                             </div>
                           </div>
@@ -3054,11 +3101,18 @@ export default function App() {
                             type="checkbox"
                             checked={cameraHighSpeed}
                             onChange={(e) => setCameraHighSpeed(e.target.checked)}
-                            disabled={isCameraRunning}
+                            disabled={isCameraRunning || (!!cameraCaps && !pickHighSpeedConfig(cameraCaps.cameras.find(c => c.id === selectedCameraId), selectedResolution))}
                             className="rounded border-[#D9DEE5] text-[#0F766E] focus:ring-[#0F766E] w-4 h-4 accent-[#0F766E]"
                           />
-                          <span>High-Speed Capture (120 FPS)</span>
+                          <span>High-speed capture</span>
                         </label>
+                        <p className="text-[11px] text-[#667085] mt-1 px-1">
+                          {(() => {
+                            if (!cameraCaps) return 'Detect cameras to see if this camera supports it.';
+                            const hs = pickHighSpeedConfig(cameraCaps.cameras.find(c => c.id === selectedCameraId), selectedResolution);
+                            return hs ? `Uses ${hs.size} at ${hs.fps} FPS on this camera.` : 'Not available on this camera.';
+                          })()}
+                        </p>
                       </div>
                     </div>
 

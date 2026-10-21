@@ -75,6 +75,31 @@ export interface CameraProcessStatus {
   recentStderr?: string[];
 }
 
+/**
+ * Turns scrcpy's start-up output into a short, actionable reason. scrcpy's last line is usually a generic
+ * "Demuxer error" / "Server connection failed"; the useful line ("Camera configuration error", an unsupported
+ * size, ...) comes earlier. The raw lines stay available in the status' recentStderr for diagnostics.
+ */
+export function describeCameraStartupFailure(stderrLines: string[], options: { highSpeed?: boolean; size?: string; fps?: number } = {}): string {
+  const text = stderrLines.join('\n');
+  if (/Camera configuration error/i.test(text)) {
+    if (options.highSpeed) {
+      return 'This camera does not support high-speed capture on this phone, even though it lists it. Choose another camera (on some phones only certain lenses allow it) or turn off High-Speed Capture.';
+    }
+    return `The phone rejected this camera setting${options.size ? ` (${options.size}${options.fps ? ` at ${options.fps} FPS` : ''})` : ''}. Try a lower resolution or frame rate.`;
+  }
+  if (/Capture\/encoding error|IllegalArgumentException/i.test(text)) {
+    return 'The phone could not encode this resolution. Choose a smaller capture resolution.';
+  }
+  if (/camera.*(in use|disabled|busy)|CAMERA_IN_USE|MAX_CAMERAS_IN_USE/i.test(text)) {
+    return 'The camera is in use by another app or session. Close it and try again.';
+  }
+  if (/Could not find.*camera|No camera|camera.*not found/i.test(text)) {
+    return 'The selected camera was not found on the phone. Detect cameras again and choose another one.';
+  }
+  return 'The camera could not start. Open Diagnostics for the technical details.';
+}
+
 export class CameraManager extends EventEmitter {
   private scrcpyExePath: string;
   private deviceManager: DeviceManager;
@@ -687,7 +712,8 @@ export class CameraManager extends EventEmitter {
             this.sessionStatus = 'error';
             this.exitReason = 'startup_error';
             this.canReconnect = false;
-            const message = this.lastError || 'Camera failed to start or resolution unsupported.';
+            const message = describeCameraStartupFailure([...this.stderrRingBuffer], this.lastSessionOptions || {});
+            this.lastError = message;
             this.emit('stopped', { running: false, status: 'error', exitReason: 'startup_error', canReconnect: false, code, serial: targetSerial, message });
             this.emit('statusChanged', this.getStatus());
           }
