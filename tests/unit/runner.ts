@@ -18,6 +18,9 @@ import { runDocumentTests } from './document.test';
 import { runDocumentPrivacyTests } from './document-privacy.test';
 import { runStylingTests } from './styling.test';
 import { runWorkflowEngineTests } from './workflow-engine.test';
+import { runConnectionRetryUnitTests } from './connection-retry.test';
+import { runGracefulStopUnitTests } from './graceful-stop.test';
+import { runSettingsStoreUnitTests } from './settings-store.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -169,6 +172,15 @@ OFFLINE_DEV_1          offline transport_id:4
   assert(parityArgs.includes('-x'), 'Flex display flag -x added with new display');
   assert(parityArgs.includes('--audio-source=mic'), 'Audio source mic flag added');
   assert(parityArgs.includes('--audio-dup'), 'Audio dup flag added');
+  assert(parityArgs.includes('--no-power-on'), 'No power on flag added for UHID mode');
+
+  const explicitNoSyncArgs = sm.buildArguments({
+    serial: 'emulator-5554',
+    noClipboardAutosync: true,
+    noPowerOn: true
+  });
+  assert(explicitNoSyncArgs.includes('--no-clipboard-autosync'), 'No clipboard autosync flag added');
+  assert(explicitNoSyncArgs.includes('--no-power-on'), 'Explicit no-power-on flag added');
 
   // Rejection of invalid inputs
   const invalidParityArgs = sm.buildArguments({
@@ -205,6 +217,22 @@ OFFLINE_DEV_1          offline transport_id:4
 
   const invalidPair = await cm.pairWireless('192.168.1.150', 5555, 'badpin');
   assert(invalidPair.success === false, 'Wireless pair rejects invalid PIN');
+
+  // Failed handoff (unreachable phone, e.g. Wi-Fi client isolation) must revert adbd to USB mode
+  const handoffCalls: string[][] = [];
+  const fakeAdb: any = {
+    executeAdb: async (args: string[]) => {
+      handoffCalls.push(args);
+      if (args.includes('wlan0')) return { stdout: '    inet 172.31.116.120/18 brd', stderr: '', code: 0 };
+      if (args.includes('tcpip')) return { stdout: 'restarting in TCP mode port: 5555', stderr: '', code: 0 };
+      if (args[0] === 'connect') return { stdout: '', stderr: '\nCommand timed out.', code: 1 };
+      return { stdout: 'restarting in USB mode', stderr: '', code: 0 };
+    }
+  };
+  const failedHandoff = await new ConnectionManager(fakeAdb).handoffUsbToWifi('kjizrsgekfsglvgi');
+  assert(failedHandoff.success === false, 'Unreachable handoff reports failure');
+  assert(handoffCalls.some((a) => a[a.length - 1] === 'usb'), 'Failed handoff returns device to USB mode');
+  assert(/client isolation/.test(failedHandoff.message), 'Failed handoff explains unreachable network');
 
   // 6. Process Cleanup & Lifecycle
   console.log('\nTest Group 6: Process Lifecycle & Cleanup');
@@ -304,6 +332,11 @@ OFFLINE_DEV_1          offline transport_id:4
 
   // Workflow Engine step validation regression
   await runWorkflowEngineTests(assert, assertEqual);
+
+  // Phase 5: Device Connection Retry & Visible Diagnostics
+  await runConnectionRetryUnitTests(assert, assertEqual);
+  await runGracefulStopUnitTests(assert, assertEqual);
+  await runSettingsStoreUnitTests(assert, assertEqual);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);

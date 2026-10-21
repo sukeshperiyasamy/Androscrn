@@ -5,7 +5,7 @@
   "homepage": "https://sukeshperiyasamy.github.io/Androscrn",
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit && npm --prefix apps/desktop exec tsc -- --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm --prefix apps/desktop exec tsc -- --noEmit -p tsconfig.json",
     "test:unit": "tsc -p tsconfig.json && node dist/tests/unit/runner.js",
     "test:native-cli": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js native",
     "test:path": "tsc -p tsconfig.json && node dist/tests/unit/targeted.js path",

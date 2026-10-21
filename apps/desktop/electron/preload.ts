@@ -2,7 +2,22 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('androscrnApi', {
   getDevices: () => ipcRenderer.invoke('get-devices'),
+  startConnectionRetry: (options?: any) => ipcRenderer.invoke('start-connection-retry', options),
+  cancelConnectionRetry: () => ipcRenderer.invoke('cancel-connection-retry'),
+  getConnectionRetryStatus: () => ipcRenderer.invoke('get-connection-retry-status'),
+  onConnectionRetryStatusChanged: (cb: (data: any) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('connection-retry-status-changed', handler);
+    return () => { ipcRenderer.removeListener('connection-retry-status-changed', handler); };
+  },
+  onConnectionRetryDeviceReady: (cb: (devices: any[]) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('connection-retry-device-ready', handler);
+    return () => { ipcRenderer.removeListener('connection-retry-device-ready', handler); };
+  },
   setAlias: (serial: string, alias: string) => ipcRenderer.invoke('set-alias', { serial, alias }),
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  updateSettings: (patch: { qualityPreset?: string; inputMode?: string }) => ipcRenderer.invoke('update-settings', patch),
   startMirroring: (options: any) => ipcRenderer.invoke('start-mirroring', options),
   stopMirroring: () => ipcRenderer.invoke('stop-mirroring'),
   getMirrorStatus: () => ipcRenderer.invoke('get-mirror-status'),

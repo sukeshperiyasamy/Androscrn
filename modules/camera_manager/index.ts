@@ -1,3 +1,4 @@
+import { gracefulStop } from '../scrcpy_manager/graceful-stop';
 import { ChildProcess, spawn, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -539,7 +540,7 @@ export class CameraManager extends EventEmitter {
     // Terminate existing active camera process to prevent duplicate windows or orphaned locks
     if (this.currentProcess && !this.currentProcess.killed && this.currentProcess.exitCode === null) {
       try {
-        this.currentProcess.kill();
+        gracefulStop(this.currentProcess);
       } catch {}
       this.currentProcess = null;
     }
@@ -755,7 +756,7 @@ export class CameraManager extends EventEmitter {
 
     try {
       const exitedSerial = this.currentSerial;
-      this.currentProcess.kill();
+      gracefulStop(this.currentProcess);
       this.currentProcess = null;
       this.currentSerial = null;
       this.currentOptions = null;

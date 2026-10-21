@@ -92,6 +92,9 @@ Copy-Item -Path "$Root\docs" -Destination "$TargetDir\docs" -Recurse -Force
 Copy-Item -Path "$PSScriptRoot\androscrn.cmd" -Destination "$TargetDir\androscrn.cmd" -Force
 Copy-Item -Path "$PSScriptRoot\setup-path.ps1" -Destination "$TargetDir\setup-path.ps1" -Force
 Copy-Item -Path "$PSScriptRoot\remove-path.ps1" -Destination "$TargetDir\remove-path.ps1" -Force
+# Live ADB diagnostics console used by the Try Again workflow
+New-Item -ItemType Directory -Force -Path "$TargetDir\scripts" | Out-Null
+Copy-Item -Path "$Root\scripts\adb-diagnostics.cmd" -Destination "$TargetDir\scripts\adb-diagnostics.cmd" -Force
 
 # Create desktop launcher batch file (launches GUI without terminal)
 $LauncherBatch = @"

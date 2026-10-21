@@ -281,6 +281,13 @@ Serial numbers and device IPs are redacted from diagnostic reports by default, a
 Android's `input text` accepts only printable ASCII (32-126). Use ASCII text, or copy the text to the phone's clipboard or
 use an input method for accented letters and emoji.
 
+### My preferences were reset after a restart
+
+AndroScrn saves device aliases, the mirroring quality preset and the input mode in `settings.json` in the app's user
+data folder (`%APPDATA%\androscrn-desktop\` for a source build). Running sessions are never saved. If the file cannot be
+read, it is renamed to `settings.json.corrupt-<timestamp>`, defaults are used, and a warning is written to
+`androscrn.log`; individual invalid values are reset while the valid ones are kept. Delete `settings.json` to start over.
+
 ### An MCP client cannot start the server
 
 Make sure Node.js 20+ is on your `PATH` and run `npm run build` so `dist\modules\mcp\cli.js` exists. Point the client at

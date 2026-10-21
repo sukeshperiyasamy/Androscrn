@@ -89,11 +89,18 @@ export class ConnectionManager {
       };
     }
 
+    // Do not leave adbd listening on the network after a failed handoff; USB keeps working either way.
+    await this.deviceManager.executeAdb(['-s', serial, 'usb']);
+
+    const detail = (connectRes.stdout || connectRes.stderr).trim().replace(/\.+$/, '');
+    const hint = /timed out|failed to connect|unable to connect/i.test(detail)
+      ? ' The phone is not reachable from this PC: make sure both are on the same Wi-Fi network. Public, campus and guest networks often block device-to-device traffic (client isolation); use a phone hotspot or home network instead.'
+      : '';
     return {
       success: false,
       ipAddress: ip,
       port,
-      message: `Failed to connect over Wi-Fi: ${connectRes.stdout || connectRes.stderr}`
+      message: `Failed to connect over Wi-Fi to ${ip}:${port}: ${detail || 'no response'}.${hint} Device was returned to USB mode.`
     };
   }
 

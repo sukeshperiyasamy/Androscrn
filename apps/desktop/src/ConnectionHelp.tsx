@@ -32,6 +32,8 @@ interface ConnectionHelpProps {
   help: DeviceHelp | null;
   retrying: boolean;
   onRetry: () => void;
+  onCancelRetry?: () => void;
+  retryAttempt?: number;
 }
 
 const EVIDENCE_LABEL: Record<OemGuidance['evidence'], string> = {
@@ -45,7 +47,7 @@ const EVIDENCE_LABEL: Record<OemGuidance['evidence'], string> = {
  * vendor-specific input restrictions. Dismissal is remembered per guidance key, so the same help is not
  * shown again until the situation changes.
  */
-export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }: ConnectionHelpProps) {
+export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry, onCancelRetry, retryAttempt }: ConnectionHelpProps) {
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -101,8 +103,18 @@ export default function ConnectionHelp({ deviceLabel, help, retrying, onRetry }:
               aria-label="Retry device connection check"
             >
               <RefreshCw className={`w-3 h-3 ${retrying ? 'animate-spin' : ''}`} aria-hidden="true" />
-              <span>{retrying ? 'Checking…' : 'Retry'}</span>
+              <span>{retrying ? (retryAttempt ? `Checking #${retryAttempt}…` : 'Checking…') : 'Try Again'}</span>
             </button>
+            {retrying && onCancelRetry && (
+              <button
+                type="button"
+                onClick={onCancelRetry}
+                className="text-[11px] py-1 px-2.5 rounded-lg border border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors cursor-pointer"
+                aria-label="Cancel connection retry"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setDismissedKey(help.key)}
