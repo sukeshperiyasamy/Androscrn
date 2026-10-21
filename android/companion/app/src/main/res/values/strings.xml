@@ -1,8 +1,23 @@
 <resources>
     <string name="app_name">AndroScrn Camera Companion</string>
-    <string name="camera_permission_required">Camera permission is required to operate as a remote camera studio.</string>
-    <string name="grant_permission">Grant Camera Permission</string>
-    <string name="status_ready">Ready for AndroScrn Connection</string>
-    <string name="status_streaming">Live Streaming Active</string>
-    <string name="pairing_pin_title">Enter PIN on Desktop</string>
+    <string name="live_banner">LIVE: camera is streaming to AndroScrn on your PC</string>
+    <string name="grant_permission">Allow camera access</string>
+    <string name="open_settings">Open app settings to allow camera</string>
+    <string name="pairing_pin_title">Desktop pairing request</string>
+    <string name="pairing_pin_body">Type this 6-digit PIN into AndroScrn on your PC to allow camera control. If you did not start this, ignore it.</string>
+    <string name="pairing_expiry">Expires in 60 seconds</string>
+
+    <string name="state_waiting">Waiting for AndroScrn desktop</string>
+    <string name="state_pairing">Pairing requested — check the PIN</string>
+    <string name="state_connected">Connected to desktop (camera off)</string>
+    <string name="state_permission">Camera permission required</string>
+    <string name="state_unavailable">Camera unavailable</string>
+    <string name="state_starting">Starting camera…</string>
+    <string name="state_streaming">Camera running</string>
+    <string name="state_stopping">Stopping camera…</string>
+    <string name="state_error">Error</string>
+
+    <string name="guidance_permission">AndroScrn needs camera access to show this camera on your PC. Tap the button below.</string>
+    <string name="guidance_permission_blocked">Camera access was denied. Open app settings → Permissions → Camera → Allow.</string>
+    <string name="guidance_background">Keep this app open on screen while streaming. Android stops camera access when the app is in the background.</string>
 </resources>

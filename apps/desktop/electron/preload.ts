@@ -86,14 +86,23 @@ contextBridge.exposeInMainWorld('androscrnApi', {
     ipcRenderer.on('camera-status-changed', handler);
     return () => { ipcRenderer.removeListener('camera-status-changed', handler); };
   },
-  companionGetStatus: (serial?: string) => ipcRenderer.invoke('companion-get-status', { serial }),
-  companionRequestPairing: (serial?: string) => ipcRenderer.invoke('companion-request-pairing', { serial }),
-  companionSubmitPin: (pin: string, serial?: string) => ipcRenderer.invoke('companion-submit-pin', { pin, serial }),
+  companionPrepare: (serial: string, allowInstall: boolean) => ipcRenderer.invoke('companion-prepare', { serial, allowInstall }),
+  companionGetBundleInfo: () => ipcRenderer.invoke('companion-get-bundle-info'),
+  onCompanionProgress: (cb: (data: any) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('companion-progress', handler);
+    return () => { ipcRenderer.removeListener('companion-progress', handler); };
+  },
+  companionGetStatus: () => ipcRenderer.invoke('companion-get-status'),
+  companionRequestPairing: () => ipcRenderer.invoke('companion-request-pairing'),
+  companionSubmitPin: (pin: string) => ipcRenderer.invoke('companion-submit-pin', { pin }),
   companionGetCapabilities: () => ipcRenderer.invoke('companion-get-capabilities'),
+  companionStartCamera: (facing?: 'front' | 'back') => ipcRenderer.invoke('companion-start-camera', { facing }),
+  companionStopCamera: () => ipcRenderer.invoke('companion-stop-camera'),
   companionSetCamera: (facing: 'front' | 'back') => ipcRenderer.invoke('companion-set-camera', { facing }),
   companionSetZoom: (ratio: number) => ipcRenderer.invoke('companion-set-zoom', { ratio }),
   companionSetTorch: (enabled: boolean) => ipcRenderer.invoke('companion-set-torch', { enabled }),
-  companionTakePhoto: (destinationDir?: string) => ipcRenderer.invoke('companion-take-photo', { destinationDir }),
+  companionTakePhoto: () => ipcRenderer.invoke('companion-take-photo'),
   companionDisconnect: () => ipcRenderer.invoke('companion-disconnect'),
   companionGetStreamUrl: () => ipcRenderer.invoke('companion-get-stream-url'),
   documentOcrStatus: () => ipcRenderer.invoke('document-ocr-status'),

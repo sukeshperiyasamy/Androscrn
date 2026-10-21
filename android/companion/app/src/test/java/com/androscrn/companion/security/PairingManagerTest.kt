@@ -23,7 +23,7 @@ class PairingManagerTest {
 
     @Test
     fun testGeneratePairingChallenge() {
-        val pin = pairingManager.generatePairingChallenge()
+        val pin = pairingManager.generatePairingChallenge()!!
         assertNotNull(pin)
         assertEquals(6, pin.length)
         assertTrue("PIN must consist of 6 numeric digits", pin.matches(Regex("^\\d{6}$")))
@@ -31,7 +31,7 @@ class PairingManagerTest {
 
     @Test
     fun testSuccessfulPairingFlow() {
-        val pin = pairingManager.generatePairingChallenge()
+        val pin = pairingManager.generatePairingChallenge()!!
         assertFalse(pairingManager.isPaired())
 
         val (success, token) = pairingManager.validateChallenge(pin)
@@ -72,7 +72,7 @@ class PairingManagerTest {
 
     @Test
     fun testChallengeSingleUse() {
-        val pin = pairingManager.generatePairingChallenge()
+        val pin = pairingManager.generatePairingChallenge()!!
         val (success1, _) = pairingManager.validateChallenge(pin)
         assertTrue(success1)
 
@@ -84,7 +84,7 @@ class PairingManagerTest {
 
     @Test
     fun testSessionRevocation() {
-        val pin = pairingManager.generatePairingChallenge()
+        val pin = pairingManager.generatePairingChallenge()!!
         val (success, token) = pairingManager.validateChallenge(pin)
         assertTrue(success)
         assertTrue(pairingManager.validateSessionToken(token))
@@ -101,5 +101,38 @@ class PairingManagerTest {
         assertFalse(pairingManager.validateSessionToken(""))
         assertFalse(pairingManager.validateSessionToken("   "))
         assertFalse(pairingManager.validateSessionToken("invalid_token"))
+    }
+
+    @Test
+    fun testChallengeRequestsAreRateLimitedAcrossChallenges() {
+        var now = 1_000_000L
+        val pm = PairingManager { now }
+        repeat(PairingManager.MAX_CHALLENGES_PER_WINDOW) { assertNotNull(pm.generatePairingChallenge()) }
+        assertNull("Further challenges inside the window are refused", pm.generatePairingChallenge())
+        now += PairingManager.CHALLENGE_WINDOW_MS + 1
+        assertNotNull("Window expiry allows new challenges", pm.generatePairingChallenge())
+    }
+
+    @Test
+    fun testLockoutConsumesChallenge() {
+        val pin = pairingManager.generatePairingChallenge()!!
+        repeat(PairingManager.MAX_FAILED_ATTEMPTS) { pairingManager.validateChallenge("000000".takeIf { it != pin } ?: "111111") }
+        val (ok, _) = pairingManager.validateChallenge(pin)
+        assertFalse("Correct PIN after lockout must still be rejected", ok)
+    }
+
+    @Test
+    fun testPinAndSessionExpiry() {
+        var now = 0L
+        val pm = PairingManager { now }
+        val pin = pm.generatePairingChallenge()!!
+        now += PairingManager.PIN_TTL_MS + 1
+        assertFalse(pm.validateChallenge(pin).first)
+
+        val pin2 = pm.generatePairingChallenge()!!
+        val token = pm.validateChallenge(pin2).second!!
+        now += PairingManager.SESSION_TTL_MS + 1
+        assertFalse(pm.validateSessionToken(token))
+        assertFalse(pm.isPaired())
     }
 }

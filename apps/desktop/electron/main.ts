@@ -9,7 +9,7 @@ import { DiagnosticsManager } from '../../../dist/modules/diagnostics';
 import { WorkflowEngine } from '../../../dist/modules/workflow_engine';
 import { McpControlServer } from '../../../dist/modules/mcp/control-bridge';
 import { CameraManager } from '../../../dist/modules/camera_manager';
-import { CompanionClient } from '../../../dist/modules/companion_client';
+import { CompanionClient, CompanionManager } from '../../../dist/modules/companion_client';
 import { WirelessDiscovery, parseConnectRequest, parsePairRequest, parseDeviceHelpRequest } from '../../../dist/modules/wireless_discovery';
 import { buildDeviceHelp } from '../../../dist/modules/oem_guidance';
 import { DocumentWorkflow, TesseractOcrEngine, DocumentSession, DocumentError } from '../../../dist/modules/document_intelligence';
@@ -121,6 +121,24 @@ const diagnosticsManager = new DiagnosticsManager(deviceManager);
 const workflowEngine = new WorkflowEngine(deviceManager, diagnosticsManager);
 const cameraManager = new CameraManager(scrcpyPath, deviceManager);
 const companionClient = new CompanionClient(deviceManager);
+
+// Bundled companion APK (staged by `npm run build:companion` into bin/companion with version metadata).
+function companionApkCandidates(): string[] {
+  const rel = path.join('bin', 'companion', 'androscrn-companion.apk');
+  return [
+    path.join(path.dirname(process.execPath), rel),
+    path.join(process.resourcesPath || '', rel),
+    path.join(app.getAppPath(), rel),
+    path.resolve(__dirname, '../..', rel),
+    path.resolve(__dirname, '../../..', rel),
+    path.resolve(process.cwd(), rel)
+  ];
+}
+const companionManager = new CompanionManager(deviceManager, companionClient, companionApkCandidates);
+companionManager.on('progress', (evt) => {
+  mainWindow?.webContents.send('companion-progress', evt);
+});
+let companionCameraActive = false;
 const connectionRetryManager = new ConnectionRetryManager(deviceManager, adbPath, retryScriptPath);
 
 // Durable user preferences (aliases, quality preset, input mode). Runtime session state is never stored.
@@ -448,6 +466,11 @@ ipcMain.handle('start-camera', (_, options) => {
     }
     const opts = options || {};
     const targetSerial = opts.serial;
+    if (companionCameraActive) {
+      appLog('INFO', 'Stopping companion camera before starting scrcpy Camera Studio');
+      companionCameraActive = false;
+      companionClient.stopCamera().catch(() => undefined);
+    }
     // Concurrency coordination: Stop conflicting Screen Mirroring session on device before starting camera
     const mirrorStatus = scrcpyManager.getStatus();
     if (mirrorStatus.running && (!targetSerial || mirrorStatus.targetSerial === targetSerial)) {
@@ -1135,24 +1158,39 @@ ipcMain.handle('revoke-all-mcp-sessions', () => {
 });
 
 // Camera Studio Companion App IPC Handlers
-ipcMain.handle('companion-get-status', async (_, payload) => {
+// The companion is reached only through `adb forward tcp:0 localabstract:androscrn_companion`, set up by
+// CompanionManager.prepare(). Every handler validates its payload; none accepts a URL or command from the renderer.
+const COMPANION_NOT_CONNECTED = { success: false, error: 'Companion is not connected. Use "Connect companion" first.' };
+
+ipcMain.handle('companion-prepare', async (_, payload) => {
   try {
     const serial = payload?.serial;
-    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
-      await companionClient.setupPortForward(serial, 8080, 8080);
-    }
+    const allowInstall = payload?.allowInstall === true;
+    appLog('INFO', 'Preparing companion app', { install: allowInstall });
+    const res = await companionManager.prepare(serial, allowInstall);
+    appLog(res.success ? 'INFO' : 'WARN', `Companion prepare: ${res.stage}`, { code: res.code, message: res.message });
+    return res;
+  } catch (err: any) {
+    appLog('ERROR', 'Companion prepare failed', err?.message || err);
+    return { success: false, stage: 'failed', code: 'internal', message: err?.message || 'Companion preparation failed' };
+  }
+});
+
+ipcMain.handle('companion-get-bundle-info', () => {
+  const apk = companionManager.getBundledApk();
+  return apk ? { available: true, versionName: apk.versionName, versionCode: apk.versionCode, protocolVersion: apk.protocolVersion } : { available: false };
+});
+
+ipcMain.handle('companion-get-status', async () => {
+  try {
     return await companionClient.getStatus();
   } catch (err: any) {
     return { status: 'offline', error: err?.message || 'Companion offline' };
   }
 });
 
-ipcMain.handle('companion-request-pairing', async (_, payload) => {
+ipcMain.handle('companion-request-pairing', async () => {
   try {
-    const serial = payload?.serial;
-    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
-      await companionClient.setupPortForward(serial, 8080, 8080);
-    }
     return await companionClient.requestPairingChallenge();
   } catch (err: any) {
     return { success: false, message: err?.message || 'Pairing request failed' };
@@ -1161,10 +1199,7 @@ ipcMain.handle('companion-request-pairing', async (_, payload) => {
 
 ipcMain.handle('companion-submit-pin', async (_, payload) => {
   try {
-    const { pin, serial } = payload || {};
-    if (serial && typeof serial === 'string' && SecurityValidator.isValidSerial(serial)) {
-      await companionClient.setupPortForward(serial, 8080, 8080);
-    }
+    const pin = payload?.pin;
     if (!pin || typeof pin !== 'string') {
       return { success: false, error: 'Invalid PIN' };
     }
@@ -1182,32 +1217,81 @@ ipcMain.handle('companion-get-capabilities', async () => {
   }
 });
 
+ipcMain.handle('companion-start-camera', async (_, payload) => {
+  try {
+    if (!companionClient.getBaseUrl() || !companionClient.getSessionToken()) return COMPANION_NOT_CONNECTED;
+    const facing = payload?.facing;
+    const cameraId = payload?.cameraId;
+    if (facing !== undefined && facing !== 'front' && facing !== 'back') return { success: false, error: 'Invalid camera facing' };
+    if (cameraId !== undefined && (typeof cameraId !== 'string' || !/^[A-Za-z0-9_.:-]{1,32}$/.test(cameraId))) {
+      return { success: false, error: 'Invalid camera id' };
+    }
+    // One camera owner per phone: a scrcpy Camera Studio session would hold the camera and block the companion.
+    const active = companionManager.getActive();
+    const camStatus = cameraManager.getStatus();
+    if (camStatus.running && (!camStatus.targetSerial || camStatus.targetSerial === active.serial)) {
+      appLog('INFO', 'Stopping scrcpy Camera Studio session before starting the companion camera');
+      cameraManager.stopCamera();
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const res = await companionClient.startCamera(facing, cameraId);
+    companionCameraActive = !!res.success;
+    return { ...res, streamUrl: res.success ? companionClient.getStreamUrl() : '' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Could not start the companion camera' };
+  }
+});
+
+ipcMain.handle('companion-stop-camera', async () => {
+  companionCameraActive = false;
+  if (!companionClient.getBaseUrl() || !companionClient.getSessionToken()) return { success: true };
+  return await companionClient.stopCamera();
+});
+
 ipcMain.handle('companion-set-camera', async (_, payload) => {
   const facing = payload?.facing;
   if (facing !== 'front' && facing !== 'back') {
     return { success: false, error: 'Invalid camera facing (must be "front" or "back")' };
   }
-  return await companionClient.setCamera(facing);
+  try {
+    return await companionClient.setCamera(facing);
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Could not switch camera' };
+  }
 });
 
 ipcMain.handle('companion-set-zoom', async (_, payload) => {
-  const ratio = typeof payload?.ratio === 'number' ? payload.ratio : 1.0;
-  return await companionClient.setZoom(ratio);
+  const ratio = payload?.ratio;
+  if (typeof ratio !== 'number' || !Number.isFinite(ratio)) return { success: false, error: 'Invalid zoom ratio' };
+  try {
+    return await companionClient.setZoom(ratio);
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Could not set zoom' };
+  }
 });
 
 ipcMain.handle('companion-set-torch', async (_, payload) => {
-  const enabled = !!payload?.enabled;
-  return await companionClient.setTorch(enabled);
+  const enabled = payload?.enabled;
+  if (typeof enabled !== 'boolean') return { success: false, error: 'Invalid torch state' };
+  try {
+    return await companionClient.setTorch(enabled);
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Could not toggle torch' };
+  }
 });
 
-ipcMain.handle('companion-take-photo', async (_, payload) => {
-  const destinationDir = payload?.destinationDir;
-  const saveDir = (destinationDir && typeof destinationDir === 'string') ? destinationDir : getCapturesFolder();
-  return await companionClient.takeAndSavePhoto(saveDir);
+ipcMain.handle('companion-take-photo', async () => {
+  // Photos always go to the Captures folder; the renderer cannot choose an arbitrary destination.
+  try {
+    return await companionClient.takeAndSavePhoto(getCapturesFolder());
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Photo capture failed' };
+  }
 });
 
 ipcMain.handle('companion-disconnect', async () => {
-  return await companionClient.disconnect();
+  companionCameraActive = false;
+  return await companionManager.stop();
 });
 
 ipcMain.handle('companion-get-stream-url', () => {
@@ -1290,18 +1374,29 @@ if (!gotSingleInstanceLock) {
   });
 }
 
+// app.quit() (and test harnesses) skip 'window-all-closed', so the companion is also released here, once.
+let companionQuitCleanupDone = false;
+app.on('before-quit', (event) => {
+  if (companionQuitCleanupDone) return;
+  companionQuitCleanupDone = true;
+  event.preventDefault();
+  Promise.race([companionManager.stop().catch(() => {}), new Promise((r) => setTimeout(r, 2000))]).finally(() => app.quit());
+});
+
 app.on('window-all-closed', () => {
+  let companionStopped: Promise<unknown> = Promise.resolve();
   try {
     scrcpyManager.stopMirroring();
     cameraManager.stopCamera();
-    companionClient.disconnect().catch(() => {});
+    // Release the phone camera and remove the adb forward; bounded so a vanished phone cannot block quitting.
+    companionStopped = Promise.race([companionManager.stop().catch(() => {}), new Promise((r) => setTimeout(r, 2000))]);
     timelapseScheduler.stop();
     mcpControlServer.stop().catch(() => {});
   } catch {
     // ignore
   }
   if (process.platform !== 'darwin') {
-    app.quit();
+    companionStopped.finally(() => app.quit());
   }
 });
 

@@ -228,6 +228,14 @@ export default function App() {
   const [companionLoading, setCompanionLoading] = useState<boolean>(false);
   const [companionError, setCompanionError] = useState<string | null>(null);
   const [companionSuccessMsg, setCompanionSuccessMsg] = useState<string | null>(null);
+  // Connection pipeline stage reported by the main process (checking -> installing -> launching -> connecting -> ready)
+  const [companionStage, setCompanionStage] = useState<string>('idle');
+  const [companionStageMsg, setCompanionStageMsg] = useState<string | null>(null);
+  const [companionInstallOffer, setCompanionInstallOffer] = useState<{ update: boolean; versionName?: string } | null>(null);
+  // True only after the <img> decoded at least one MJPEG frame from the phone.
+  const [companionFrameReceived, setCompanionFrameReceived] = useState(false);
+  const [companionCameraRunning, setCompanionCameraRunning] = useState(false);
+  const [companionMaxZoom, setCompanionMaxZoom] = useState(8);
 
   // Lab & Inspection Engine State (Phase 7.1)
   const [inspectionOverlay, setInspectionOverlay] = useState<'none' | 'grid_thirds' | 'grid_fine' | 'crosshair' | 'reticle' | 'diagonal'>('none');
@@ -944,30 +952,111 @@ export default function App() {
   };
 
   // Companion Actions (Phase 6)
-  const handleCompanionConnect = async () => {
+  // Flow: prepare (install check, explicit install, launch, adb forward, protocol handshake) -> pair with the PIN
+  // shown on the phone -> start camera -> embedded MJPEG preview. Nothing here reports success without a real
+  // response from the phone.
+  useEffect(() => {
+    if (!api?.onCompanionProgress) return;
+    const off = api.onCompanionProgress((evt: any) => {
+      if (evt?.message) setCompanionStageMsg(evt.message);
+      if (evt?.stage) setCompanionStage(evt.stage);
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, []);
+
+  const resetCompanionSession = () => {
+    setCompanionPaired(false);
+    setCompanionConnected(false);
+    setCompanionChallengeActive(false);
+    setCompanionStreamUrl('');
+    setCompanionFrameReceived(false);
+    setCompanionCameraRunning(false);
+    setCompanionPinInput('');
+  };
+
+  const handleCompanionConnect = async (allowInstall = false) => {
     setCompanionLoading(true);
     setCompanionError(null);
     setCompanionSuccessMsg(null);
+    setCompanionInstallOffer(null);
     try {
-      if (api?.companionRequestPairing) {
-        const challenge = await api.companionRequestPairing(selectedSerial);
-        if (challenge?.success) {
-          setCompanionChallengeActive(true);
-          setCompanionConnected(true);
-          setCompanionSuccessMsg('Pairing requested. Check phone screen for 6-digit PIN.');
+      if (!api?.companionPrepare) {
+        setCompanionError('Companion features are only available in the AndroScrn desktop app.');
+        return;
+      }
+      if (!selectedSerial) {
+        setCompanionError('Select a connected device first.');
+        return;
+      }
+      const prep = await api.companionPrepare(selectedSerial, allowInstall);
+      if (!prep?.success) {
+        setCompanionStage(prep?.stage || 'failed');
+        if (prep?.stage === 'install_required' || prep?.stage === 'update_available') {
+          setCompanionInstallOffer({ update: prep.stage === 'update_available', versionName: prep.bundled?.versionName });
+          setCompanionStageMsg(prep.message);
         } else {
-          setCompanionError(challenge?.message || 'Could not connect to companion app. Ensure app is open on device.');
+          setCompanionError(prep?.message || 'Could not reach the companion app.');
         }
-      } else {
-        // Mock fallback for browser / UI tests
+        return;
+      }
+      setCompanionConnected(true);
+      if (prep.status && prep.status.permissionGranted === false) {
+        setCompanionSuccessMsg('Companion is open. Allow camera access on the phone when it asks.');
+      }
+      const challenge = await api.companionRequestPairing();
+      if (challenge?.success) {
         setCompanionChallengeActive(true);
-        setCompanionConnected(true);
-        setCompanionSuccessMsg('Pairing challenge active. Check phone screen for 6-digit PIN.');
+        setCompanionStage('pairing');
+        setCompanionSuccessMsg('Enter the 6-digit PIN shown on the phone.');
+      } else {
+        setCompanionError(challenge?.message || 'The companion did not start pairing.');
       }
     } catch (e: any) {
       setCompanionError(e?.message || 'Companion connection failed');
     } finally {
       setCompanionLoading(false);
+    }
+  };
+
+  const handleCompanionStartCamera = async () => {
+    if (!api?.companionStartCamera) return;
+    setCompanionLoading(true);
+    setCompanionError(null);
+    setCompanionFrameReceived(false);
+    setCompanionStage('starting_camera');
+    try {
+      const res = await api.companionStartCamera(companionFacing);
+      if (res?.success && res.streamUrl) {
+        setCompanionCameraRunning(true);
+        // Unique query value forces the <img> to open a fresh stream after a restart.
+        setCompanionStreamUrl(`${res.streamUrl}&s=${Date.now()}`);
+        setCompanionSuccessMsg('Camera started on the phone. Waiting for the first frame…');
+      } else {
+        setCompanionStage('ready');
+        setCompanionCameraRunning(false);
+        setCompanionError(
+          res?.code === 'permission_required'
+            ? 'Camera permission is not granted on the phone. Tap "Allow camera access" in the companion app, then start the camera again.'
+            : res?.error || 'The phone could not start the camera.'
+        );
+      }
+    } catch (e: any) {
+      setCompanionError(e?.message || 'Could not start the camera');
+    } finally {
+      setCompanionLoading(false);
+    }
+  };
+
+  const handleCompanionStopCamera = async () => {
+    setCompanionStreamUrl('');
+    setCompanionFrameReceived(false);
+    setCompanionCameraRunning(false);
+    setCompanionStage('ready');
+    try {
+      await api?.companionStopCamera?.();
+      setCompanionSuccessMsg('Camera stopped on the phone.');
+    } catch (e: any) {
+      setCompanionError(e?.message || 'Could not stop the camera');
     }
   };
 
@@ -977,47 +1066,96 @@ export default function App() {
       setCompanionError('Please enter a valid 6-digit numeric PIN');
       return;
     }
+    if (!api?.companionSubmitPin) return;
     setCompanionLoading(true);
     setCompanionError(null);
     setCompanionSuccessMsg(null);
     try {
-      if (api?.companionSubmitPin) {
-        const res = await api.companionSubmitPin(clean, selectedSerial);
-        if (res?.success) {
-          setCompanionPaired(true);
-          setCompanionChallengeActive(false);
-          const streamUrl = await api.companionGetStreamUrl();
-          setCompanionStreamUrl(streamUrl || 'http://127.0.0.1:8080/api/v1/stream?token=mock_token_64');
-          setCompanionSuccessMsg('Pairing approved! Live studio feed active.');
-        } else {
-          setCompanionError(res?.error || 'Invalid verification PIN');
-        }
-      } else {
-        // Mock fallback for browser / UI tests
+      const res = await api.companionSubmitPin(clean);
+      if (res?.success) {
         setCompanionPaired(true);
         setCompanionChallengeActive(false);
-        setCompanionStreamUrl('http://127.0.0.1:8080/api/v1/stream?token=mock_token_64');
-        setCompanionSuccessMsg('Pairing approved! Live studio feed active.');
+        setCompanionPinInput('');
+        setCompanionStage('ready');
+      } else {
+        setCompanionError(res?.error || 'Invalid verification PIN');
+        return;
       }
     } catch (e: any) {
       setCompanionError(e?.message || 'Pairing verification error');
+      return;
     } finally {
       setCompanionLoading(false);
     }
+    await handleCompanionStartCamera();
+  };
+
+  /** Called by the preview <img> when the MJPEG stream ends or cannot be opened. */
+  const handleCompanionStreamLost = async (polledStatus?: any) => {
+    if (!companionStreamUrl) return;
+    setCompanionStreamUrl('');
+    setCompanionFrameReceived(false);
+    setCompanionCameraRunning(false);
+    setCompanionStage('stream_lost');
+    let reason = 'The preview stream stopped.';
+    try {
+      const status = polledStatus ?? (await api?.companionGetStatus?.());
+      if (!status || status.status === 'offline') {
+        reason = 'The phone or the companion app is no longer reachable (USB disconnected or app closed).';
+        resetCompanionSession();
+      } else if (status.error) {
+        reason = status.error;
+      }
+    } catch {}
+    setCompanionError(`${reason} Use "Reconnect" to try again.`);
+  };
+
+  // Chromium keeps showing the last MJPEG frame when the phone ends the stream (no <img> error event), so while the
+  // camera runs the phone's status is polled; a stopped camera or an unreachable phone is treated as a lost stream.
+  const streamLostRef = React.useRef(handleCompanionStreamLost);
+  streamLostRef.current = handleCompanionStreamLost;
+  useEffect(() => {
+    if (!companionCameraRunning || !api?.companionGetStatus) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const status = await api.companionGetStatus().catch(() => null);
+      if (cancelled) return;
+      if (!status || status.status === 'offline' || status.cameraActive === false) {
+        streamLostRef.current(status);
+      } else if (typeof status.maxZoom === 'number' && status.maxZoom >= 1) {
+        setCompanionMaxZoom(status.maxZoom);
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [companionCameraRunning]);
+
+  const handleCompanionReconnect = async () => {
+    if (companionPaired) {
+      const status = await api?.companionGetStatus?.().catch(() => null);
+      if (status && status.status !== 'offline' && status.isPaired) {
+        await handleCompanionStartCamera();
+        return;
+      }
+    }
+    resetCompanionSession();
+    await handleCompanionConnect(false);
   };
 
   const handleCompanionFlipLens = async () => {
     const nextFacing = companionFacing === 'back' ? 'front' : 'back';
+    if (!api?.companionSetCamera) return;
     try {
-      if (api?.companionSetCamera) {
-        const res = await api.companionSetCamera(nextFacing);
-        if (res?.success) {
-          setCompanionFacing(nextFacing);
-          setCompanionSuccessMsg(`Switched to ${nextFacing === 'back' ? 'Back Main' : 'Front Selfie'} lens`);
-        }
-      } else {
+      const res = await api.companionSetCamera(nextFacing);
+      if (res?.success) {
         setCompanionFacing(nextFacing);
-        setCompanionSuccessMsg(`Switched to ${nextFacing === 'back' ? 'Back Main' : 'Front Selfie'} lens`);
+        setCompanionZoom(1.0);
+        setCompanionTorch(false);
+        setCompanionSuccessMsg(`Switched to the ${nextFacing === 'back' ? 'rear' : 'front'} camera`);
+      } else {
+        setCompanionError(res?.error || 'Could not switch camera');
       }
     } catch (e: any) {
       setCompanionError(e?.message || 'Failed to flip lens');
@@ -1025,10 +1163,13 @@ export default function App() {
   };
 
   const handleCompanionZoom = async (newZoom: number) => {
-    setCompanionZoom(newZoom);
+    if (!api?.companionSetZoom) return;
     try {
-      if (api?.companionSetZoom) {
-        await api.companionSetZoom(newZoom);
+      const res = await api.companionSetZoom(newZoom);
+      if (res?.success) {
+        setCompanionZoom(typeof res.currentZoom === 'number' ? res.currentZoom : newZoom);
+      } else if (res?.error) {
+        setCompanionError(res.error);
       }
     } catch (e: any) {
       console.error('Zoom error', e);
@@ -1037,14 +1178,13 @@ export default function App() {
 
   const handleCompanionTorch = async () => {
     const nextTorch = !companionTorch;
+    if (!api?.companionSetTorch) return;
     try {
-      if (api?.companionSetTorch) {
-        const res = await api.companionSetTorch(nextTorch);
-        if (res?.success) {
-          setCompanionTorch(nextTorch);
-        }
+      const res = await api.companionSetTorch(nextTorch);
+      if (res?.success) {
+        setCompanionTorch(!!res.torchOn);
       } else {
-        setCompanionTorch(nextTorch);
+        setCompanionError(res?.error || 'Could not toggle the torch');
       }
     } catch (e: any) {
       setCompanionError(e?.message || 'Failed to toggle torch');
@@ -1052,20 +1192,17 @@ export default function App() {
   };
 
   const handleCompanionSnapshot = async () => {
+    if (!api?.companionTakePhoto) return;
     setCompanionLoading(true);
     setCompanionError(null);
     setCompanionSuccessMsg(null);
     try {
-      if (api?.companionTakePhoto) {
-        const res = await api.companionTakePhoto();
-        if (res?.success && res.filePath) {
-          setCompanionSuccessMsg(`Full-resolution photo saved (${Math.round((res.sizeBytes || 0) / 1024)} KB) to Captures/`);
-          refreshCaptures();
-        } else {
-          setCompanionError(res?.error || 'Photo capture failed');
-        }
+      const res = await api.companionTakePhoto();
+      if (res?.success && res.filePath) {
+        setCompanionSuccessMsg(`Full-resolution photo saved (${Math.round((res.sizeBytes || 0) / 1024)} KB) to Captures/`);
+        refreshCaptures();
       } else {
-        setCompanionSuccessMsg('Full-resolution photo saved (2450 KB) to Captures/');
+        setCompanionError(res?.error || 'Photo capture failed');
       }
     } catch (e: any) {
       setCompanionError(e?.message || 'Failed to capture photo');
@@ -1080,11 +1217,10 @@ export default function App() {
         await api.companionDisconnect();
       }
     } catch {}
-    setCompanionPaired(false);
-    setCompanionConnected(false);
-    setCompanionChallengeActive(false);
-    setCompanionStreamUrl('');
-    setCompanionSuccessMsg('Companion session disconnected and token revoked');
+    resetCompanionSession();
+    setCompanionStage('idle');
+    setCompanionStageMsg(null);
+    setCompanionSuccessMsg('Companion session ended: camera released and token revoked.');
   };
 
   // Lab & Inspection Engine Actions (Phase 7.1)
@@ -3176,24 +3312,85 @@ export default function App() {
                                 ? 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]/30'
                                 : 'bg-[#F3F6F8] text-[#667085] border-[#D9DEE5]'
                             }`}>
-                              {companionPaired ? 'Paired & Streaming' : companionChallengeActive ? 'Awaiting PIN Verification' : 'Disconnected'}
+                              {companionFrameReceived
+                                ? 'Streaming'
+                                : companionCameraRunning
+                                ? 'Starting camera'
+                                : companionPaired
+                                ? 'Paired (camera off)'
+                                : companionChallengeActive
+                                ? 'Awaiting PIN'
+                                : companionConnected
+                                ? 'App ready'
+                                : 'Not connected'}
                             </span>
                           </div>
                           <p className="text-xs text-[#667085] mt-1">
-                            Requires AndroScrn Companion APK installed on phone. Provides full-res photo capture, lens flip, digital zoom, and live MJPEG streaming over USB loopback.
+                            Uses the AndroScrn Camera companion app on the phone (installed from AndroScrn on request). Shows the phone camera inside this window over the USB/ADB connection, with photo capture, lens switching, zoom and torch. Keep the companion app open on the phone while streaming.
                           </p>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {!companionPaired && !companionChallengeActive && (
+                          {!companionPaired && !companionChallengeActive && !companionInstallOffer && companionStage !== 'stream_lost' && (
                             <button
                               id="btn-companion-connect"
-                              onClick={handleCompanionConnect}
+                              onClick={() => handleCompanionConnect(false)}
                               disabled={companionLoading || !isDeviceReady}
                               className="glass-button glass-button-primary text-xs py-2 px-4 flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                             >
                               <Wifi className="w-4 h-4" />
                               <span>{companionLoading ? 'Connecting...' : 'Connect to Companion'}</span>
+                            </button>
+                          )}
+
+                          {companionInstallOffer && (
+                            <button
+                              id="btn-companion-install"
+                              onClick={() => handleCompanionConnect(true)}
+                              disabled={companionLoading || !isDeviceReady}
+                              className="glass-button glass-button-primary text-xs py-2 px-4 flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                            >
+                              <Smartphone className="w-4 h-4" />
+                              <span>
+                                {companionLoading
+                                  ? 'Installing...'
+                                  : `${companionInstallOffer.update ? 'Update' : 'Install'} companion app${companionInstallOffer.versionName ? ` ${companionInstallOffer.versionName}` : ''}`}
+                              </span>
+                            </button>
+                          )}
+
+                          {companionPaired && !companionCameraRunning && (
+                            <button
+                              id="btn-companion-start-camera"
+                              onClick={handleCompanionStartCamera}
+                              disabled={companionLoading}
+                              className="glass-button glass-button-primary text-xs py-2 px-3.5 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>{companionStage === 'stream_lost' ? 'Reconnect' : 'Start camera'}</span>
+                            </button>
+                          )}
+
+                          {companionPaired && companionCameraRunning && (
+                            <button
+                              id="btn-companion-stop-camera"
+                              onClick={handleCompanionStopCamera}
+                              className="glass-button text-xs py-2 px-3.5 flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Square className="w-3.5 h-3.5" />
+                              <span>Stop camera</span>
+                            </button>
+                          )}
+
+                          {!companionPaired && companionStage === 'stream_lost' && (
+                            <button
+                              id="btn-companion-reconnect"
+                              onClick={handleCompanionReconnect}
+                              disabled={companionLoading || !isDeviceReady}
+                              className="glass-button text-xs py-2 px-3.5 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>Reconnect</span>
                             </button>
                           )}
 
@@ -3241,6 +3438,17 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Pipeline progress / install offer */}
+                      {companionStageMsg && (companionLoading || companionInstallOffer) && (
+                        <div id="companion-stage" className="mt-4 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] text-[#202936] text-xs flex items-center gap-2" role="status">
+                          {companionLoading ? <RefreshCw className="w-4 h-4 shrink-0 animate-spin text-[#0F766E]" /> : <Smartphone className="w-4 h-4 shrink-0 text-[#0F766E]" />}
+                          <span>
+                            {companionStageMsg}
+                            {companionInstallOffer && !companionLoading && ' Installing adds the "AndroScrn Camera" app to the phone. Keep the phone unlocked; it may ask you to confirm.'}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Error / Success Feedback */}
                       {companionError && (
                         <div className="mt-4 p-3 rounded-xl bg-[#FEE2E2] border border-[#B91C1C]/30 text-[#B91C1C] text-xs flex items-center gap-2">
@@ -3268,31 +3476,51 @@ export default function App() {
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#F3F6F8] border border-[#D9DEE5] text-[#667085]">
-                                Port Forward: 127.0.0.1:8080
+                                USB · adb forward
                               </span>
                               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#DDF4EF] border border-[#0F766E]/20 text-[#0F766E]">
-                                MJPEG Low Latency (~15ms)
+                                MJPEG
                               </span>
                             </div>
                           </div>
 
                           {/* Video Box */}
                           <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-950 border border-[#D9DEE5] flex items-center justify-center">
-                            {companionPaired ? (
-                              <img
-                                id="companion-live-preview"
-                                src={companionStreamUrl || 'http://127.0.0.1:8080/api/v1/stream?token=mock_token_64'}
-                                alt="Live Android Companion Camera Viewport"
-                                className="w-full h-full object-contain"
-                              />
+                            {companionStreamUrl ? (
+                              <>
+                                <img
+                                  id="companion-live-preview"
+                                  src={companionStreamUrl}
+                                  alt="Live Android Companion Camera Viewport"
+                                  className="w-full h-full object-contain"
+                                  onLoad={() => {
+                                    if (!companionFrameReceived) {
+                                      setCompanionFrameReceived(true);
+                                      setCompanionStage('streaming');
+                                      setCompanionSuccessMsg(null);
+                                    }
+                                  }}
+                                  onError={() => handleCompanionStreamLost()}
+                                />
+                                {!companionFrameReceived && (
+                                  <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-300 gap-2">
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                    <span>Waiting for the first frame from the phone…</span>
+                                  </div>
+                                )}
+                              </>
                             ) : (
                               <div className="text-center p-8 space-y-3">
                                 <div className="w-16 h-16 mx-auto rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
                                   <Camera className="w-8 h-8" />
                                 </div>
-                                <div className="text-xs font-bold text-slate-300">Companion Camera Feed Inactive</div>
+                                <div className="text-xs font-bold text-slate-300">
+                                  {companionPaired ? 'Camera is off' : 'Companion camera feed inactive'}
+                                </div>
                                 <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
-                                  Click "Connect to Companion" above to begin authenticated USB loopback streaming.
+                                  {companionPaired
+                                    ? 'Click "Start camera" to show the phone camera here.'
+                                    : 'Click "Connect to Companion" above to open the companion app on the phone and pair with it.'}
                                 </p>
                               </div>
                             )}
@@ -3362,14 +3590,14 @@ export default function App() {
                             )}
 
                             {/* Live Active Badge Overlay */}
-                            {companionPaired && (
+                            {companionFrameReceived && (
                               <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-rose-500/40 text-[10px] font-bold text-rose-300">
                                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
                                 <span>COMPANION LIVE</span>
                               </div>
                             )}
 
-                            {companionPaired && (
+                            {companionFrameReceived && (
                               <div className="absolute bottom-3 right-3 flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-[10px] font-mono text-slate-300">
                                 <span>{companionFacing === 'back' ? 'Back Sensor' : 'Front Selfie'}</span>
                                 <span>•</span>
@@ -3470,7 +3698,7 @@ export default function App() {
                             id="companion-zoom-slider"
                             type="range"
                             min="1.0"
-                            max="8.0"
+                            max={companionMaxZoom}
                             step="0.1"
                             value={companionZoom}
                             onChange={(e) => handleCompanionZoom(parseFloat(e.target.value))}

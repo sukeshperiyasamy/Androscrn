@@ -4,6 +4,18 @@ import { DeviceManager } from '../device_manager';
 
 export interface CompanionStatusResponse {
   status: string;
+  /** Absent on protocol v1 (legacy TCP 8080 companion). */
+  protocolVersion?: number;
+  versionCode?: number;
+  state?: string;
+  error?: string;
+  permissionGranted?: boolean;
+  pairingPending?: boolean;
+  cameraActive?: boolean;
+  streamClients?: number;
+  cameraId?: string;
+  frameWidth?: number;
+  frameHeight?: number;
   companionVersion: string;
   deviceModel: string;
   deviceProduct: string;
@@ -27,6 +39,25 @@ export interface CompanionCapabilities {
   maxZoom: number;
   snapshotsSupported: boolean;
   inAppPreviewSupported: boolean;
+  streamFormat?: string;
+  cameras?: Array<{ id: string; facing: string; sensorOrientation?: number; hasFlash: boolean; outputSizes: string[] }>;
+}
+
+const REQUEST_TIMEOUT_MS = 5000;
+const PHOTO_TIMEOUT_MS = 15000;
+
+/** fetch with an abort timeout; the companion runs on a phone that can disappear mid-request. */
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw new Error(`Companion request timed out after ${timeoutMs} ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface CompanionPairingResult {
@@ -48,7 +79,9 @@ export interface CompanionPhotoResult {
 export class CompanionClient {
   private deviceManager?: DeviceManager;
   private activeToken: string | null = null;
-  private defaultBaseUrl: string = 'http://127.0.0.1:8080';
+  // No default target: until CompanionManager (or the legacy setupPortForward) establishes an adb forward,
+  // requests must fail instead of reaching whatever else listens on a well-known local port such as 8080.
+  private defaultBaseUrl: string = '';
   private forwardConfigured: boolean = false;
   private configuredHostPort: number = 8080;
 
@@ -57,6 +90,22 @@ export class CompanionClient {
     if (token) {
       this.activeToken = token;
     }
+  }
+
+  /**
+   * Points the client at the host port of the current `adb forward` (set by CompanionManager).
+   * null clears it; requests then fail fast instead of reaching an unrelated local service.
+   */
+  setBaseUrl(url: string | null): void {
+    if (url !== null && !/^http:\/\/127\.0\.0\.1:\d{2,5}$/.test(url)) {
+      throw new Error('Companion base URL must be http://127.0.0.1:<port>');
+    }
+    this.defaultBaseUrl = url ?? '';
+    if (url === null) this.activeToken = null;
+  }
+
+  getBaseUrl(): string {
+    return this.defaultBaseUrl;
   }
 
   setSessionToken(token: string | null): void {
@@ -120,19 +169,16 @@ export class CompanionClient {
    * Probes whether the companion server is running and accessible on 127.0.0.1:8080.
    */
   async getStatus(baseUrl: string = this.defaultBaseUrl): Promise<CompanionStatusResponse> {
+    if (!baseUrl) throw new Error('AndroScrn Companion is not connected (no adb forward is active)');
     const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/status`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
 
     try {
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
+      const res = await fetchWithTimeout(url, {}, 3000);
       if (!res.ok) {
         throw new Error(`Companion status check returned HTTP ${res.status}`);
       }
       return await res.json() as CompanionStatusResponse;
     } catch (err: any) {
-      clearTimeout(timer);
       throw new Error(`AndroScrn Companion app unreachable at ${url}: ${err.message}`);
     }
   }
@@ -141,15 +187,17 @@ export class CompanionClient {
    * Requests a pairing challenge, prompting the phone to show a 6-digit PIN.
    */
   async requestPairingChallenge(baseUrl: string = this.defaultBaseUrl): Promise<{ success: boolean; message: string; expiresInSeconds?: number }> {
+    if (!baseUrl) throw new Error('AndroScrn Companion is not connected');
     const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/pair`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
     });
 
     if (!res.ok) {
-      throw new Error(`Pairing challenge request failed with status ${res.status}`);
+      const body = await res.json().catch(() => ({} as any));
+      throw new Error(body?.error || `Pairing challenge request failed with status ${res.status}`);
     }
     return await res.json() as { success: boolean; message: string; expiresInSeconds?: number };
   }
@@ -168,7 +216,7 @@ export class CompanionClient {
 
     const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/pair`;
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: cleanPin })
@@ -195,7 +243,7 @@ export class CompanionClient {
     }
 
     const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/capabilities`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
@@ -203,6 +251,23 @@ export class CompanionClient {
       throw new Error(`Capabilities query failed (HTTP ${res.status})`);
     }
     return await res.json() as CompanionCapabilities;
+  }
+
+  /** Opens the phone camera (protocol v2). The MJPEG stream is available once this succeeds. */
+  async startCamera(facing?: 'front' | 'back', cameraId?: string, baseUrl: string = this.defaultBaseUrl, token: string | null = this.activeToken): Promise<{ success: boolean; state?: string; code?: string; error?: string }> {
+    if (!token) return { success: false, error: 'Authentication required' };
+    if (facing !== undefined && facing !== 'front' && facing !== 'back') return { success: false, error: "Facing must be 'front' or 'back'" };
+    if (cameraId !== undefined && !/^[A-Za-z0-9_.:-]{1,32}$/.test(cameraId)) return { success: false, error: 'Invalid camera id' };
+    const payload: Record<string, any> = { action: 'start_camera' };
+    if (facing) payload.facing = facing;
+    if (cameraId) payload.cameraId = cameraId;
+    return this.sendControlSafe(payload, baseUrl, token, 12000);
+  }
+
+  /** Releases the phone camera. */
+  async stopCamera(baseUrl: string = this.defaultBaseUrl, token: string | null = this.activeToken): Promise<{ success: boolean; error?: string }> {
+    if (!token) return { success: false, error: 'Authentication required' };
+    return this.sendControlSafe({ action: 'stop_camera' }, baseUrl, token, 12000);
   }
 
   /**
@@ -254,14 +319,15 @@ export class CompanionClient {
     }
 
     // 1. Trigger photo capture on companion
-    const ctrlRes = await this.sendControl({ action: 'take_photo' }, baseUrl, token);
+    // The phone waits up to 5 s for the capture itself, so allow more than that end to end.
+    const ctrlRes = await this.sendControl({ action: 'take_photo' }, baseUrl, token, 10000);
     if (!ctrlRes.success || !ctrlRes.photoId) {
       return { success: false, error: ctrlRes.error || 'Failed to capture photo' };
     }
 
     // 2. Download JPEG binary to PC
     const downloadUrl = `${baseUrl.replace(/\/+$/, '')}/api/v1/photo/${ctrlRes.photoId}?token=${encodeURIComponent(token)}`;
-    const imgRes = await fetch(downloadUrl);
+    const imgRes = await fetchWithTimeout(downloadUrl, {}, PHOTO_TIMEOUT_MS);
     if (!imgRes.ok) {
       return { success: false, error: `Failed to download captured photo: HTTP ${imgRes.status}` };
     }
@@ -301,20 +367,38 @@ export class CompanionClient {
    * Constructs the authenticated live MJPEG stream URL for native HTML <img> embedding.
    */
   getStreamUrl(baseUrl: string = this.defaultBaseUrl, token: string | null = this.activeToken): string {
-    if (!token) return '';
+    if (!token || !baseUrl) return '';
     return `${baseUrl.replace(/\/+$/, '')}/api/v1/stream?token=${encodeURIComponent(token)}`;
   }
 
-  private async sendControl(payload: Record<string, any>, baseUrl: string, token: string): Promise<any> {
+  /** Like sendControl, but returns the companion's error body instead of throwing on HTTP errors. */
+  private async sendControlSafe(payload: Record<string, any>, baseUrl: string, token: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<any> {
+    if (!baseUrl) return { success: false, error: 'AndroScrn Companion is not connected' };
+    try {
+      const res = await fetchWithTimeout(`${baseUrl.replace(/\/+$/, '')}/api/v1/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      }, timeoutMs);
+      const body: any = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, code: body?.code, error: body?.error || `HTTP ${res.status}` };
+      return body;
+    } catch (err: any) {
+      return { success: false, code: 'unreachable', error: err?.message || String(err) };
+    }
+  }
+
+  private async sendControl(payload: Record<string, any>, baseUrl: string, token: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<any> {
+    if (!baseUrl) throw new Error('AndroScrn Companion is not connected');
     const url = `${baseUrl.replace(/\/+$/, '')}/api/v1/control`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify(payload)
-    });
+    }, timeoutMs);
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
@@ -324,3 +408,4 @@ export class CompanionClient {
     return await res.json();
   }
 }
+export * from './manager';

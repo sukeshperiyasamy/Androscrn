@@ -1,13 +1,18 @@
 package com.androscrn.companion.security
 
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Manages out-of-band human-in-the-loop pairing, session tokens,
  * challenge expiry (TTL), and brute-force protection.
+ *
+ * The PIN is shown only on the phone screen; the desktop user types it in. Besides the per-challenge attempt
+ * limit, the number of challenges is limited per window so a client cannot brute-force by requesting
+ * fresh PINs indefinitely.
  */
-class PairingManager {
+class PairingManager(private val clock: () -> Long = System::currentTimeMillis) {
 
     private val secureRandom = SecureRandom()
     private val failedAttempts = AtomicInteger(0)
@@ -16,21 +21,32 @@ class PairingManager {
     private var pinExpiryTimestamp: Long = 0
     private var activeSessionToken: String? = null
     private var sessionExpiryTimestamp: Long = 0
+    private val challengeTimes = ArrayDeque<Long>()
 
     companion object {
-        private const val PIN_TTL_MS = 60_000L // 60 seconds
-        private const val SESSION_TTL_MS = 3_600_000L // 1 hour
-        private const val MAX_FAILED_ATTEMPTS = 3
+        const val PIN_TTL_MS = 60_000L // 60 seconds
+        const val SESSION_TTL_MS = 3_600_000L // 1 hour
+        const val MAX_FAILED_ATTEMPTS = 3
+        const val MAX_CHALLENGES_PER_WINDOW = 5
+        const val CHALLENGE_WINDOW_MS = 5 * 60_000L
     }
 
     /**
-     * Generates a new cryptographically secure 6-digit pairing PIN.
+     * Generates a new cryptographically secure 6-digit pairing PIN, or returns null when too many
+     * challenges were requested recently.
      */
     @Synchronized
-    fun generatePairingChallenge(): String {
+    fun generatePairingChallenge(): String? {
+        val now = clock()
+        while (challengeTimes.isNotEmpty() && now - challengeTimes.first() > CHALLENGE_WINDOW_MS) {
+            challengeTimes.removeFirst()
+        }
+        if (challengeTimes.size >= MAX_CHALLENGES_PER_WINDOW) return null
+        challengeTimes.addLast(now)
+
         val pin = String.format("%06d", secureRandom.nextInt(1_000_000))
         activePin = pin
-        pinExpiryTimestamp = System.currentTimeMillis() + PIN_TTL_MS
+        pinExpiryTimestamp = now + PIN_TTL_MS
         failedAttempts.set(0)
         return pin
     }
@@ -42,17 +58,20 @@ class PairingManager {
     @Synchronized
     fun validateChallenge(pinCandidate: String): Pair<Boolean, String?> {
         if (failedAttempts.get() >= MAX_FAILED_ATTEMPTS) {
+            activePin = null
             return Pair(false, "Rate limit exceeded: Too many failed pairing attempts. Request a new PIN.")
         }
 
-        val now = System.currentTimeMillis()
-        if (activePin == null || now > pinExpiryTimestamp) {
+        val now = clock()
+        val pin = activePin
+        if (pin == null || now > pinExpiryTimestamp) {
             activePin = null
             return Pair(false, "Pairing challenge expired or not requested.")
         }
 
-        if (activePin != pinCandidate.trim()) {
+        if (!constantTimeEquals(pin, pinCandidate.trim())) {
             val attempts = failedAttempts.incrementAndGet()
+            if (attempts >= MAX_FAILED_ATTEMPTS) activePin = null
             return Pair(false, "Invalid verification PIN ($attempts/$MAX_FAILED_ATTEMPTS).")
         }
 
@@ -74,15 +93,15 @@ class PairingManager {
      */
     @Synchronized
     fun validateSessionToken(token: String?): Boolean {
-        if (token.isNullOrBlank() || activeSessionToken == null) {
+        val active = activeSessionToken
+        if (token.isNullOrBlank() || active == null) {
             return false
         }
-        val now = System.currentTimeMillis()
-        if (now > sessionExpiryTimestamp) {
+        if (clock() > sessionExpiryTimestamp) {
             revokeSession()
             return false
         }
-        return activeSessionToken == token.trim()
+        return constantTimeEquals(active, token.trim())
     }
 
     /**
@@ -98,6 +117,12 @@ class PairingManager {
 
     @Synchronized
     fun isPaired(): Boolean {
-        return activeSessionToken != null && System.currentTimeMillis() <= sessionExpiryTimestamp
+        return activeSessionToken != null && clock() <= sessionExpiryTimestamp
     }
+
+    @Synchronized
+    fun hasPendingChallenge(): Boolean = activePin != null && clock() <= pinExpiryTimestamp
+
+    private fun constantTimeEquals(a: String, b: String): Boolean =
+        MessageDigest.isEqual(a.toByteArray(Charsets.UTF_8), b.toByteArray(Charsets.UTF_8))
 }

@@ -535,17 +535,27 @@ export async function runCompanionTests(): Promise<{ passed: number; failed: num
 
     // 14. Loopback Binding & Security Configuration Verification
     console.log('\n--- Section 14: Loopback Binding & Security Configuration Verification ---');
-    const companionHttpServerSrc = fs.readFileSync(
-      path.join(process.cwd(), 'android', 'companion', 'app', 'src', 'main', 'java', 'com', 'androscrn', 'companion', 'server', 'CompanionHttpServer.kt'),
-      'utf-8'
+    // Protocol v2: the companion no longer listens on TCP at all. It serves an abstract UNIX socket that only
+    // the ADB shell UID (adb forward) or root can connect to, so other apps on the phone cannot reach it.
+    const serverDir = path.join(process.cwd(), 'android', 'companion', 'app', 'src', 'main', 'java', 'com', 'androscrn', 'companion', 'server');
+    const companionServerSrc = fs.readFileSync(path.join(serverDir, 'CompanionServer.kt'), 'utf-8');
+    record(
+      companionServerSrc.includes('LocalServerSocket(Protocol.SOCKET_NAME)'),
+      'CompanionServer.kt listens on an abstract UNIX socket (adb forward localabstract), not TCP'
     );
     record(
-      companionHttpServerSrc.includes('NanoHTTPD("127.0.0.1", port)'),
-      'CompanionHttpServer.kt explicitly binds strictly to 127.0.0.1 (loopback interface only)'
+      companionServerSrc.includes('peerCredentials.uid') && companionServerSrc.includes('Process.SHELL_UID'),
+      'CompanionServer.kt accepts only ADB shell/root peers (other phone apps rejected by UID)'
     );
+    const androidSources = fs.readdirSync(serverDir).map(f => fs.readFileSync(path.join(serverDir, f), 'utf-8')).join('\n');
     record(
-      !companionHttpServerSrc.includes('0.0.0.0'),
-      'CompanionHttpServer.kt never binds to wildcard 0.0.0.0 (no external network exposure)'
+      !/java\.net\.ServerSocket|NanoHTTPD|0\.0\.0\.0/.test(androidSources),
+      'Companion server code opens no TCP ServerSocket and never binds a wildcard address'
+    );
+    const manifestSrc = fs.readFileSync(path.join(process.cwd(), 'android', 'companion', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf-8');
+    record(
+      !manifestSrc.includes('android.permission.INTERNET'),
+      'Companion manifest does not request INTERNET (no network listener possible)'
     );
 
     const clientSrc = fs.readFileSync(
@@ -553,8 +563,12 @@ export async function runCompanionTests(): Promise<{ passed: number; failed: num
       'utf-8'
     );
     record(
-      clientSrc.includes("http://127.0.0.1:8080"),
-      'CompanionClient defaults strictly to loopback 127.0.0.1'
+      /private defaultBaseUrl: string = '';/.test(clientSrc),
+      'CompanionClient has no default target until an adb forward is established (never a fixed local port)'
+    );
+    record(
+      clientSrc.includes('Companion base URL must be http://127.0.0.1:<port>'),
+      'CompanionClient.setBaseUrl only accepts loopback URLs'
     );
 
   } finally {

@@ -23,6 +23,7 @@
     "build:modules": "tsc -p tsconfig.json",
     "dev:desktop": "cd apps/desktop && npm run dev",
     "build": "npm run build:modules && npm --prefix apps/desktop run build",
+    "build:companion": "node scripts/build-companion.js",
     "build:portable": "powershell -ExecutionPolicy Bypass -File packaging/portable/package-portable.ps1",
     "cli": "node dist/modules/cli/index.js"
   },
