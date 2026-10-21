@@ -74,7 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error?.name || 'Error'}: {this.state.error?.message || 'Unknown runtime error'}
               </p>
               {this.state.error?.stack && (
-                <pre className="text-[11px] text-[#84909E] mt-2 whitespace-pre-wrap leading-relaxed">
+                <pre className="text-[11px] text-[#667085] mt-2 whitespace-pre-wrap leading-relaxed">
                   {this.state.error.stack}
                 </pre>
               )}

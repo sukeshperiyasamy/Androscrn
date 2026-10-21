@@ -38,3 +38,6 @@ Thumbs.db
 *.jks
 *.keystore
 
+
+# Companion APK staged by `npm run build:companion` (reproducible from android/companion; not committed)
+bin/companion/

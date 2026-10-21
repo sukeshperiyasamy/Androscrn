@@ -311,13 +311,24 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const isMirrorFocused = await page.$eval('#tab-mirror', el => document.activeElement === el);
     recordTest('First tab reachable and focusable via keyboard', isMirrorFocused);
 
-    await page.keyboard.press('Tab');
-    const isCameraFocused = await page.$eval('#tab-camera', el => document.activeElement === el);
-    recordTest('Tab key advances focus sequentially to Camera Studio tab', isCameraFocused);
+    // Navigation follows the WAI-ARIA tabs pattern: arrow keys move between tabs, Tab leaves the tab list.
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(100);
+    const isCameraFocused = await page.$eval('#tab-camera', el => document.activeElement === el && el.getAttribute('aria-selected') === 'true');
+    recordTest('ArrowDown moves focus and selection to the Camera Studio tab', isCameraFocused);
 
-    await page.keyboard.press('Tab');
-    const isWirelessFocused = await page.$eval('#tab-wireless', el => document.activeElement === el);
-    recordTest('Tab key advances focus sequentially to Wireless tab', isWirelessFocused);
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(100);
+    const isWirelessFocused = await page.$eval('#tab-wireless', el => document.activeElement === el && el.getAttribute('aria-selected') === 'true');
+    recordTest('ArrowDown moves focus and selection to the Wireless tab', isWirelessFocused);
+
+    const rovingTabIndex = await page.$$eval('[role="tab"]', els => els.filter(e => e.getAttribute('tabindex') === '0').length);
+    recordTest('Only the selected tab is in the Tab order (roving tabindex)', rovingTabIndex === 1);
+
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(100);
+    const homeBack = await page.$eval('#tab-mirror', el => document.activeElement === el && el.getAttribute('aria-selected') === 'true');
+    recordTest('Home key returns to the first tab', homeBack);
 
     // -------------------------------------------------------------
     // Test Scenario 7: Viewport Responsiveness
@@ -328,10 +339,30 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     const compactWidthH1 = await page.isVisible('h1');
     recordTest('Application header intact at compact 1024x768 laptop resolution', compactWidthH1);
 
+    const railLabels = await page.$$eval('nav[aria-label="Main navigation"] [role="tab"]', els => els.every(e => !!e.getAttribute('aria-label')));
+    const railText = await page.$eval('nav[aria-label="Main navigation"]', el => (el as HTMLElement).innerText.includes('Camera Studio'));
+    recordTest('Navigation collapses to an icon rail at 1024px with accessible names on every item', railLabels && !railText);
+
+    const noHScroll1024 = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    recordTest('No horizontal page scroll at 1024x768', noHScroll1024);
+
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.waitForTimeout(200);
+    const noHScroll800 = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    recordTest('No horizontal page scroll at 800x600', noHScroll800);
+
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.waitForTimeout(200);
-    const fullHdNav = await page.isVisible('nav[aria-label="Workbench navigation"]');
-    recordTest('Workbench sidebar nav intact at 1920x1080 resolution', fullHdNav);
+    const fullHdNav = await page.isVisible('nav[aria-label="Main navigation"]');
+    const fullHdLabels = await page.$eval('nav[aria-label="Main navigation"]', el => (el as HTMLElement).innerText.includes('Camera Studio'));
+    recordTest('Navigation shows full labels at 1920x1080 resolution', fullHdNav && fullHdLabels);
+
+    await page.click('button[aria-label="Collapse navigation"]');
+    await page.waitForTimeout(200);
+    const userCollapsed = await page.isVisible('button[aria-label="Expand navigation"]');
+    recordTest('Navigation can be collapsed manually on wide windows', userCollapsed);
+    await page.click('button[aria-label="Expand navigation"]');
+    await page.waitForTimeout(200);
 
     // -------------------------------------------------------------
     // Test Scenario 8: AI Agent & MCP Security Center, HITL Pairing UI & Emergency Revocation
@@ -625,8 +656,30 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     // -------------------------------------------------------------
     console.log('\nScenario 11: Camera Companion Mode Switcher, Pairing & In-App Viewport Verification');
 
-    await page.evaluate(() => {
-      (window as any).androscrnApi.companionRequestPairing = async () => ({
+    // A one-frame MJPEG-compatible source served locally so the preview's "first frame decoded" path really runs.
+    const frameServer = http.createServer((_req, res) => {
+      const jpeg = Buffer.from(
+        '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==',
+        'base64'
+      );
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': jpeg.length });
+      res.end(jpeg);
+    });
+    await new Promise<void>(r => frameServer.listen(0, '127.0.0.1', () => r()));
+    const framePort = (frameServer.address() as any).port;
+
+    await page.evaluate((port: number) => {
+      const api = (window as any).androscrnApi;
+      api.companionPrepare = async () => ({
+        success: true,
+        stage: 'ready',
+        message: 'Companion app is ready.',
+        status: { status: 'ready', protocolVersion: 2, permissionGranted: true }
+      });
+      api.companionGetStatus = async () => ({ status: 'ready', protocolVersion: 2, isPaired: true, cameraActive: true, maxZoom: 10 });
+      api.companionStartCamera = async () => ({ success: true, state: 'starting_camera', streamUrl: `http://127.0.0.1:${port}/api/v1/stream?token=t` });
+      api.companionStopCamera = async () => ({ success: true });
+      api.companionRequestPairing = async () => ({
         success: true,
         challengeId: 'chal_test_123',
         pin: '123456',
@@ -650,7 +703,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
         sizeBytes: 2500000
       });
       (window as any).androscrnApi.companionDisconnect = async () => ({ success: true });
-    });
+    }, framePort);
 
     // 1. Verify Mode Switcher buttons
     const modeScrcpyBtn = await page.waitForSelector('#mode-scrcpy', { timeout: 2000 });
@@ -688,6 +741,9 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     // 6. Verify In-App Live Viewport Feed
     const livePreview = await page.waitForSelector('#companion-live-preview', { timeout: 2000 });
     recordTest('Live In-App Companion Viewport img feed active', livePreview !== null);
+    await page.waitForFunction(() => /streaming/i.test(document.body.innerText), null, { timeout: 3000 }).catch(() => null);
+    const streamingBadge = await page.evaluate(() => /streaming/i.test(document.body.innerText));
+    recordTest('"Streaming" is shown only after the preview decoded a frame', streamingBadge);
 
     // 7. Verify Still Snapshot Shutter Button
     const snapshotBtn = await page.waitForSelector('#btn-companion-snapshot', { timeout: 2000 });
@@ -724,6 +780,7 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     await page.click('#mode-scrcpy');
     await page.waitForTimeout(300);
 
+    frameServer.close();
     const isScrcpyActive = await page.$eval('#mode-scrcpy', el => el.getAttribute('aria-checked') === 'true');
     recordTest('Scrcpy Direct3D11 mode restored with aria-checked="true"', isScrcpyActive);
 
@@ -885,15 +942,19 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     recordTest('Repeated refreshes of an unchanged device do not re-request or repeat guidance', callsAfter === callsBefore);
     recordTest('Guidance stays expanded and is not duplicated across refreshes', (await page.locator('[data-testid="connection-help"]').count()) === 1);
 
-    // Retry action refreshes both device list and help
-    await page.click('button[aria-label="Retry device connection check"]');
-    await page.waitForTimeout(400);
-    const callsAfterRetry = await page.evaluate(() => (window as any).__helpCalls);
-    recordTest('Retry re-checks the device and its guidance', callsAfterRetry > callsAfter);
+    // A working phone only gets tips: there is no connection problem to retry
+    recordTest('Tips for a ready phone do not offer Try Again', (await page.locator('button[aria-label="Retry device connection check"]').count()) === 0);
 
     // Unauthorized device: connection guidance only
     await page.selectOption('#global-device-select', unauthDevice.serial);
     await page.waitForTimeout(400);
+
+    // Retry action refreshes both device list and help
+    const callsBeforeRetry = await page.evaluate(() => (window as any).__helpCalls);
+    await page.click('button[aria-label="Retry device connection check"]');
+    await page.waitForTimeout(400);
+    const callsAfterRetry = await page.evaluate(() => (window as any).__helpCalls);
+    recordTest('Retry re-checks the device and its guidance', callsAfterRetry > callsBeforeRetry);
     const unauthTitle = await page.textContent('[data-testid="connection-help"]');
     recordTest('Unauthorized device explains the authorization problem', unauthTitle?.includes('not authorized') ?? false);
     await page.click('[data-testid="connection-help"] button[aria-expanded]');
@@ -985,11 +1046,12 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
       (window as any).androscrnApi.discoverWirelessDevices = () => new Promise(() => {});
     });
     await page.click('button:has-text("Discover Wireless Devices")');
-    await page.waitForSelector('button:has-text("Cancel")', { timeout: 2000 });
+    // Scope to the discovery panel: other Cancel buttons (e.g. a running device search in the header) may exist.
+    await page.waitForSelector('[data-testid="wireless-discovery-panel"] button:has-text("Cancel")', { timeout: 2000 });
     recordTest('Running discovery shows a Cancel button and Searching state', /Searching/.test((await page.textContent('[data-testid="wireless-discovery-panel"]')) ?? ''));
-    await page.click('button:has-text("Cancel")');
+    await page.click('[data-testid="wireless-discovery-panel"] button:has-text("Cancel")');
     await page.waitForTimeout(300);
-    recordTest('Cancel stops the main-process scan and resets the UI', (await page.evaluate(() => (window as any).__calls.cancel)) === 1 && (await page.locator('button:has-text("Cancel")').count()) === 0);
+    recordTest('Cancel stops the main-process scan and resets the UI', (await page.evaluate(() => (window as any).__calls.cancel)) === 1 && (await page.locator('[data-testid="wireless-discovery-panel"] button:has-text("Cancel")').count()) === 0);
 
     // -------------------------------------------------------------
     // Test Scenario 14: Documents & OCR (Phase 11) - mocked main-process API

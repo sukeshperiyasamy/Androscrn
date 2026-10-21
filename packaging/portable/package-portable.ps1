@@ -78,6 +78,13 @@ New-Item -ItemType Directory -Path "$TargetDir\bin" -Force | Out-Null
 New-Item -ItemType Directory -Path "$TargetDir\resources\bin" -Force | Out-Null
 Copy-Item -Path "$Root\bin\scrcpy-win64" -Destination "$TargetDir\bin\scrcpy-win64" -Recurse -Force
 Copy-Item -Path "$Root\bin\scrcpy-win64" -Destination "$TargetDir\resources\bin\scrcpy-win64" -Recurse -Force
+# Android companion APK + metadata (staged by `npm run build:companion`). Optional: Camera Studio companion mode
+# reports "no companion APK is bundled" when it is absent; a stale or mismatched APK is never substituted.
+if (Test-Path "$Root\bin\companion\androscrn-companion.apk") {
+    Copy-Item -Path "$Root\bin\companion" -Destination "$TargetDir\bin\companion" -Recurse -Force
+} else {
+    Write-Host "   (companion APK not staged; run npm run build:companion to include it)" -ForegroundColor Yellow
+}
 
 Write-Host "5. Copying Launchers, PATH Helpers, Licenses & Documentation..." -ForegroundColor Green
 Copy-Item -Path "$Root\LICENSE" -Destination "$TargetDir\LICENSE" -Force

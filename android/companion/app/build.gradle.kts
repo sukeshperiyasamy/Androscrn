@@ -11,8 +11,8 @@ android {
         applicationId = "com.androscrn.companion"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0-alpha.1"
+        versionCode = 4
+        versionName = "1.0.0-alpha.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -54,11 +54,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // JSON serialization
+    // JSON (also usable from JVM unit tests, unlike android's org.json stubs)
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // Embedded HTTP Server for localhost ADB port-forwarding
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     testImplementation("junit:junit:4.13.2")
 }
