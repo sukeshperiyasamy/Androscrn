@@ -377,6 +377,50 @@ export class ScrcpyManager extends EventEmitter {
   }
 
   /**
+   * Sends the PC clipboard to the phone through scrcpy's own shortcuts (scrcpy has no other way to push it).
+   * - Automatic sync on: Ctrl+V. scrcpy copies the PC clipboard to the phone and then forwards Ctrl+V (as a hardware
+   *   keyboard press in UHID mode), so the text is pasted exactly once.
+   * - Automatic sync off: MOD+v (Alt+v). scrcpy copies the clipboard to the phone and tries to inject a PASTE key,
+   *   which some phones (Xiaomi without "USB debugging (Security settings)") block. The text is then on the phone's
+   *   clipboard but not pasted, and the caller says so instead of claiming a paste.
+   * The mirroring window is brought to the front first. The clipboard text itself is never read or logged here.
+   */
+  public sendClipboardToDevice(): Promise<{ success: boolean; pasted: boolean; message: string }> {
+    if (!this.currentProcess || this.currentProcess.killed || this.currentProcess.exitCode !== null) {
+      return Promise.resolve({ success: false, pasted: false, message: 'Start mirroring first.' });
+    }
+    const autosync = this.currentOptions?.noClipboardAutosync !== true;
+    const pid = this.currentProcess.pid || 0;
+    const windowTitle = (this.currentOptions?.windowTitle || 'AndroScrn Display').replace(/'/g, "''");
+    const keys = autosync ? '^v' : '%v';
+    return new Promise((resolve) => {
+      const psScript = `
+        $wshell = New-Object -ComObject Wscript.Shell
+        $ok = $false
+        if (${pid}) { $ok = $wshell.AppActivate(${pid}) }
+        if (-not $ok) { $ok = $wshell.AppActivate('${windowTitle}') }
+        if (-not $ok) { exit 1 }
+        Start-Sleep -Milliseconds 250
+        $wshell.SendKeys('${keys}')
+        exit 0
+      `;
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { windowsHide: true, timeout: 5000 }, (error) => {
+        if (error) {
+          resolve({ success: false, pasted: false, message: 'Could not reach the phone window. Make sure it is not minimized and try again.' });
+        } else if (autosync) {
+          resolve({ success: true, pasted: true, message: 'Sent your PC clipboard to the phone and pasted it into the focused field.' });
+        } else {
+          resolve({
+            success: true,
+            pasted: false,
+            message: "Copied to the phone's clipboard. Tap a text field and paste (turn on automatic clipboard sync to paste in one step)."
+          });
+        }
+      });
+    });
+  }
+
+  /**
    * Stops active screen mirroring session cleanly
    */
   public stopMirroring(): boolean {

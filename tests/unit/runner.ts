@@ -24,6 +24,8 @@ import { runSettingsStoreUnitTests } from './settings-store.test';
 import { runCompanionManagerUnitTests, runCompanionClientDefaultsTests } from './companion-manager.test';
 import { runDeviceCacheUnitTests } from './device-cache.test';
 import { runCameraStartupUnitTests } from './camera-startup.test';
+import { runSessionRecoveryUnitTests } from './session-recovery.test';
+import { runDeviceProfileUnitTests } from './device-profiles.test';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -344,6 +346,8 @@ OFFLINE_DEV_1          offline transport_id:4
   await runCompanionClientDefaultsTests(assert);
   await runDeviceCacheUnitTests(assert, assertEqual);
   await runCameraStartupUnitTests(assert);
+  await runSessionRecoveryUnitTests(assert, assertEqual);
+  await runDeviceProfileUnitTests(assert, assertEqual);
 
   assertRealUserPathUnchanged(realPathBefore, assert, skip);
   assertNoBrowserLaunches(assert);

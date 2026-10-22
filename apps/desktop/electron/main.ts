@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, clipboard } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { DeviceManager } from '../../../dist/modules/device_manager';
@@ -17,6 +17,7 @@ import { parseSessionRequest, parseProcessRequest, parseTextRequest, parseCaptur
 import { generateSvgOverlay, TimelapseScheduler, createSnapshotMetadata } from '../../../dist/modules/lab_inspection';
 import { ConnectionRetryManager } from '../../../dist/modules/connection_retry';
 import { SettingsStore } from '../../../dist/modules/settings_store';
+import { SessionRecoveryCoordinator } from '../../../dist/modules/session_recovery';
 
 let mainWindow: BrowserWindow | null = null;
 const timelapseScheduler = new TimelapseScheduler();
@@ -163,6 +164,29 @@ connectionRetryManager.on('statusChanged', (status) => {
   mainWindow?.webContents.send('connection-retry-status-changed', status);
 });
 
+// Mirroring session recovery after a disconnect. Restores go through the same camera coordination as a user start,
+// except that a running Camera Studio session is never stopped by an automatic restore.
+const sessionRecovery = new SessionRecoveryCoordinator(
+  {
+    startMirroring: (options) => {
+      const cam = cameraManager.getStatus();
+      if (cam.running && (!options.serial || cam.targetSerial === options.serial)) {
+        return { success: false, message: 'Camera Studio is using the phone' };
+      }
+      const res = scrcpyManager.startMirroring(options);
+      if (res.success) appLog('INFO', 'Mirroring session restored', { serial: SecurityValidator.redactSerial(options.serial || '') });
+      return res;
+    },
+    getStatus: () => scrcpyManager.getStatus()
+  },
+  connectionRetryManager
+);
+sessionRecovery.on('statusChanged', (status) => {
+  appLog('INFO', `Session recovery: ${status.state}`, { serial: SecurityValidator.redactSerial(status.serial || '') });
+  mainWindow?.webContents.send('session-recovery-changed', status);
+});
+let mirrorStopRequested = false;
+
 connectionRetryManager.on('deviceReady', (devices) => {
   mainWindow?.webContents.send('connection-retry-device-ready', devices);
 });
@@ -248,6 +272,7 @@ function createWindow() {
     try {
       scrcpyManager.stopMirroring();
       cameraManager.stopCamera();
+      sessionRecovery.dispose();
       connectionRetryManager.dispose();
     } catch {
       // ignore on close
@@ -312,15 +337,20 @@ ipcMain.handle('set-alias', (_, payload) => {
 });
 
 ipcMain.handle('get-settings', () => {
-  const { qualityPreset, inputMode } = settingsStore.get();
-  return { qualityPreset, inputMode };
+  const { qualityPreset, inputMode, clipboardSync } = settingsStore.get();
+  return { qualityPreset, inputMode, clipboardSync };
 });
 
 ipcMain.handle('update-settings', (_, patch) => {
   try {
-    const res = settingsStore.update({ qualityPreset: patch?.qualityPreset, inputMode: patch?.inputMode });
+    const update: Record<string, unknown> = {};
+    for (const key of ['qualityPreset', 'inputMode', 'clipboardSync']) {
+      if (patch && key in patch) update[key] = patch[key];
+    }
+    const res = settingsStore.update(update);
     if (!res.success) appLog('WARN', 'Settings update rejected', res.message);
-    return { success: res.success, message: res.message, settings: { qualityPreset: res.settings.qualityPreset, inputMode: res.settings.inputMode } };
+    const { qualityPreset, inputMode, clipboardSync } = res.settings;
+    return { success: res.success, message: res.message, settings: { qualityPreset, inputMode, clipboardSync } };
   } catch (err: any) {
     appLog('ERROR', 'Error updating settings', err?.message || err);
     return { success: false, message: err?.message || 'Failed to update settings' };
@@ -339,7 +369,12 @@ ipcMain.handle('start-mirroring', (_, options) => {
       appLog('INFO', `Stopping conflicting Camera Studio session on ${targetSerial || 'default'} before starting mirroring`);
       cameraManager.stopCamera();
     }
-    return scrcpyManager.startMirroring(options || {});
+    const res = scrcpyManager.startMirroring(options || {});
+    if (res.success) {
+      mirrorStopRequested = false;
+      sessionRecovery.sessionStarted(options || {});
+    }
+    return res;
   } catch (err: any) {
     appLog('ERROR', 'Error starting mirroring', err?.message || err);
     return { success: false, message: err?.message || 'Failed to start mirroring process' };
@@ -348,11 +383,79 @@ ipcMain.handle('start-mirroring', (_, options) => {
 
 ipcMain.handle('stop-mirroring', () => {
   try {
+    // A user stop is final: it cancels any recovery and is never restored.
+    mirrorStopRequested = true;
+    sessionRecovery.userStopped();
     return scrcpyManager.stopMirroring();
   } catch (err: any) {
     appLog('ERROR', 'Error stopping mirroring', err?.message || err);
     return { success: false, message: err?.message || 'Failed to stop mirroring' };
   }
+});
+
+ipcMain.handle('get-session-recovery-status', () => sessionRecovery.getStatus());
+
+// Device profiles: validated and stored by SettingsStore; the renderer only ever receives sanitized profiles.
+ipcMain.handle('profiles-list', () => settingsStore.listProfiles());
+
+ipcMain.handle('profile-save', (_, payload) => {
+  const res = settingsStore.saveProfile({
+    id: payload?.id,
+    name: payload?.name,
+    deviceSerial: payload?.deviceSerial,
+    deviceLabel: payload?.deviceLabel,
+    settings: payload?.settings
+  });
+  appLog(res.success ? 'INFO' : 'WARN', res.success ? 'Device profile saved' : 'Device profile rejected', res.success ? undefined : res.message);
+  return res;
+});
+
+ipcMain.handle('profile-delete', (_, payload) => {
+  const res = settingsStore.deleteProfile(payload?.id);
+  if (res.success) appLog('INFO', 'Device profile deleted');
+  return res;
+});
+
+// Clipboard: paste the PC clipboard on the phone through scrcpy (MOD+v). The text itself is never logged.
+const MAX_CLIPBOARD_CHARS = 100_000;
+ipcMain.handle('mirror-paste-clipboard', async (_, payload) => {
+  try {
+    const serial = payload?.serial;
+    const status = scrcpyManager.getStatus();
+    if (!status.running) return { success: false, message: 'Start mirroring first.' };
+    if (typeof serial !== 'string' || (status as any).targetSerial !== serial) {
+      return { success: false, message: 'Mirroring is running for a different phone. Select that phone first.' };
+    }
+    let text = '';
+    try {
+      text = clipboard.readText();
+    } catch {
+      return { success: false, message: 'Could not read the PC clipboard.' };
+    }
+    if (!text) return { success: false, message: 'Your PC clipboard has no text to send.' };
+    if (text.length > MAX_CLIPBOARD_CHARS) {
+      return { success: false, message: `The clipboard text is too long (${text.length.toLocaleString()} characters; up to ${MAX_CLIPBOARD_CHARS.toLocaleString()}).` };
+    }
+    const res = await scrcpyManager.sendClipboardToDevice();
+    appLog(res.success ? 'INFO' : 'WARN', 'Clipboard sent to phone', { chars: text.length, pasted: res.pasted, success: res.success });
+    return res;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Clipboard paste failed' };
+  }
+});
+
+ipcMain.handle('cancel-session-recovery', () => {
+  sessionRecovery.cancel();
+  return sessionRecovery.getStatus();
+});
+
+ipcMain.handle('resume-session', (_, payload) => {
+  const serial = payload?.serial;
+  if (typeof serial !== 'string' || !SecurityValidator.isValidSerial(serial)) {
+    return { success: false, message: 'Select a device first.' };
+  }
+  mirrorStopRequested = false;
+  return sessionRecovery.resume(serial);
 });
 
 ipcMain.handle('get-mirror-status', () => {
@@ -388,23 +491,24 @@ scrcpyManager.on('inputBlocked', (data) => {
 });
 
 scrcpyManager.on('stopped', (data) => {
-  appLog('INFO', `Screen mirroring stopped [Code: ${data.code}] for ${SecurityValidator.redactSerial(data.serial)}`);
+  // scrcpy exit codes: 0 = window closed / normal stop, 1 = failure, 2 = device disconnected.
+  const reason = mirrorStopRequested ? 'user_stopped' : data.code === 0 ? 'window_closed' : data.code === 2 ? 'disconnected' : 'failed';
+  mirrorStopRequested = false;
+  appLog('INFO', `Screen mirroring stopped [Code: ${data.code}, Reason: ${reason}] for ${SecurityValidator.redactSerial(data.serial)}`);
+  if (reason !== 'user_stopped') sessionRecovery.sessionExited(data.code, data.serial);
   mainWindow?.webContents.send('mirror-status-changed', {
     running: false,
     code: data.code,
     serial: data.serial,
-    lastError: scrcpyManager.getStatus().lastError
+    reason,
+    // Only a real failure carries an error line; a normal stop's last stderr line is not an error.
+    lastError: reason === 'failed' ? scrcpyManager.getStatus().lastError : undefined
   });
 });
 
 scrcpyManager.on('disconnected', (data) => {
+  // The 'stopped' event (code 2) already reports this to the UI and starts recovery; log only.
   appLog('WARN', `Screen mirroring device disconnected: ${SecurityValidator.redactSerial(data.serial)}`);
-  mainWindow?.webContents.send('mirror-status-changed', {
-    running: false,
-    code: 2,
-    serial: data.serial,
-    disconnected: true
-  });
 });
 
 // Camera Studio Event Listeners & IPC Handlers

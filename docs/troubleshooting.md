@@ -281,6 +281,18 @@ Serial numbers and device IPs are redacted from diagnostic reports by default, a
 Android's `input text` accepts only printable ASCII (32-126). Use ASCII text, or copy the text to the phone's clipboard or
 use an input method for accented letters and emoji.
 
+### Mirroring did not come back after I reconnected the phone
+
+Check the banner at the top of the window. "Couldn't reconnect" means the phone did not appear within a minute: reconnect it (try another cable or port), then use **Resume session**. If the banner says the device is unauthorized, unlock the phone and allow USB debugging. If recovery stopped because the phone disconnected several times in two minutes, fix the cable first. Use **Try Again** to open the live ADB diagnostics window.
+
+### "Send clipboard to phone" copied the text but nothing pasted
+
+Your phone blocked the simulated paste. Turn on **Sync clipboard automatically** and restart mirroring, or tap a text field on the phone and paste manually. On Xiaomi/Redmi/POCO, enable "USB debugging (Security settings)" or use hardware keyboard & mouse (UHID) mode.
+
+### A saved profile cannot be applied
+
+Select a connected phone first. A profile for another phone asks for confirmation. A profile stored by an older version may be missing some settings; those are left as they are.
+
 ### My preferences were reset after a restart
 
 AndroScrn saves device aliases, the mirroring quality preset and the input mode in `settings.json` in the app's user

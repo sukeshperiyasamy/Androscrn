@@ -315,4 +315,18 @@ export async function runConnectionRetryUnitTests(assert: AssertFn, assertEqual:
     assert(concurrent <= 5, `Scenario 11: Slow ADB polls do not stack (calls in 500ms: ${concurrent})`);
     manager.dispose();
   }
+
+  // Scenario 12: targeted search (session recovery) ignores other authorized phones
+  {
+    const mockDm = new MockDeviceManager();
+    mockDm.pollResponses = [[createAuthorizedDevice('OTHER-PHONE')], [createAuthorizedDevice('OTHER-PHONE'), createAuthorizedDevice('TARGET')]];
+    const manager = new ConnectionRetryManager(mockDm, 'mock/adb.exe');
+    const ready: string[][] = [];
+    manager.on('deviceReady', (devs: AndroidDevice[]) => ready.push(devs.map(d => d.serial)));
+    await manager.startRetry({ timeoutSeconds: 5, intervalSeconds: 0.05, openConsole: false, targetSerial: 'TARGET' });
+    assert(ready.length === 0 && manager.getStatus().active, 'Scenario 12: Another authorized phone does not end a targeted search');
+    await new Promise(r => setTimeout(r, 200));
+    assertEqual(JSON.stringify(ready[0]), JSON.stringify(['TARGET']), 'Scenario 12: Targeted search reports only the target phone');
+    manager.dispose();
+  }
 }

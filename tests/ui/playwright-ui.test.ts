@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from 'playwright';
 import { buildDeviceHelp } from '../../modules/oem_guidance';
 import path from 'path';
+import { runRemoteControlScenario } from './scenario-remote-control';
 
 interface TestResult {
   name: string;
@@ -1262,6 +1263,8 @@ Sensitive Data Redaction: [REDACTED_EMAIL], [REDACTED_TOKEN]`;
     await page.setViewportSize({ width: 1280, height: 800 });
     const loadOutcome = await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as any)?.type);
     recordTest('The renderer did not reload itself during the session (single navigation)', loadOutcome === 'navigate');
+
+    await runRemoteControlScenario(page, recordTest);
 
   } catch (err: any) {
     console.error('Playwright Test Exception:', err);

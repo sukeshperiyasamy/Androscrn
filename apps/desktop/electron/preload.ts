@@ -17,7 +17,11 @@ contextBridge.exposeInMainWorld('androscrnApi', {
   },
   setAlias: (serial: string, alias: string) => ipcRenderer.invoke('set-alias', { serial, alias }),
   getSettings: () => ipcRenderer.invoke('get-settings'),
-  updateSettings: (patch: { qualityPreset?: string; inputMode?: string }) => ipcRenderer.invoke('update-settings', patch),
+  updateSettings: (patch: { qualityPreset?: string; inputMode?: string; clipboardSync?: boolean }) => ipcRenderer.invoke('update-settings', patch),
+  listProfiles: () => ipcRenderer.invoke('profiles-list'),
+  saveProfile: (profile: { id?: string; name: string; deviceSerial?: string; deviceLabel?: string; settings: Record<string, unknown> }) => ipcRenderer.invoke('profile-save', profile),
+  deleteProfile: (id: string) => ipcRenderer.invoke('profile-delete', { id }),
+  pasteClipboardToDevice: (serial: string) => ipcRenderer.invoke('mirror-paste-clipboard', { serial }),
   startMirroring: (options: any) => ipcRenderer.invoke('start-mirroring', options),
   stopMirroring: () => ipcRenderer.invoke('stop-mirroring'),
   getMirrorStatus: () => ipcRenderer.invoke('get-mirror-status'),
@@ -26,6 +30,14 @@ contextBridge.exposeInMainWorld('androscrnApi', {
     const handler = (_: any, d: any) => cb(d);
     ipcRenderer.on('mirror-status-changed', handler);
     return () => { ipcRenderer.removeListener('mirror-status-changed', handler); };
+  },
+  getSessionRecoveryStatus: () => ipcRenderer.invoke('get-session-recovery-status'),
+  cancelSessionRecovery: () => ipcRenderer.invoke('cancel-session-recovery'),
+  resumeSession: (serial: string) => ipcRenderer.invoke('resume-session', { serial }),
+  onSessionRecoveryChanged: (cb: (data: any) => void) => {
+    const handler = (_: any, d: any) => cb(d);
+    ipcRenderer.on('session-recovery-changed', handler);
+    return () => { ipcRenderer.removeListener('session-recovery-changed', handler); };
   },
   handoffWifi: (serial: string) => ipcRenderer.invoke('handoff-wifi', { serial }),
   connectWireless: (ip: string, port: number) => ipcRenderer.invoke('connect-wireless', { ip, port }),

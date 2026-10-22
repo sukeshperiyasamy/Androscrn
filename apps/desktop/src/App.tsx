@@ -48,7 +48,8 @@ import {
   Check,
   X,
   PanelLeftOpen,
-  PanelLeftClose
+  PanelLeftClose,
+  Clipboard
 } from 'lucide-react';
 
 interface CameraDeviceInfo {
@@ -158,6 +159,41 @@ function sameDeviceList(a: AndroidDevice[], b: AndroidDevice[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((d, i) => JSON.stringify(d) === JSON.stringify(b[i]));
 }
+
+// --- Device profiles (renderer side) ---------------------------------------------------------------------------
+interface ProfileSettings {
+  qualityPreset: 'ultra' | 'high_performance' | 'balanced' | 'battery_saver';
+  inputMode: 'auto' | 'sdk' | 'uhid';
+  turnScreenOff: boolean;
+  stayAwake: boolean;
+  alwaysOnTop: boolean;
+  captureOrientation: '0' | '90' | '180' | '270';
+  recordSession: boolean;
+  playAudio: boolean;
+  clipboardSync: boolean;
+}
+interface DeviceProfile {
+  id: string;
+  name: string;
+  deviceSerial?: string;
+  deviceLabel?: string;
+  settings: Partial<ProfileSettings>;
+  createdAt: number;
+  updatedAt: number;
+}
+const PROFILE_LABELS: Record<keyof ProfileSettings, string> = {
+  qualityPreset: 'Quality',
+  inputMode: 'Input mode',
+  turnScreenOff: 'Phone screen off',
+  stayAwake: 'Stay awake',
+  alwaysOnTop: 'Always on top',
+  captureOrientation: 'Orientation',
+  recordSession: 'Record video',
+  playAudio: 'Phone audio',
+  clipboardSync: 'Clipboard sync'
+};
+const PROFILE_KEYS = Object.keys(PROFILE_LABELS) as Array<keyof ProfileSettings>;
+const formatProfileValue = (v: unknown) => (typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v).replace('_', ' '));
 
 type TabId = 'mirror' | 'camera' | 'wireless' | 'media' | 'documents' | 'diagnostics' | 'workflow' | 'ai' | 'about';
 
@@ -290,6 +326,23 @@ export default function App() {
   const [cameraAutoReconnect, setCameraAutoReconnect] = useState<boolean>(true);
   const [cameraRecentStderr, setCameraRecentStderr] = useState<string[]>([]);
   const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+  // Mirroring recovery after a disconnect (state owned by the main process)
+  // Clipboard sync (opt-in) and the result of the last "Send clipboard to phone"
+  const [clipboardSync, setClipboardSync] = useState(false);
+  const [clipboardStatus, setClipboardStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [clipboardBusy, setClipboardBusy] = useState(false);
+  // Device profiles
+  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState('');
+  const [profileDialog, setProfileDialog] = useState<null | { mode: 'create' | 'edit'; id?: string }>(null);
+  const [profileName, setProfileName] = useState('');
+  const [profileForDevice, setProfileForDevice] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileConfirm, setProfileConfirm] = useState<null | { profile: DeviceProfile; changes: Partial<ProfileSettings>; skipped: string[]; otherDevice: boolean; restart: boolean }>(null);
+  const [profileDelete, setProfileDelete] = useState<DeviceProfile | null>(null);
+  const [recovery, setRecovery] = useState<{ state: string; serial: string | null; message: string; canResume: boolean } | null>(null);
+  // The phone the user chose; kept while it is briefly gone so it is re-selected (not another phone) when it returns.
+  const preferredSerialRef = React.useRef('');
   // A camera without a high-speed mode cannot keep the (now disabled) high-speed option switched on.
   useEffect(() => {
     if (cameraHighSpeed && cameraCaps && !pickHighSpeedConfig(cameraCaps.cameras.find(c => c.id === selectedCameraId), selectedResolution)) {
@@ -477,6 +530,7 @@ export default function App() {
       .then((s: any) => {
         if (s?.qualityPreset) setQualityPreset(s.qualityPreset);
         if (s?.inputMode) setInputMode(s.inputMode);
+        if (typeof s?.clipboardSync === 'boolean') setClipboardSync(s.clipboardSync);
       })
       .catch(() => {})
       .finally(() => setSettingsLoaded(true));
@@ -484,8 +538,52 @@ export default function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !api?.updateSettings) return;
-    api.updateSettings({ qualityPreset, inputMode }).catch(() => {});
-  }, [settingsLoaded, qualityPreset, inputMode]);
+    api.updateSettings({ qualityPreset, inputMode, clipboardSync }).catch(() => {});
+  }, [settingsLoaded, qualityPreset, inputMode, clipboardSync]);
+
+  const refreshProfiles = async () => {
+    try {
+      if (api?.listProfiles) setProfiles(await api.listProfiles());
+    } catch {}
+  };
+  // Re-read when returning to Screen Mirroring so the list always matches what is stored.
+  useEffect(() => {
+    if (activeTab === 'mirror') refreshProfiles();
+  }, [activeTab]);
+
+  /** The session settings as they are right now (the content of a saved profile). */
+  const currentProfileSettings = (): ProfileSettings => ({
+    qualityPreset,
+    inputMode,
+    turnScreenOff,
+    stayAwake,
+    alwaysOnTop,
+    captureOrientation,
+    recordSession: recordMirrorSession,
+    playAudio: !noAudio,
+    clipboardSync
+  });
+
+  /** Options for api.startMirroring. Clipboard sync is opt-in: scrcpy's automatic sync is turned off unless enabled. */
+  const buildMirrorOptions = (serial: string, mode: 'auto' | 'sdk' | 'uhid' = inputMode) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return {
+      serial,
+      preset: qualityPreset,
+      turnScreenOff,
+      stayAwake,
+      fullscreen,
+      showTouches,
+      noAudio,
+      windowBorderless,
+      alwaysOnTop,
+      captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
+      keyboardMode: mode === 'uhid' ? 'uhid' : mode === 'sdk' ? 'sdk' : undefined,
+      mouseMode: mode === 'uhid' ? 'uhid' : mode === 'sdk' ? 'sdk' : undefined,
+      noClipboardAutosync: !clipboardSync,
+      recordPath: recordMirrorSession ? `recording_${serial.replace(/[:.]/g, '_')}_${timestamp}.mp4` : undefined
+    };
+  };
 
   // Connection help follows the selected device. Only the (serial, state) pair re-triggers a lookup,
   // so polling the same device does not rebuild or re-announce identical guidance.
@@ -522,12 +620,15 @@ export default function App() {
         
         // Auto-select first device or maintain valid user selection using functional updater
         setSelectedSerial(current => {
+          if (current) preferredSerialRef.current = current;
           if (devList.length === 0) {
             setIsMirroring(false);
             setIsCameraRunning(false);
             return '';
           }
           if (current && devList.some(d => d.serial === current)) return current;
+          const preferred = preferredSerialRef.current;
+          if (preferred && devList.some(d => d.serial === preferred)) return preferred;
           setIsMirroring(false);
           setIsCameraRunning(false);
           return devList[0].serial;
@@ -716,20 +817,24 @@ export default function App() {
         if (data.inputControlMessage) {
           setInputControlMessage(data.inputControlMessage);
         }
-        if (!data.running) {
-          if (data.disconnected) {
+        if (!data.running && data.reason) {
+          // 'disconnected' is shown by the recovery banner; user stops and a closed window are not errors.
+          if (data.reason === 'failed') {
             setAlertBanner({
               type: 'error',
-              message: `Device disconnected! Screen mirroring terminated for ${data.serial || 'device'}.`
-            });
-          } else if (data.lastError) {
-            setAlertBanner({
-              type: 'error',
-              message: `Screen mirroring session closed: ${data.lastError}`
+              message: `Mirroring stopped because of an error${data.lastError ? `: ${data.lastError}` : '.'}`
             });
           }
           refreshDevices();
         }
+      });
+      if (typeof u === 'function') unsubs.push(u);
+    }
+
+    if (api?.onSessionRecoveryChanged) {
+      const u = api.onSessionRecoveryChanged((data: any) => {
+        if (!data) return;
+        setRecovery(data.state === 'idle' ? null : data);
       });
       if (typeof u === 'function') unsubs.push(u);
     }
@@ -1467,24 +1572,7 @@ export default function App() {
       setAlertBanner({ type: 'info', message: `Initializing screen mirroring for ${activeDevice?.model || selectedSerial}...` });
 
       if (api?.startMirroring) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const recordFilename = `recording_${selectedSerial.replace(/[:.]/g, '_')}_${timestamp}.mp4`;
-        
-        const res = await api.startMirroring({
-          serial: selectedSerial,
-          preset: qualityPreset,
-          turnScreenOff,
-          stayAwake,
-          fullscreen,
-          showTouches,
-          noAudio,
-          windowBorderless,
-          alwaysOnTop,
-          captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
-          keyboardMode: inputMode === 'uhid' ? 'uhid' : (inputMode === 'sdk' ? 'sdk' : undefined),
-          mouseMode: inputMode === 'uhid' ? 'uhid' : (inputMode === 'sdk' ? 'sdk' : undefined),
-          recordPath: recordMirrorSession ? recordFilename : undefined
-        });
+        const res = await api.startMirroring(buildMirrorOptions(selectedSerial));
 
         if (res?.success) {
           setIsMirroring(true);
@@ -1512,6 +1600,156 @@ export default function App() {
     refreshDevices();
   };
 
+  // --- Clipboard ---
+  const handleSendClipboard = async () => {
+    if (!api?.pasteClipboardToDevice) return;
+    setClipboardBusy(true);
+    setClipboardStatus(null);
+    try {
+      const res = await api.pasteClipboardToDevice(selectedSerial);
+      setClipboardStatus({ type: res?.success ? 'success' : 'error', message: res?.message || (res?.success ? 'Sent.' : 'Could not send the clipboard.') });
+    } catch (e: any) {
+      setClipboardStatus({ type: 'error', message: e?.message || 'Could not send the clipboard.' });
+    } finally {
+      setClipboardBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (!clipboardStatus) return;
+    const t = setTimeout(() => setClipboardStatus(null), 6000);
+    return () => clearTimeout(t);
+  }, [clipboardStatus]);
+
+  // --- Profiles ---
+  const openProfileDialog = (mode: 'create' | 'edit', profile?: DeviceProfile) => {
+    setProfileError(null);
+    setProfileName(profile?.name ?? '');
+    setProfileForDevice(profile ? !!profile.deviceSerial : false);
+    setProfileDialog({ mode, id: profile?.id });
+  };
+
+  const handleSaveProfile = async () => {
+    if (!api?.saveProfile) return;
+    const editing = profileDialog?.mode === 'edit' ? profiles.find(pr => pr.id === profileDialog.id) : undefined;
+    const res = await api.saveProfile({
+      id: editing?.id,
+      name: profileName,
+      deviceSerial: profileForDevice ? (editing?.deviceSerial && editing.deviceSerial !== selectedSerial ? editing.deviceSerial : selectedSerial) : undefined,
+      deviceLabel: profileForDevice ? (activeDevice?.alias || activeDevice?.model) : undefined,
+      // Editing saves the current settings into the profile; renaming alone keeps them unless the user re-saves.
+      settings: currentProfileSettings()
+    });
+    if (!res?.success) {
+      setProfileError(res?.message || "Couldn't save the profile.");
+      return;
+    }
+    setProfileDialog(null);
+    setActiveProfileId(res.profile.id);
+    await refreshProfiles();
+    setAlertBanner({ type: 'success', message: `Profile "${res.profile.name}" saved.` });
+  };
+
+  const applyProfileSettings = (changes: Partial<ProfileSettings>) => {
+    if (changes.qualityPreset) setQualityPreset(changes.qualityPreset);
+    if (changes.inputMode) setInputMode(changes.inputMode);
+    if (changes.turnScreenOff !== undefined) setTurnScreenOff(changes.turnScreenOff);
+    if (changes.stayAwake !== undefined) setStayAwake(changes.stayAwake);
+    if (changes.alwaysOnTop !== undefined) setAlwaysOnTop(changes.alwaysOnTop);
+    if (changes.captureOrientation) setCaptureOrientation(changes.captureOrientation);
+    if (changes.recordSession !== undefined) setRecordMirrorSession(changes.recordSession);
+    if (changes.playAudio !== undefined) setNoAudio(!changes.playAudio);
+    if (changes.clipboardSync !== undefined) setClipboardSync(changes.clipboardSync);
+  };
+
+  /** Shows what applying a profile would change; applies at once only when nothing needs confirming. */
+  const handleChooseProfile = (id: string) => {
+    setActiveProfileId(id);
+    const profile = profiles.find(pr => pr.id === id);
+    if (!profile) return;
+    if (!selectedSerial) {
+      setAlertBanner({ type: 'error', message: 'Connect and select a phone before applying a profile.' });
+      return;
+    }
+    const current = currentProfileSettings();
+    const changes: Partial<ProfileSettings> = {};
+    const skipped: string[] = [];
+    for (const key of PROFILE_KEYS) {
+      const value = profile.settings[key];
+      if (value === undefined) skipped.push(PROFILE_LABELS[key]);
+      else if (value !== current[key]) (changes as any)[key] = value;
+    }
+    const otherDevice = !!profile.deviceSerial && profile.deviceSerial !== selectedSerial;
+    const restart = isMirroring && Object.keys(changes).length > 0;
+    if (otherDevice || restart || skipped.length > 0) {
+      setProfileConfirm({ profile, changes, skipped, otherDevice, restart });
+      return;
+    }
+    applyProfileSettings(changes);
+    setAlertBanner({ type: 'success', message: `Profile "${profile.name}" applied.` });
+  };
+
+  const handleConfirmProfile = async () => {
+    if (!profileConfirm) return;
+    const { profile, changes, restart } = profileConfirm;
+    setProfileConfirm(null);
+    applyProfileSettings(changes);
+    if (restart && api?.stopMirroring && api?.startMirroring) {
+      // Explicit, user-confirmed restart so the new settings take effect; mirrors what an input-mode change does.
+      setAlertBanner({ type: 'info', message: 'Restarting mirroring with the profile…' });
+      await api.stopMirroring();
+      setTimeout(async () => {
+        const merged = { ...currentProfileSettings(), ...changes };
+        const base = buildMirrorOptions(selectedSerial, merged.inputMode);
+        const res = await api.startMirroring({
+          ...base,
+          preset: merged.qualityPreset,
+          turnScreenOff: merged.turnScreenOff,
+          stayAwake: merged.stayAwake,
+          alwaysOnTop: merged.alwaysOnTop,
+          noAudio: !merged.playAudio,
+          captureOrientation: merged.captureOrientation !== '0' ? merged.captureOrientation : undefined,
+          noClipboardAutosync: !merged.clipboardSync
+        });
+        setAlertBanner(
+          res?.success
+            ? { type: 'success', message: `Profile "${profile.name}" applied and mirroring restarted.` }
+            : { type: 'error', message: res?.message || "Profile applied, but mirroring couldn't restart." }
+        );
+      }, 600);
+      return;
+    }
+    setAlertBanner({ type: 'success', message: `Profile "${profile.name}" applied.` });
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!profileDelete || !api?.deleteProfile) return;
+    const res = await api.deleteProfile(profileDelete.id);
+    setProfileDelete(null);
+    if (res?.success) {
+      if (activeProfileId === profileDelete.id) setActiveProfileId('');
+      await refreshProfiles();
+    } else {
+      setAlertBanner({ type: 'error', message: res?.message || "Couldn't delete the profile." });
+    }
+  };
+
+  const handleResumeSession = async () => {
+    if (!api?.resumeSession || !selectedSerial) return;
+    const res = await api.resumeSession(selectedSerial);
+    if (!res?.success) setAlertBanner({ type: 'error', message: res?.message || "Couldn't resume the session." });
+  };
+
+  const handleCancelRecovery = async () => {
+    await api?.cancelSessionRecovery?.();
+  };
+
+  // "Connection restored" is shown briefly, then the banner goes away.
+  useEffect(() => {
+    if (recovery?.state !== 'restored') return;
+    const t = setTimeout(() => setRecovery(r => (r?.state === 'restored' ? null : r)), 5000);
+    return () => clearTimeout(t);
+  }, [recovery?.state]);
+
   const handleFocusMirrorWindow = async () => {
     if (api?.focusMirrorWindow) {
       const res = await api.focusMirrorWindow();
@@ -1528,23 +1766,7 @@ export default function App() {
       setAlertBanner({ type: 'info', message: `Switching input control mode to ${newMode === 'uhid' ? 'UHID' : (newMode === 'sdk' ? 'SDK' : 'Auto')}...` });
       await api.stopMirroring();
       setTimeout(async () => {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const recordFilename = `recording_${selectedSerial.replace(/[:.]/g, '_')}_${timestamp}.mp4`;
-        await api?.startMirroring({
-          serial: selectedSerial,
-          preset: qualityPreset,
-          turnScreenOff,
-          stayAwake,
-          fullscreen,
-          showTouches,
-          noAudio,
-          windowBorderless,
-          alwaysOnTop,
-          captureOrientation: captureOrientation !== '0' ? captureOrientation : undefined,
-          keyboardMode: newMode === 'uhid' ? 'uhid' : (newMode === 'sdk' ? 'sdk' : undefined),
-          mouseMode: newMode === 'uhid' ? 'uhid' : (newMode === 'sdk' ? 'sdk' : undefined),
-          recordPath: recordMirrorSession ? recordFilename : undefined
-        });
+        await api?.startMirroring(buildMirrorOptions(selectedSerial, newMode));
         setAlertBanner({
           type: 'success',
           message: newMode === 'uhid'
@@ -2063,6 +2285,85 @@ export default function App() {
         </div>
       )}
 
+      {profileDialog && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
+          <div className="glass-panel bg-white w-full max-w-md p-5 space-y-3 max-h-full overflow-y-auto">
+            <h2 id="profile-dialog-title" className="text-base font-semibold text-[#202936]">
+              {profileDialog.mode === 'edit' ? 'Edit profile' : 'Save as profile'}
+            </h2>
+            <p className="text-xs text-[#667085]">The profile stores the current mirroring settings: quality, input mode, orientation, screen-off, stay awake, always on top, audio, recording and clipboard sync.</p>
+            <label className="block text-xs font-semibold text-[#202936]" htmlFor="profile-name">Name</label>
+            <input
+              id="profile-name"
+              autoFocus
+              value={profileName}
+              maxLength={48}
+              onChange={e => setProfileName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
+              className="w-full bg-white border border-[#D9DEE5] rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[#0F766E]"
+            />
+            <label className="flex items-center gap-2 text-xs text-[#202936] cursor-pointer">
+              <input type="checkbox" className="accent-[#0F766E]" checked={profileForDevice} onChange={e => setProfileForDevice(e.target.checked)} disabled={!selectedSerial} />
+              <span>Only for this phone{activeDevice ? ` (${activeDevice.alias || activeDevice.model})` : ''}</span>
+            </label>
+            {profileError && <div role="alert" className="text-xs text-[#B91C1C] bg-[#FEE2E2] border border-[#B91C1C]/30 rounded-lg px-3 py-2">{profileError}</div>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="glass-button text-xs min-h-[36px]" onClick={() => setProfileDialog(null)}>Cancel</button>
+              <button type="button" className="glass-button glass-button-primary text-xs min-h-[36px]" onClick={handleSaveProfile}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profileConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="profile-confirm-title">
+          <div className="glass-panel bg-white w-full max-w-md p-5 space-y-3 max-h-full overflow-y-auto">
+            <h2 id="profile-confirm-title" className="text-base font-semibold text-[#202936]">Apply "{profileConfirm.profile.name}"?</h2>
+            {profileConfirm.otherDevice && (
+              <p className="text-xs text-[#B45309] bg-[#FEF3C7] border border-[#B45309]/30 rounded-lg px-3 py-2">
+                This profile was made for {profileConfirm.profile.deviceLabel || 'another phone'}. Apply it to the selected phone anyway?
+              </p>
+            )}
+            {Object.keys(profileConfirm.changes).length > 0 ? (
+              <ul className="text-xs text-[#202936] list-disc pl-5 space-y-0.5">
+                {(Object.keys(profileConfirm.changes) as Array<keyof ProfileSettings>).map(k => (
+                  <li key={k}>{PROFILE_LABELS[k]}: {formatProfileValue(profileConfirm.changes[k])}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[#667085]">Nothing changes: these settings are already in use.</p>
+            )}
+            {profileConfirm.skipped.length > 0 && (
+              <p className="text-[11px] text-[#667085]">Not in this profile, so left as they are: {profileConfirm.skipped.join(', ')}.</p>
+            )}
+            {profileConfirm.restart && (
+              <p className="text-xs text-[#202936] bg-[#DBEAFE] border border-[#1D4ED8]/30 rounded-lg px-3 py-2">
+                Mirroring is running. It will restart briefly so the new settings take effect.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="glass-button text-xs min-h-[36px]" onClick={() => setProfileConfirm(null)}>Cancel</button>
+              <button type="button" className="glass-button glass-button-primary text-xs min-h-[36px]" onClick={handleConfirmProfile}>
+                {profileConfirm.restart ? 'Apply and restart' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profileDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" role="alertdialog" aria-modal="true" aria-labelledby="profile-delete-title">
+          <div className="glass-panel bg-white w-full max-w-sm p-5 space-y-3">
+            <h2 id="profile-delete-title" className="text-base font-semibold text-[#202936]">Delete "{profileDelete.name}"?</h2>
+            <p className="text-xs text-[#667085]">This removes the saved profile. Your current settings are not changed.</p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="glass-button text-xs min-h-[36px]" onClick={() => setProfileDelete(null)}>Cancel</button>
+              <button type="button" className="glass-button glass-button-danger text-xs min-h-[36px]" onClick={handleDeleteProfile}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Layout Container */}
       <div className="flex-1 min-h-0 flex gap-3 p-3 overflow-hidden">
         {/* Sidebar navigation: full labels on wide windows, an icon rail on narrow ones (or when the user collapses it). */}
@@ -2105,6 +2406,74 @@ export default function App() {
 
         {/* Content View Area */}
         <main id="main-content" className="relative flex-1 min-w-0 flex flex-col gap-4 overflow-y-auto overflow-x-hidden pr-1" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+          {recovery && (
+            <div
+              className={`glass-panel px-4 py-3 flex flex-wrap items-center gap-3 border ${
+                recovery.state === 'failed' || recovery.state === 'cancelled'
+                  ? 'border-[#B45309]/40 bg-[#FEF3C7]'
+                  : recovery.state === 'restored'
+                  ? 'border-[#15803D]/30 bg-[#DCFCE7]'
+                  : 'border-[#1D4ED8]/30 bg-[#DBEAFE]'
+              }`}
+              role="status"
+              aria-live="polite"
+              data-testid="session-recovery"
+            >
+              {['disconnected', 'reconnecting', 'unauthorized', 'restoring'].includes(recovery.state) ? (
+                <RefreshCw className="w-4 h-4 text-[#1D4ED8] animate-spin shrink-0" aria-hidden="true" />
+              ) : recovery.state === 'restored' ? (
+                <CheckCircle2 className="w-4 h-4 text-[#15803D] shrink-0" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-[#B45309] shrink-0" aria-hidden="true" />
+              )}
+              <div className="flex-1 min-w-[200px]">
+                <div className="text-sm font-semibold text-[#202936]">
+                  {recovery.state === 'restored'
+                    ? 'Connection restored'
+                    : recovery.state === 'failed'
+                    ? "Couldn't reconnect"
+                    : recovery.state === 'cancelled'
+                    ? 'Reconnecting stopped'
+                    : recovery.state === 'restoring'
+                    ? 'Restoring session…'
+                    : recovery.state === 'unauthorized'
+                    ? 'Device found'
+                    : 'Device disconnected'}
+                </div>
+                <div className="text-xs text-[#202936] mt-0.5">{recovery.message}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {['disconnected', 'reconnecting', 'unauthorized', 'restoring'].includes(recovery.state) && (
+                  <button type="button" onClick={handleCancelRecovery} className="glass-button text-xs min-h-[36px]">
+                    Cancel
+                  </button>
+                )}
+                {recovery.canResume && !isMirroring && (
+                  <button
+                    type="button"
+                    onClick={handleResumeSession}
+                    disabled={!isDeviceReady}
+                    title={isDeviceReady ? undefined : 'Connect and select the phone first'}
+                    className="glass-button glass-button-primary text-xs min-h-[36px]"
+                  >
+                    <Play className="w-3.5 h-3.5" aria-hidden="true" />
+                    Resume session
+                  </button>
+                )}
+                {!['disconnected', 'reconnecting', 'unauthorized', 'restoring'].includes(recovery.state) && (
+                  <button
+                    type="button"
+                    onClick={() => setRecovery(null)}
+                    className="text-[#667085] hover:text-[#202936] text-base font-bold px-1.5 rounded focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {devices.length === 0 && activeTab !== 'about' && (
             <div className="glass-panel p-5 flex flex-wrap items-center gap-4" data-testid="no-device-state">
               <div className="w-10 h-10 rounded-xl bg-[#F3F6F8] flex items-center justify-center shrink-0" aria-hidden="true">
@@ -2303,6 +2672,48 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Profiles */}
+                <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="profile-bar">
+                  <label htmlFor="profile-select" className="text-xs font-semibold text-[#202936]">Profile</label>
+                  <select
+                    id="profile-select"
+                    value={activeProfileId}
+                    onChange={e => (e.target.value ? handleChooseProfile(e.target.value) : setActiveProfileId(''))}
+                    className="bg-white border border-[#D9DEE5] rounded-lg px-3 py-2 text-xs font-semibold text-[#202936] min-w-[180px] max-w-full focus-visible:ring-2 focus-visible:ring-[#0F766E] cursor-pointer"
+                  >
+                    <option value="">{profiles.length === 0 ? 'No saved profiles' : 'Current settings'}</option>
+                    {profiles.map(pr => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.name}{pr.deviceLabel ? ` · ${pr.deviceLabel}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => openProfileDialog('create')} className="glass-button text-xs min-h-[36px]">
+                    Save as profile…
+                  </button>
+                  {activeProfileId && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openProfileDialog('edit', profiles.find(pr => pr.id === activeProfileId))}
+                        className="glass-button text-xs min-h-[36px]"
+                      >
+                        Edit…
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProfileDelete(profiles.find(pr => pr.id === activeProfileId) || null)}
+                        className="glass-button text-xs min-h-[36px]"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                  {profiles.length === 0 && (
+                    <span className="text-[11px] text-[#667085]">Set up mirroring the way you like, then save it as a profile to reuse it.</span>
+                  )}
+                </div>
+
                 {/* Quality Presets */}
                 <div className="mt-6 pt-5 border-t border-[#D9DEE5]">
                   <div className="text-xs font-bold text-[#667085] uppercase tracking-wider mb-3" id="quality-preset-label">
@@ -2367,6 +2778,22 @@ export default function App() {
                     <div className="text-xs">
                       <div className="font-semibold text-[#202936]">Stay Awake While Plugged</div>
                       <div className="text-[#667085] text-[10px]">Keeps the phone awake while it is charging</div>
+                    </div>
+                  </label>
+
+                  <label htmlFor="toggle-clipboard-sync" className="flex items-center gap-3 p-3 rounded-xl bg-[#F3F6F8] border border-[#D9DEE5] cursor-pointer hover:bg-white transition-all focus-within:ring-2 focus-within:ring-[#0F766E]">
+                    <input
+                      id="toggle-clipboard-sync"
+                      type="checkbox"
+                      checked={clipboardSync}
+                      onChange={e => setClipboardSync(e.target.checked)}
+                      className="accent-[#0F766E] w-4 h-4 rounded cursor-pointer"
+                    />
+                    <div className="text-xs">
+                      <div className="font-semibold text-[#202936]">Sync clipboard automatically</div>
+                      <div className="text-[#667085] text-[10px]">
+                        Shares copied text between PC and phone while mirroring. Applies the next time mirroring starts.
+                      </div>
                     </div>
                   </label>
 
@@ -2488,6 +2915,32 @@ export default function App() {
                     <Camera className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{isCapturing ? 'Capturing...' : 'Quick Screenshot'}</span>
                   </button>
+                </div>
+
+                {/* Clipboard: paste the PC clipboard on the phone (works with or without automatic sync) */}
+                <div className="mt-3 flex flex-wrap items-center gap-3" data-testid="clipboard-controls">
+                  <button
+                    type="button"
+                    onClick={handleSendClipboard}
+                    disabled={!isMirroring || clipboardBusy}
+                    title={isMirroring ? 'Copy text on your PC first, then send it to the phone' : 'Start mirroring to send the clipboard'}
+                    className="glass-button text-xs min-h-[40px]"
+                  >
+                    <Clipboard className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{clipboardBusy ? 'Sending…' : 'Send clipboard to phone'}</span>
+                  </button>
+                  <span className="text-[11px] text-[#667085]">
+                    {!isMirroring
+                      ? 'Available while mirroring.'
+                      : inputMode === 'uhid'
+                      ? 'Pastes into the field you tapped on the phone. In hardware keyboard mode, long text may paste more slowly.'
+                      : 'Pastes into the field you tapped on the phone.'}
+                  </span>
+                  {clipboardStatus && (
+                    <span role="status" className={`text-xs font-medium ${clipboardStatus.type === 'success' ? 'text-[#15803D]' : 'text-[#B91C1C]'}`}>
+                      {clipboardStatus.message}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

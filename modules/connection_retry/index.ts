@@ -35,6 +35,8 @@ export interface ConnectionRetryOptions {
   timeoutSeconds?: number;
   intervalSeconds?: number;
   openConsole?: boolean;
+  /** Wait for this device only; other devices are ignored (used when recovering a specific session). */
+  targetSerial?: string;
 }
 
 /**
@@ -71,6 +73,7 @@ export class ConnectionRetryManager extends EventEmitter {
   private currentSessionDir: string | null = null;
   private state: ConnectionRetryState;
   private pollInFlight = false;
+  private targetSerial: string | null = null;
 
   constructor(deviceManager: DeviceManager, adbPath: string, scriptPath?: string) {
     super();
@@ -194,6 +197,7 @@ export class ConnectionRetryManager extends EventEmitter {
     const timeoutSec = Math.max(1, options?.timeoutSeconds ?? 60);
     const intervalSec = Math.max(0.05, options?.intervalSeconds ?? 2);
     const openConsole = options?.openConsole ?? true;
+    this.targetSerial = typeof options?.targetSerial === 'string' && options.targetSerial ? options.targetSerial : null;
     const adbExe = options?.adbPath ?? this.adbPath;
 
     this.currentSessionId++;
@@ -270,7 +274,8 @@ export class ConnectionRetryManager extends EventEmitter {
     const currentAttempt = this.state.attempt;
 
     try {
-      const devices = await this.deviceManager.getDevicesDetailed();
+      const allDevices = await this.deviceManager.getDevicesDetailed();
+      const devices = this.targetSerial ? allDevices.filter((d) => d.serial === this.targetSerial) : allDevices;
 
       // Guard against stale async resolution
       if (this.currentSessionId !== sessionId || !this.state.active) {
